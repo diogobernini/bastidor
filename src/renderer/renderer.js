@@ -1811,6 +1811,11 @@ function drawDesignInto(canvas, design, cssW, cssH, margin, opts = {}) {
   c.stroke();
 }
 
+// Teto do cache de peek (state.drives.cache): usado tanto pela gestão de
+// pendrive quanto pela grade/hover/filtros da biblioteca, sem limite cresceria
+// pelo tamanho do catálogo inteiro numa sessão longa (issue #28, item 3).
+const DRIVE_PEEK_CACHE_CAP = 2000;
+
 function driveCacheKey(item) {
   return `${item.path}::${item.mtime}`;
 }
@@ -1825,7 +1830,7 @@ function peekDriveDesign(item) {
     .peekDesign(item.path)
     .then((res) => {
       const entry = res && res.ok ? { ok: true, design: res.design } : { ok: false, error: res && res.error };
-      state.drives.cache.set(key, entry);
+      state.drives.cache.set(key, entry); // já existe (chave inserida abaixo): só atualiza o valor, não cresce
       return entry;
     })
     .catch((err) => {
@@ -1833,7 +1838,7 @@ function peekDriveDesign(item) {
       state.drives.cache.set(key, entry);
       return entry;
     });
-  state.drives.cache.set(key, pending);
+  LruCap.setWithCap(state.drives.cache, key, pending, DRIVE_PEEK_CACHE_CAP);
   return pending;
 }
 
@@ -2171,6 +2176,10 @@ async function loadOrBuildLibraryThumb(item) {
 // virtualizada é síncrono (sem o pisca de esperar decode/IPC a cada scroll).
 const libThumbImages = new Map();
 const LIB_THUMB_IMG_CAP = 4000;
+// Teto do cache de promessas de miniatura (state.library.thumbCache) —
+// issue #28, item 3. libThumbImages (acima) já usava o mesmo mecanismo de
+// teto manualmente; ambos agora passam por LruCap.setWithCap (src/core/lru.js).
+const LIB_THUMB_CACHE_CAP = 6000;
 
 function paintThumbFromImg(canvasEl, img) {
   const dpr = window.devicePixelRatio || 1;
@@ -2186,10 +2195,7 @@ function paintLibraryThumb(canvasEl, dataURL, key) {
   if (!img) {
     img = new Image();
     img.src = dataURL;
-    libThumbImages.set(key, img);
-    if (libThumbImages.size > LIB_THUMB_IMG_CAP) {
-      libThumbImages.delete(libThumbImages.keys().next().value); // descarta o mais antigo
-    }
+    LruCap.setWithCap(libThumbImages, key, img, LIB_THUMB_IMG_CAP);
   }
   if (img.complete) {
     paintThumbFromImg(canvasEl, img);
@@ -2214,7 +2220,7 @@ function ensureLibraryThumb(canvasEl, item) {
   let entry = state.library.thumbCache.get(key);
   if (!entry) {
     entry = scheduleThumbJob(() => loadOrBuildLibraryThumb(item));
-    state.library.thumbCache.set(key, entry);
+    LruCap.setWithCap(state.library.thumbCache, key, entry, LIB_THUMB_CACHE_CAP);
   }
   entry.then((dataURL) => {
     if (dataURL) paintLibraryThumb(canvasEl, dataURL, key);
