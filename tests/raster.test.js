@@ -176,3 +176,53 @@ test('pathsToPattern: sem cores visíveis gera Pattern vazio mas válido (só EN
   assert.equal(pattern.stitches.length, 1);
   assert.equal(pattern.stitches[0][2] & C.COMMAND_MASK, C.END);
 });
+
+// ---------------------------------------------------------------- fill tatami
+
+const C2 = require('../src/core/commands');
+
+function makeImage(w, h, color) {
+  const img = blankImage(w, h);
+  fillRect(img, 0, 0, w, h, color);
+  return img;
+}
+
+function stitchPoints(pattern) {
+  const pts = [];
+  for (const st of pattern.stitches) {
+    if ((st[2] & C2.COMMAND_MASK) === C2.STITCH) pts.push([st[0], st[1]]);
+  }
+  return pts;
+}
+
+test('pathsToPattern com fill: preenche o quadrado com muito mais pontos que o contorno', () => {
+  const img = makeImage(60, 60, [255, 255, 255, 255]);
+  fillRect(img, 10, 10, 50, 50, [200, 30, 30]);
+  const paths = rasterToPaths(img, { colors: 2, simplifyTol: 0.8, ignoreBackground: true });
+  const scale = 10; // 60 px -> 600 unidades (60 mm)
+  const outlineOnly = pathsToPattern(paths, { scale, fill: false, outline: true, stitchLenMm: 2.5 });
+  const filled = pathsToPattern(paths, { scale, fill: true, outline: false, fillSpacingMm: 0.4, fillStitchMm: 3 });
+  const nOutline = stitchPoints(outlineOnly).length;
+  const nFill = stitchPoints(filled).length;
+  assert.ok(nFill > nOutline * 3, `fill ${nFill} deveria ser bem maior que contorno ${nOutline}`);
+  // Todos os pontos do fill dentro dos bounds do quadrado (com folga de 1 unidade).
+  for (const [x, y] of stitchPoints(filled)) {
+    // Folga de 1 px: o traçado do marching squares corre pela borda dos pixels.
+    assert.ok(x >= 9 * scale - 1 && x <= 51 * scale + 1, `x fora: ${x}`);
+    assert.ok(y >= 9 * scale - 1 && y <= 51 * scale + 1, `y fora: ${y}`);
+  }
+});
+
+test('pathsToPattern com fill: o furo do anel fica sem pontos', () => {
+  const img = makeImage(80, 80, [255, 255, 255, 255]);
+  fillRect(img, 10, 10, 70, 70, [30, 30, 200]);
+  fillRect(img, 30, 30, 50, 50, [255, 255, 255]); // furo
+  const paths = rasterToPaths(img, { colors: 2, simplifyTol: 0.8, ignoreBackground: true });
+  const scale = 10;
+  const filled = pathsToPattern(paths, { scale, fill: true, outline: false, fillSpacingMm: 0.4, fillStitchMm: 3 });
+  const pts = stitchPoints(filled);
+  assert.ok(pts.length > 100, `esperava um preenchimento denso, veio ${pts.length}`);
+  // Nenhuma agulhada no miolo do furo (margem de 3 px para o contorno serrilhado).
+  const inHole = pts.filter(([x, y]) => x > 33 * scale && x < 47 * scale && y > 33 * scale && y < 47 * scale);
+  assert.strictEqual(inHole.length, 0, `pontos dentro do furo: ${inHole.length}`);
+});

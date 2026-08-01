@@ -844,6 +844,12 @@ textarea {
 
 #dlg-digitize {
   width: min(560px, 92vw);
+  max-height: 92vh;
+  overflow-y: auto;
+}
+
+.dig-preview .dig-pane canvas {
+  max-height: 150px;
 }
 
 .dig-preview {
@@ -903,4 +909,37 @@ textarea {
 #timeline-count {
   font-size: 11px;
   white-space: nowrap;
+}
+
+/* Prévia dos pontos no digitalizador de imagem. */
+.dig-stitches {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.dig-stitches span {
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+
+#svgimport-cv {
+  width: 100%;
+  height: 190px;
+  background: var(--bg-inset);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+
+#svgimport-stats {
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+
+#dig-cv-stitches {
+  width: 100%;
+  height: 210px;
+  background: var(--bg-inset);
+  border: 1px solid var(--line);
+  border-radius: 6px;
 }

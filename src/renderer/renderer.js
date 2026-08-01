@@ -1458,23 +1458,28 @@ function countStitches(design) {
 // por salto/corte/parada/troca de cor, o resto encadeia com lineTo) — só que
 // operando sobre um "design" qualquer, não o state.design global.
 function drawDesignThumbnail(canvas, design) {
-  const size = 72;
+  drawDesignInto(canvas, design, 72, 72, 6);
+}
+
+// Desenha um "design" qualquer num canvas de tamanho arbitrário (miniaturas
+// do pendrive, prévia da digitalização), com a mesma lógica de polilinha do
+// desenho principal.
+function drawDesignInto(canvas, design, cssW, cssH, margin) {
   const localDpr = window.devicePixelRatio || 1;
-  canvas.width = size * localDpr;
-  canvas.height = size * localDpr;
+  canvas.width = Math.max(1, Math.round(cssW * localDpr));
+  canvas.height = Math.max(1, Math.round(cssH * localDpr));
   const c = canvas.getContext('2d');
   c.setTransform(localDpr, 0, 0, localDpr, 0, 0);
-  c.clearRect(0, 0, size, size);
+  c.clearRect(0, 0, cssW, cssH);
 
   const stitches = design.stitches;
   const b = designBounds(design);
   if (!stitches.length || !isFinite(b.minX)) return;
   const w = Math.max(b.maxX - b.minX, 1);
   const h = Math.max(b.maxY - b.minY, 1);
-  const margin = 6;
-  const scale = Math.min((size - margin * 2) / w, (size - margin * 2) / h);
-  const tx = size / 2 - ((b.minX + b.maxX) / 2) * scale;
-  const ty = size / 2 - ((b.minY + b.maxY) / 2) * scale;
+  const scale = Math.min((cssW - margin * 2) / w, (cssH - margin * 2) / h);
+  const tx = cssW / 2 - ((b.minX + b.maxX) / 2) * scale;
+  const ty = cssH / 2 - ((b.minY + b.maxY) / 2) * scale;
   const project = (x, y) => [x * scale + tx, y * scale + ty];
 
   c.lineCap = 'round';
@@ -2276,16 +2281,21 @@ function bindDialogs() {
 
 // --------------------------------------------------------------- importar SVG
 
+const svgPrev = { timer: null, token: 0, aspect: null };
+
 function handleSvgPicked(payload) {
   if (state.design && !confirm(tr('svgimport.confirmReplace'))) return;
   state.svgImport = payload;
+  svgPrev.aspect = null; // preenchido pela primeira prévia (tamanho natural)
   $('svgimport-filename').textContent = payload.name;
+  $('svgimport-width').value = '';
+  $('svgimport-height').value = '';
+  $('svgimport-stats').textContent = '';
   $('dlg-svg-import').showModal();
+  runSvgPreview();
 }
 
-async function applySvgImport() {
-  const picked = state.svgImport;
-  if (!picked) return;
+function svgImportOpts() {
   const opts = {
     fillSpacingMm: clampNum($('svgimport-spacing').value, 0.1, 2, 0.4),
     fillAngleDeg: clampNum($('svgimport-angle').value, -180, 180, 0),
@@ -2293,8 +2303,50 @@ async function applySvgImport() {
     outlineStitchMm: clampNum($('svgimport-outlinestitch').value, 0.5, 8, 2.5),
     outline: $('svgimport-outline').checked,
   };
+  const w = Number($('svgimport-width').value);
+  if (w > 0) opts.targetWidthMm = Math.max(5, Math.min(600, w));
+  return opts;
+}
+
+// Prévia do SVG: gera de verdade no núcleo (modo preview, sem design:opened)
+// e desenha; a primeira resposta define o tamanho natural nos campos.
+function runSvgPreview() {
+  const picked = state.svgImport;
+  if (!picked) return;
+  const token = ++svgPrev.token;
+  window.api
+    .importSvg({ text: picked.text, opts: svgImportOpts(), name: picked.name, path: picked.path, preview: true })
+    .then((res) => {
+      if (token !== svgPrev.token || !res || !res.ok || !state.svgImport) return;
+      if (svgPrev.aspect === null && res.widthMm > 0) {
+        svgPrev.aspect = res.heightMm / res.widthMm;
+        $('svgimport-width').value = Math.round(res.widthMm);
+        $('svgimport-height').value = Math.round(res.heightMm);
+      }
+      const cv = $('svgimport-cv');
+      const rect = cv.getBoundingClientRect();
+      if (rect.width > 0) drawDesignInto(cv, res.design, rect.width, rect.height, 10);
+      let n = 0;
+      for (const st of res.design.stitches) {
+        if ((st[2] & COMMAND_MASK) === STITCH) n++;
+      }
+      $('svgimport-stats').textContent =
+        res.widthMm.toFixed(0) + ' × ' + res.heightMm.toFixed(0) + ' mm · ' +
+        tr('dig.previewStats', { n: fmtNum(n), c: res.design.threads.length });
+    })
+    .catch(() => {});
+}
+
+function queueSvgPreview() {
+  clearTimeout(svgPrev.timer);
+  svgPrev.timer = setTimeout(runSvgPreview, 280);
+}
+
+async function applySvgImport() {
+  const picked = state.svgImport;
+  if (!picked) return;
   try {
-    await window.api.importSvg({ text: picked.text, opts, name: picked.name, path: picked.path });
+    await window.api.importSvg({ text: picked.text, opts: svgImportOpts(), name: picked.name, path: picked.path });
     toast(tr('toast.svgImported', { name: picked.name }));
   } catch (err) {
     toast(tr('toast.svgImportError') + err.message, 'error', 5000);
@@ -2306,6 +2358,22 @@ function bindSvgImportDialog() {
   $('svgimport-form').addEventListener('submit', (e) => {
     if (e.submitter && e.submitter.value === 'apply') applySvgImport();
   });
+  $('svgimport-width').addEventListener('input', () => {
+    const w = Number($('svgimport-width').value);
+    if (svgPrev.aspect !== null && w > 0) $('svgimport-height').value = Math.round(w * svgPrev.aspect);
+    queueSvgPreview();
+  });
+  $('svgimport-height').addEventListener('input', () => {
+    const h = Number($('svgimport-height').value);
+    if (svgPrev.aspect !== null && svgPrev.aspect > 0 && h > 0) {
+      $('svgimport-width').value = Math.round(h / svgPrev.aspect);
+    }
+    queueSvgPreview();
+  });
+  for (const id of ['svgimport-spacing', 'svgimport-angle', 'svgimport-fillstitch', 'svgimport-outlinestitch']) {
+    $(id).addEventListener('input', queueSvgPreview);
+  }
+  $('svgimport-outline').addEventListener('change', queueSvgPreview);
 }
 
 function bindMenuAndKeys() {
@@ -2400,6 +2468,8 @@ const digitize = {
   name: '',
   previewTimer: null,
   previewToken: 0,
+  stitchTimer: null,
+  stitchToken: 0,
 };
 
 function loadImageEl(src) {
@@ -2435,11 +2505,61 @@ function digitizeColorsLabel() {
   $('dig-colors-value').textContent = $('dig-colors').value;
 }
 
-function updateDigitizeSummary() {
+function updateDigitizeSummary(previewDesign) {
   if (!digitize.full) return;
   const widthMm = clampNum($('dig-width').value, 5, 600, 80);
   const heightMm = widthMm * (digitize.full.height / digitize.full.width);
-  $('dig-summary').textContent = `${widthMm.toFixed(0)} × ${heightMm.toFixed(0)} mm`;
+  let txt = `${widthMm.toFixed(0)} × ${heightMm.toFixed(0)} mm`;
+  if (previewDesign) {
+    let n = 0;
+    for (const st of previewDesign.stitches) {
+      if ((st[2] & COMMAND_MASK) === STITCH) n++;
+    }
+    txt += ' · ' + tr('dig.previewStats', { n: fmtNum(n), c: previewDesign.threads.length });
+  }
+  $('dig-summary').textContent = txt;
+}
+
+// Parâmetros do formulário para uma imagem (work no preview, full ao aplicar):
+// escala px->0,1mm e tolerância dependem da resolução da imagem usada.
+function digitizeOptsFor(image) {
+  const widthMm = clampNum($('dig-width').value, 5, 600, 80);
+  const toleranceMm = clampNum($('dig-tolerance').value, 0, 5, 0.3);
+  return {
+    colors: Number($('dig-colors').value),
+    ignoreBackground: $('dig-ignorebg').checked,
+    scale: (widthMm * 10) / image.width,
+    simplifyTol: (toleranceMm * image.width) / widthMm,
+    stitchLenMm: clampNum($('dig-stitchlen').value, 0.5, 6, 2.5),
+    outline: $('dig-outline').checked,
+    fill: $('dig-fill').checked,
+    fillSpacingMm: clampNum($('dig-fillspacing').value, 0.1, 2, 0.4),
+    fillAngleDeg: clampNum($('dig-fillangle').value, -180, 180, 0),
+    fillStitchMm: clampNum($('dig-fillstitch').value, 1, 8, 3),
+    name: digitize.name,
+  };
+}
+
+// Prévia dos pontos: gera de verdade (na imagem de trabalho, menor) e desenha
+// as polilinhas coloridas; debounced porque cada mudança de parâmetro regenera.
+function runDigitizeStitchPreview() {
+  if (!digitize.work) return;
+  const token = ++digitize.stitchToken;
+  window.api
+    .digitizeGenerate(digitize.work, digitizeOptsFor(digitize.work))
+    .then((design) => {
+      if (token !== digitize.stitchToken) return;
+      const cv = $('dig-cv-stitches');
+      const rect = cv.getBoundingClientRect();
+      if (rect.width > 0) drawDesignInto(cv, design, rect.width, rect.height, 10);
+      updateDigitizeSummary(design);
+    })
+    .catch(() => {});
+}
+
+function queueDigitizeStitchPreview() {
+  clearTimeout(digitize.stitchTimer);
+  digitize.stitchTimer = setTimeout(runDigitizeStitchPreview, 280);
 }
 
 // digitize:posterize roda por IPC no processo principal (o preload é
@@ -2469,6 +2589,10 @@ async function openDigitizeDialog() {
     return;
   }
   if (!picked) return;
+  await openDigitizeWith(picked);
+}
+
+async function openDigitizeWith(picked) {
   try {
     const img = await loadImageEl(picked.dataURL);
     digitize.full = imageToImageData(img, null);
@@ -2478,11 +2602,19 @@ async function openDigitizeDialog() {
     $('dig-colors').value = 4;
     digitizeColorsLabel();
     $('dig-width').value = 80;
+    $('dig-height').value = (80 * (digitize.full.height / digitize.full.width)).toFixed(0);
     $('dig-tolerance').value = 0.3;
     $('dig-stitchlen').value = 2.5;
+    $('dig-fill').checked = true;
+    $('dig-ignorebg').checked = true;
+    $('dig-outline').checked = true;
+    $('dig-fillspacing').value = 0.4;
+    $('dig-fillangle').value = 0;
+    $('dig-fillstitch').value = 3;
     updateDigitizeSummary();
     runDigitizePreview();
     $('dlg-digitize').showModal();
+    queueDigitizeStitchPreview(); // depois do showModal: o canvas precisa de layout
   } catch (err) {
     toast(tr('dig.openError') + err.message, 'error', 5000);
   }
@@ -2494,20 +2626,8 @@ async function openDigitizeDialog() {
 async function confirmDigitize() {
   if (!digitize.full) return false;
   if (state.design && !window.confirm(tr('dig.confirmReplace'))) return false;
-  const colors = Number($('dig-colors').value);
-  const widthMm = clampNum($('dig-width').value, 5, 600, 80);
-  const toleranceMm = clampNum($('dig-tolerance').value, 0, 5, 0.3);
-  const stitchLenMm = clampNum($('dig-stitchlen').value, 0.5, 6, 2.5);
-  const scale = (widthMm * 10) / digitize.full.width; // px -> unidade nativa (0,1 mm)
-  const simplifyTol = (toleranceMm * digitize.full.width) / widthMm; // mm -> px equivalente na imagem cheia
   try {
-    const design = await window.api.digitizeGenerate(digitize.full, {
-      colors,
-      simplifyTol,
-      scale,
-      stitchLenMm,
-      name: digitize.name,
-    });
+    const design = await window.api.digitizeGenerate(digitize.full, digitizeOptsFor(digitize.full));
     setDesign(design);
     toast(tr('toast.digitized', { n: fmtNum(state.stats.stitches), c: fmtNum(state.blocks.length) }));
     return true;
@@ -2521,8 +2641,30 @@ function bindDigitizeDialog() {
   $('dig-colors').addEventListener('input', () => {
     digitizeColorsLabel();
     queueDigitizePreview();
+    queueDigitizeStitchPreview();
   });
-  $('dig-width').addEventListener('input', updateDigitizeSummary);
+  $('dig-width').addEventListener('input', () => {
+    if (digitize.full) {
+      const w = clampNum($('dig-width').value, 5, 600, 80);
+      $('dig-height').value = (w * (digitize.full.height / digitize.full.width)).toFixed(0);
+    }
+    updateDigitizeSummary();
+    queueDigitizeStitchPreview();
+  });
+  $('dig-height').addEventListener('input', () => {
+    if (digitize.full) {
+      const h = clampNum($('dig-height').value, 5, 600, 80);
+      $('dig-width').value = (h * (digitize.full.width / digitize.full.height)).toFixed(0);
+    }
+    updateDigitizeSummary();
+    queueDigitizeStitchPreview();
+  });
+  for (const id of ['dig-tolerance', 'dig-stitchlen', 'dig-fillspacing', 'dig-fillangle', 'dig-fillstitch']) {
+    $(id).addEventListener('input', queueDigitizeStitchPreview);
+  }
+  for (const id of ['dig-fill', 'dig-outline', 'dig-ignorebg']) {
+    $(id).addEventListener('change', queueDigitizeStitchPreview);
+  }
   // Não deixa o <form method="dialog"> fechar o modal por conta própria: se o
   // usuário desistir da confirmação de substituição, os ajustes continuam ali.
   $('digitize-form').addEventListener('submit', async (e) => {
@@ -2578,6 +2720,8 @@ async function boot() {
   if (launch.dialog === 'drives') await openDrivesDialog();
   if (launch.dialog === 'text') openTextDialog();
   if (launch.dialog === 'digitize') $('dlg-digitize').showModal();
+  if (launch.digitizeImage) await openDigitizeWith(launch.digitizeImage);
+  if (launch.svgImport) handleSvgPicked(launch.svgImport);
 
   // Sinaliza para o modo screenshot que a primeira pintura aconteceu.
   requestAnimationFrame(() => requestAnimationFrame(() => window.api.notifyRenderReady()));
