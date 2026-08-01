@@ -27,6 +27,12 @@
       <div class="tb-sep"></div>
 
       <div class="tb-group">
+        <button id="btn-text" class="tb-btn" data-i18n="tb.text" data-i18n-title="tb.textTip">Texto</button>
+      </div>
+
+      <div class="tb-sep"></div>
+
+      <div class="tb-group">
         <button id="btn-fit" class="tb-btn icon" data-i18n-title="tb.fitTip">⤢</button>
         <button id="btn-zoom-out" class="tb-btn icon" data-i18n-title="tb.zoomOutTip">−</button>
         <span id="zoom-label" class="tb-label">100%</span>
@@ -284,6 +290,44 @@
       <div class="dlg-actions">
         <button value="cancel" class="tb-btn" data-i18n="set.cancel">Cancelar</button>
         <button value="apply" class="tb-btn accent" data-i18n="svgimport.apply">Importar</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="dlg-text">
+    <form method="dialog" id="text-form">
+      <h2 data-i18n="text.title">Inserir texto</h2>
+
+      <div class="field-stack">
+        <span data-i18n="text.textLabel">Texto</span>
+        <textarea id="text-input" rows="3" data-i18n-placeholder="text.textPlaceholder" placeholder="Digite aqui…"></textarea>
+      </div>
+
+      <label class="row">
+        <span data-i18n="text.font">Fonte</span>
+        <select id="text-font"></select>
+      </label>
+
+      <div class="row pair">
+        <label><span data-i18n="text.height">Altura (mm)</span><input type="number" id="text-height" min="2" max="200" step="0.5" value="10" /></label>
+        <label><span data-i18n="text.stitchLength">Comprimento do ponto (mm)</span><input type="number" id="text-stitchlen" min="0.5" max="6" step="0.1" value="2" /></label>
+      </div>
+      <div class="row pair">
+        <label><span data-i18n="text.letterSpacing">Espaçamento entre letras (%)</span><input type="number" id="text-letterspacing" min="-20" max="300" step="1" value="0" /></label>
+        <label><span data-i18n="text.lineSpacing">Espaçamento entre linhas (%)</span><input type="number" id="text-linespacing" min="-20" max="300" step="1" value="0" /></label>
+      </div>
+      <label class="row check">
+        <input type="checkbox" id="text-bean" />
+        <span data-i18n="text.bean" data-i18n-title="text.beanTip">Ponto triplo (bean)</span>
+      </label>
+
+      <canvas id="text-preview" class="text-preview"></canvas>
+      <p id="text-stats" class="hint mono"></p>
+      <p id="text-missing" class="hint warn" hidden></p>
+
+      <div class="dlg-actions">
+        <button value="cancel" class="tb-btn" data-i18n="set.cancel">Cancelar</button>
+        <button value="insert" class="tb-btn accent" id="text-insert-btn" data-i18n="text.insert">Inserir</button>
       </div>
     </form>
   </dialog>

@@ -55,6 +55,7 @@ const state = {
     cache: new Map(), // "caminho::mtime" -> {ok:true,design} | {ok:false,error} | Promise disso
   },
   svgImport: null, // { path, text, name } aguardando os parâmetros do dialog
+  lettering: { fonts: [], lastResult: null }, // ferramenta de texto (issue #7)
 };
 
 function bumpArt() {
@@ -77,7 +78,7 @@ function locale() {
   return state.lang === 'pt-BR' ? 'pt-BR' : 'en-US';
 }
 
-// Aplica as strings estáticas marcadas com data-i18n / data-i18n-title.
+// Aplica as strings estáticas marcadas com data-i18n / data-i18n-title / data-i18n-placeholder.
 function applyI18n() {
   document.documentElement.lang = state.lang;
   document.querySelectorAll('[data-i18n]').forEach((el) => {
@@ -85,6 +86,9 @@ function applyI18n() {
   });
   document.querySelectorAll('[data-i18n-title]').forEach((el) => {
     el.title = tr(el.dataset.i18nTitle);
+  });
+  document.querySelectorAll('[data-i18n-placeholder]').forEach((el) => {
+    el.placeholder = tr(el.dataset.i18nPlaceholder);
   });
   const speedSel = $('sim-speed');
   const current = speedSel.value;
@@ -1661,6 +1665,195 @@ function bindDrivesDialog() {
   });
 }
 
+// --------------------------------------------------------------- lettering (texto)
+// Ferramenta "Texto" (issue #7, fase 1): a fonte, o layout e a geração de
+// pontos rodam no núcleo, no processo principal (src/core/lettering); aqui
+// só populamos o formulário, pedimos a pré-visualização (debounced) e, ao
+// inserir, emendamos o Pattern resultante no design atual (ou criamos um
+// design novo, se não houver nenhum aberto).
+
+function populateTextFontSelect() {
+  const sel = $('text-font');
+  sel.innerHTML = '';
+  for (const f of state.lettering.fonts) {
+    const opt = document.createElement('option');
+    opt.value = f.id;
+    opt.textContent = f.label;
+    sel.appendChild(opt);
+  }
+  const hershey = state.lettering.fonts.find((f) => f.id.includes('Hershey'));
+  if (hershey) sel.value = hershey.id;
+}
+
+function readTextFormOpts() {
+  return {
+    fontId: $('text-font').value,
+    text: $('text-input').value,
+    heightMm: clampNum($('text-height').value, 2, 200, 10),
+    letterSpacing: clampNum($('text-letterspacing').value, -20, 300, 0),
+    lineSpacing: clampNum($('text-linespacing').value, -20, 300, 0),
+    stitchLengthMm: clampNum($('text-stitchlen').value, 0.5, 6, 2),
+    bean: $('text-bean').checked,
+  };
+}
+
+function sizeTextPreviewCanvas() {
+  const cv = $('text-preview');
+  const rect = cv.getBoundingClientRect();
+  if (rect.width < 1 || rect.height < 1) return;
+  const d = window.devicePixelRatio || 1;
+  cv.width = Math.max(1, Math.round(rect.width * d));
+  cv.height = Math.max(1, Math.round(rect.height * d));
+}
+
+function clearTextPreview(message) {
+  const cv = $('text-preview');
+  const c = cv.getContext('2d');
+  c.clearRect(0, 0, cv.width, cv.height);
+  if (!message) return;
+  const d = window.devicePixelRatio || 1;
+  c.fillStyle = '#5b5b66';
+  c.font = `${Math.round(12 * d)}px -apple-system, sans-serif`;
+  c.textAlign = 'center';
+  c.textBaseline = 'middle';
+  c.fillText(message, cv.width / 2, cv.height / 2);
+}
+
+// Desenha as polilinhas devolvidas por lettering:build — o mesmo traçado que
+// vai ser gravado (ver patternPolylines em src/core/lettering/stitcher.js).
+function drawTextPreview(result) {
+  const cv = $('text-preview');
+  const c = cv.getContext('2d');
+  c.clearRect(0, 0, cv.width, cv.height);
+  if (!result.polylines.length) {
+    clearTextPreview(tr('text.previewEmpty'));
+    return;
+  }
+  const d = window.devicePixelRatio || 1;
+  const [minX, minY, maxX, maxY] = result.bounds;
+  const w = Math.max(1, maxX - minX);
+  const h = Math.max(1, maxY - minY);
+  const pad = 14 * d;
+  const scale = Math.min((cv.width - pad * 2) / w, (cv.height - pad * 2) / h);
+  const tx = cv.width / 2 - ((minX + maxX) / 2) * scale;
+  const ty = cv.height / 2 - ((minY + maxY) / 2) * scale;
+  c.strokeStyle = '#e8a13d';
+  c.lineWidth = Math.max(1, 1.3 * d);
+  c.lineCap = 'round';
+  c.lineJoin = 'round';
+  for (const line of result.polylines) {
+    c.beginPath();
+    line.forEach(([x, y], i) => {
+      const sx = x * scale + tx;
+      const sy = y * scale + ty;
+      if (i === 0) c.moveTo(sx, sy);
+      else c.lineTo(sx, sy);
+    });
+    c.stroke();
+  }
+}
+
+let textPreviewTimer = null;
+function scheduleTextPreview() {
+  clearTimeout(textPreviewTimer);
+  textPreviewTimer = setTimeout(refreshTextPreview, 150);
+}
+
+async function refreshTextPreview() {
+  const hasText = $('text-input').value.trim().length > 0;
+  if (!hasText) {
+    state.lettering.lastResult = null;
+    clearTextPreview(tr('text.previewEmpty'));
+    $('text-stats').textContent = '';
+    $('text-missing').hidden = true;
+    return;
+  }
+  const result = await window.api.letteringBuild(readTextFormOpts());
+  if (!result.ok) {
+    state.lettering.lastResult = null;
+    clearTextPreview(tr('text.previewEmpty'));
+    $('text-stats').textContent = '';
+    $('text-missing').hidden = true;
+    toast(tr('toast.textError') + result.error, 'error', 4200);
+    return;
+  }
+  state.lettering.lastResult = result;
+  drawTextPreview(result);
+  const opt = { minimumFractionDigits: 1, maximumFractionDigits: 1 };
+  const w = ((result.bounds[2] - result.bounds[0]) / 10).toLocaleString(locale(), opt);
+  const h = ((result.bounds[3] - result.bounds[1]) / 10).toLocaleString(locale(), opt);
+  $('text-stats').textContent = tr('text.stats', { n: fmtNum(result.stats.stitches), w, h });
+  if (result.missingChars.length) {
+    $('text-missing').hidden = false;
+    $('text-missing').textContent = tr('text.missingChars', { chars: result.missingChars.join(' ') });
+  } else {
+    $('text-missing').hidden = true;
+  }
+}
+
+// Redesenha o resultado mais recente, ou a mensagem de "vazio" — usado tanto
+// ao abrir o diálogo quanto pelo ResizeObserver (redimensionar o <canvas>
+// via .width/.height sempre limpa o conteúdo, mesmo quando o tamanho não mudou).
+function redrawTextPreview() {
+  if (state.lettering.lastResult) drawTextPreview(state.lettering.lastResult);
+  else clearTextPreview(tr('text.previewEmpty'));
+}
+
+function openTextDialog() {
+  $('dlg-text').showModal();
+  sizeTextPreviewCanvas();
+  redrawTextPreview();
+  $('text-input').focus();
+  if ($('text-input').value.trim()) scheduleTextPreview();
+}
+
+// Insere o texto: se já há um design aberto, emenda como um novo bloco de
+// cor ao final (COLOR_CHANGE antes, se já houver pontos); senão, o texto
+// vira o design. Em ambos os casos o bloco de texto já chega centrado na
+// origem (textToPattern centra por padrão).
+async function insertTextDesign() {
+  if (!$('text-input').value.trim()) {
+    toast(tr('toast.textEmpty'), 'warn');
+    return;
+  }
+  const result = await window.api.letteringBuild(readTextFormOpts());
+  if (!result.ok) {
+    toast(tr('toast.textError') + result.error, 'error', 4200);
+    return;
+  }
+  const textDesign = result.design;
+  if (!textDesign.stitches.length) {
+    toast(tr('toast.textEmpty'), 'warn');
+    return;
+  }
+
+  if (!state.design) {
+    setDesign(textDesign);
+    toast(tr('toast.textCreated'));
+  } else {
+    snapshotUndo();
+    let stitches = state.design.stitches;
+    if (stitches.length && (stitches[stitches.length - 1][2] & COMMAND_MASK) === END) {
+      stitches = stitches.slice(0, -1); // um único END sobrevive, no fim de tudo
+    }
+    if (stitches.length) {
+      const last = stitches[stitches.length - 1];
+      stitches.push([last[0], last[1], COLOR_CHANGE]);
+    }
+    for (const st of textDesign.stitches) stitches.push([st[0], st[1], st[2]]);
+    state.design.stitches = stitches;
+    state.design.threads.push(...textDesign.threads);
+    bumpArt();
+    deriveBlocks();
+    deriveStats();
+    updateSidebar();
+    updateStatusbar();
+    requestRender();
+    toast(tr('toast.textInserted'));
+  }
+  $('dlg-text').close();
+}
+
 // --------------------------------------------------------------- interação
 
 function bindCanvas() {
@@ -1793,6 +1986,7 @@ function bindToolbar() {
   $('btn-open-empty').addEventListener('click', openViaDialog);
   $('btn-save').addEventListener('click', saveAs);
   $('btn-export').addEventListener('click', exportPng);
+  $('btn-text').addEventListener('click', openTextDialog);
   $('btn-fit').addEventListener('click', fitView);
   $('btn-zoom-in').addEventListener('click', () => zoomCenter(1.3));
   $('btn-zoom-out').addEventListener('click', () => zoomCenter(1 / 1.3));
@@ -1895,6 +2089,22 @@ function bindDialogs() {
   $('settings-form').addEventListener('submit', (e) => {
     if (e.submitter && e.submitter.value === 'save') applySettingsFromForm();
   });
+
+  $('text-form').addEventListener('submit', (e) => {
+    if (e.submitter && e.submitter.value === 'insert') {
+      e.preventDefault(); // async e pode falhar (texto vazio, erro de IPC) — fecha só se der certo
+      insertTextDesign();
+    }
+  });
+  for (const id of ['text-input', 'text-height', 'text-letterspacing', 'text-linespacing', 'text-stitchlen']) {
+    $(id).addEventListener('input', scheduleTextPreview);
+  }
+  $('text-font').addEventListener('change', scheduleTextPreview);
+  $('text-bean').addEventListener('change', scheduleTextPreview);
+  new ResizeObserver(() => {
+    sizeTextPreviewCanvas();
+    redrawTextPreview();
+  }).observe($('text-preview'));
 
   document.querySelectorAll('.tabs input[name="tab"]').forEach((radio) => {
     radio.addEventListener('change', () => {
@@ -2034,8 +2244,10 @@ async function boot() {
   state.lang = launch.lang;
   state.strings = launch.strings;
   state.platform = launch.platform;
+  state.lettering.fonts = await window.api.letteringListFonts();
 
   applyI18n();
+  populateTextFontSelect();
   syncToggleButtons();
   $('sim-speed').value = String(nearestSimOption(state.settings.sim.stitchesPerSecond));
 
@@ -2057,6 +2269,7 @@ async function boot() {
   if (launch.dialog === 'scale' && state.design) openScaleDialog();
   if (launch.dialog === 'formats') $('dlg-formats').showModal();
   if (launch.dialog === 'drives') await openDrivesDialog();
+  if (launch.dialog === 'text') openTextDialog();
 
   // Sinaliza para o modo screenshot que a primeira pintura aconteceu.
   requestAnimationFrame(() => requestAnimationFrame(() => window.api.notifyRenderReady()));
