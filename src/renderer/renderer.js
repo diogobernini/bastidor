@@ -509,62 +509,10 @@ let dpr = window.devicePixelRatio || 1;
 //
 // Barra embaixo do canvas com um segmento por bloco de cor, proporcional à
 // quantidade de pontos: mostra "que horas" entra cada linha. Clique/arrasto
-// pula a simulação para aquele ponto. O desenho da barra (drawTimeline) e o
+// pula a simulação para aquele ponto. O "seek" (simSeekFraction), o
+// play/pause/tick (simSetPlaying/simTick) e o reset (simReset) moram em Sim
+// — ver modules/sim.js. O desenho da barra (drawTimeline) e o
 // RenderCanvas.render() principal moram em RenderCanvas — ver render-canvas.js.
-function simSeekFraction(f) {
-  if (!state.design) return;
-  state.sim.playing = false;
-  $('btn-sim').textContent = '▶';
-  const clamped = Math.max(0, Math.min(1, f));
-  state.sim.pos = clamped >= 1 ? Infinity : clamped * state.design.stitches.length;
-  $('sim-progress').value = Math.round(clamped * 1000);
-  RenderCanvas.requestRender();
-}
-
-// --------------------------------------------------------------- simulação
-
-function simSetPlaying(playing) {
-  if (!state.design) return;
-  if (playing && state.edit.active) setEditMode(false); // mutuamente exclusivo com a edição
-  if (playing && window.ObjectCanvas && ObjectCanvas.isActive()) ObjectCanvas.setActive(false); // idem, objetos (issue #29)
-  state.sim.playing = playing;
-  $('btn-sim').textContent = playing ? '⏸' : '▶';
-  if (playing) {
-    if (state.sim.pos === Infinity || state.sim.pos >= state.design.stitches.length) {
-      state.sim.pos = 0;
-    }
-    state.sim.lastT = performance.now();
-    requestAnimationFrame(simTick);
-  }
-}
-
-function simTick(t) {
-  if (!state.sim.playing || !state.design) return;
-  const dt = (t - state.sim.lastT) / 1000;
-  state.sim.lastT = t;
-  const sps = state.settings.sim.stitchesPerSecond;
-  state.sim.pos += sps * dt;
-  const total = state.design.stitches.length;
-  if (state.sim.pos >= total) {
-    state.sim.pos = Infinity;
-    state.sim.playing = false;
-    $('btn-sim').textContent = '▶';
-    $('sim-progress').value = 1000;
-    RenderCanvas.requestRender();
-    return;
-  }
-  $('sim-progress').value = Math.round((state.sim.pos / total) * 1000);
-  RenderCanvas.requestRender();
-  requestAnimationFrame(simTick);
-}
-
-function simReset() {
-  state.sim.pos = Infinity;
-  state.sim.playing = false;
-  $('btn-sim').textContent = '▶';
-  $('sim-progress').value = 1000;
-  RenderCanvas.requestRender();
-}
 
 // --------------------------------------------------------------- edição de pontos (issue #3)
 
@@ -576,7 +524,7 @@ function setEditMode(active) {
   $('btn-edit').classList.toggle('on', active);
   canvas.classList.toggle('edit-mode', active);
   if (active) {
-    simReset();
+    Sim.simReset();
     if (window.ObjectCanvas) ObjectCanvas.setActive(false); // mutuamente exclusivo (issue #29)
   }
   updateToolbarEnabled();
@@ -2642,7 +2590,7 @@ function bindToolbar() {
   $('btn-edit').addEventListener('click', toggleEditMode);
   $('btn-objects').addEventListener('click', () => window.ObjectCanvas && ObjectCanvas.toggle()); // issue #29
 
-  $('btn-sim').addEventListener('click', () => simSetPlaying(!state.sim.playing));
+  $('btn-sim').addEventListener('click', () => Sim.simSetPlaying(!state.sim.playing));
   $('sim-progress').addEventListener('input', () => {
     if (!state.design) return;
     state.sim.playing = false;
@@ -2653,7 +2601,7 @@ function bindToolbar() {
   });
   const tlSeek = (e) => {
     const r = $('timeline-canvas').getBoundingClientRect();
-    simSeekFraction((e.clientX - r.left) / r.width);
+    Sim.simSeekFraction((e.clientX - r.left) / r.width);
   };
   $('timeline-canvas').addEventListener('pointerdown', (e) => {
     $('timeline-canvas').setPointerCapture(e.pointerId);
@@ -2954,8 +2902,8 @@ function bindMenuAndKeys() {
       'toggle-grid': () => $('btn-grid').click(),
       'toggle-hoop': () => $('btn-hoop').click(),
       'toggle-jumps': () => $('btn-jumps').click(),
-      'sim-toggle': () => simSetPlaying(!state.sim.playing),
-      'sim-reset': simReset,
+      'sim-toggle': () => Sim.simSetPlaying(!state.sim.playing),
+      'sim-reset': Sim.simReset,
       formats: () => $('dlg-formats').showModal(),
       shortcuts: openShortcutsDialog,
       'digitize-image': openDigitizeDialog,
@@ -3018,7 +2966,7 @@ function bindMenuAndKeys() {
 
     if (key === ' ') {
       e.preventDefault();
-      simSetPlaying(!state.sim.playing);
+      Sim.simSetPlaying(!state.sim.playing);
     } else if (key === 'e' && !e.metaKey && !e.ctrlKey) toggleEditMode(); // Cmd/Ctrl+E é o acelerador de exportar PNG
     else if (key === 'g') $('btn-grid').click();
     else if (key === 'b') $('btn-hoop').click();
@@ -3319,7 +3267,7 @@ async function boot() {
         afterPointMutation();
       },
       setEditMode,
-      simReset,
+      simReset: Sim.simReset,
       tr: I18n.tr,
       updateToolbarEnabled,
       requestRender: RenderCanvas.requestRender,
