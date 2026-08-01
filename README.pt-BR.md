@@ -108,14 +108,15 @@ então os parsers podem ser reaproveitados em CLI ou servidor.
 
 ## Roadmap
 
-1. Digitalização: importar arquivo vetorial SVG como pontos
-2. Digitalização: ferramenta de PNG para vetor (posterizar por quantidade de cores, com preview)
-3. Ferramenta de escrita: digite um texto e vire bordado (fontes de linha única, ponto cheio, preenchimento TTF)
-4. Edição de pontos individuais (mover, apagar, inserir)
-5. Recalcular densidade ao redimensionar
-6. Modo de visualização realista (textura de fio)
+1. ✅ Digitalização: importar arquivo vetorial SVG como pontos
+2. ✅ Digitalização: ferramenta de PNG para vetor (posterizar por quantidade de cores, com preview)
+3. ✅ Ferramenta de escrita: digite um texto e vire bordado (fase 1: fontes de linha única; ponto cheio e preenchimento TTF depois)
+4. ✅ Edição de pontos individuais (mover, apagar, inserir)
+5. ✅ Recalcular densidade ao redimensionar
+6. ✅ Modo de visualização realista (textura de fio)
 7. Suporte a VP3, HUS, SEW e PCS
-8. Gestão de pendrive: carregar e descarregar matrizes estilo biblioteca, com ejeção segura e limpeza dos arquivos ocultos do macOS
+8. ✅ Gestão de pendrive: carregar e descarregar matrizes estilo biblioteca, com ejeção segura e limpeza dos arquivos ocultos do macOS
+9. Gestão de biblioteca: navegar o catálogo por pastas, com busca, miniaturas e integração com abrir/salvar como ([issue #17](https://github.com/diogobernini/bastidor/issues/17))
 
 ## Créditos e agradecimentos
 
