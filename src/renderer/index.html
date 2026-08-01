@@ -43,6 +43,12 @@
 
       <div class="tb-sep"></div>
 
+      <div class="tb-group">
+        <button id="btn-edit" class="tb-btn toggle" data-i18n="tb.edit" data-i18n-title="tb.editTip" disabled>Editar</button>
+      </div>
+
+      <div class="tb-sep"></div>
+
       <div class="tb-group sim-group">
         <button id="btn-sim" class="tb-btn icon accent" data-i18n-title="tb.simTip" disabled>▶</button>
         <input id="sim-progress" type="range" min="0" max="1000" value="1000" data-i18n-title="tb.simProgressTip" disabled />
@@ -100,6 +106,7 @@
 
     <footer id="statusbar">
       <span id="st-file" class="muted" data-i18n="status.noFile">Nenhum arquivo aberto</span>
+      <span id="st-edit" class="mono"></span>
       <span class="st-spacer"></span>
       <span id="st-pos" class="mono"></span>
       <span id="st-size" class="mono"></span>
@@ -263,6 +270,7 @@
   <div id="toasts"></div>
 
   <script src="../core/densityscale.js"></script>
+  <script src="../core/spatial.js"></script>
   <script src="renderer.js"></script>
 </body>
 </html>
