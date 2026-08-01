@@ -1,7 +1,7 @@
 {
   "name": "bastidor",
   "productName": "Bastidor",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Est\u00fadio de bordado: visualize, converta e ajuste matrizes (Singer XXX, DST, PES, PEC, JEF, EXP, VP3, HUS, SEW, PCS)",
   "main": "src/main/main.js",
   "author": "Diogo Bernini",
