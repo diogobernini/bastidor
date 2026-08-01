@@ -196,7 +196,7 @@ test('importSvg: roundtrip via XXX preserva contagens de pontos e cores', () => 
   const svgText = fs.readFileSync(path.join(__dirname, '..', 'samples', 'folha.svg'), 'utf8');
   const pattern = importSvg(svgText, {});
 
-  const normalized = pattern.getNormalizedPattern({ max_jump: 124, max_stitch: 124, round: true });
+  const normalized = pattern.getNormalizedPattern(Object.assign({}, io.FORMATS.xxx.writeSettings));
   const buf = io.writeBuffer(pattern, 'xxx');
   const readBack = io.readBuffer(buf, 'xxx');
 
