@@ -18,6 +18,7 @@
 const ColorBlocks = (function () {
   const COMMAND_MASK = 0xff;
   const COLOR_CHANGE = 5;
+  const END = 4;
 
   // Dado o array de blocos já derivado (deriveBlocks() no renderer: cada
   // item { threadIndex, start, end, stitchCount }, `end` exclusivo e
@@ -95,51 +96,63 @@ const ColorBlocks = (function () {
     };
   }
 
-  // Confere se o último stitch do intervalo [start, end) é um COLOR_CHANGE
-  // (fecha o bloco). O ÚLTIMO bloco da lista normalmente NÃO tem esse
-  // fechamento (ver comentário de deriveBlocks() no renderer): é a "sobra"
-  // depois do último COLOR_CHANGE de verdade do arquivo, terminando em
-  // END/TRIM/etc. em vez de COLOR_CHANGE.
-  function hasClosingColorChange(stitches, start, end) {
+  // Confere se o último stitch do intervalo [start, end) é um "fechamento":
+  // um COLOR_CHANGE (fecha um bloco do meio) OU um END (fecha o desenho
+  // inteiro — todo design carregado/gerado termina com um END de verdade,
+  // ver src/core/io e src/renderer/objects.js:stripTrailingEnd). O ÚLTIMO
+  // bloco da lista é o único que pode ter END em vez de COLOR_CHANGE (ver
+  // deriveBlocks() no renderer); um bloco sem NENHUM dos dois (raro, só em
+  // dados sintéticos de teste) não tem fechamento algum.
+  function isClosingStitch(stitch) {
+    if (!stitch) return false;
+    const cmd = stitch[2] & COMMAND_MASK;
+    return cmd === COLOR_CHANGE || cmd === END;
+  }
+
+  function hasClosingMarker(stitches, start, end) {
     if (end <= start) return false;
-    const last = stitches[end - 1];
-    return !!last && (last[2] & COMMAND_MASK) === COLOR_CHANGE;
+    return isClosingStitch(stitches[end - 1]);
   }
 
   // Aplica a troca descrita por `plan` (de deriveSwapPlan), MUTANDO stitches
   // e threads (mesmo padrão de mergeBlock: quem chama decide se clona
   // antes). `blocks` sempre garante que o de CIMA tem um COLOR_CHANGE de
   // fechamento (só o ÚLTIMO bloco da lista não tem, e o de cima nunca é o
-  // último aqui). O de BAIXO pode ou não ter (tem, a menos que seja o
-  // último bloco do desenho).
+  // último aqui). O de BAIXO pode ou não ter um fechamento (COLOR_CHANGE se
+  // não for o último bloco do desenho; END se for — todo design carregado
+  // termina com um END de verdade).
   //
-  // Ideia: cada bloco tem um "conteúdo puro" (agulhadas sem o COLOR_CHANGE
-  // de fechamento, quando ele existe). A troca reaproveita o COLOR_CHANGE
-  // do bloco de CIMA como a nova fronteira entre os dois (agora o conteúdo
-  // de baixo vem primeiro), e só sobra um COLOR_CHANGE de fechamento no
-  // final se o bloco de BAIXO original já tinha um (ou seja, se ele não era
-  // o último bloco do desenho). Isso resolve a borda do enunciado: ao
-  // trocar o penúltimo bloco com o último, o que passa a ser o último
-  // (antigo de cima) perde o fechamento, e o que sai da última posição
-  // (antigo de baixo) ganha o fechamento que era do antigo de cima. A
-  // troca é sua própria inversa: aplicá-la de novo com `blocks` recém
-  // derivado do resultado devolve exatamente o estado original.
+  // Ideia: cada bloco tem um "conteúdo puro" (agulhadas sem o fechamento,
+  // quando ele existe). A troca reaproveita o COLOR_CHANGE do bloco de CIMA
+  // como a nova fronteira entre os dois (agora o conteúdo de baixo vem
+  // primeiro), e só sobra um fechamento no final se o bloco de BAIXO
+  // original já tinha um. Isso resolve as duas bordas do enunciado: ao
+  // trocar o penúltimo bloco com o último (a) se o de baixo fechava com
+  // COLOR_CHANGE, o que passa a ser o último perde o fechamento e o que sai
+  // da última posição ganha o COLOR_CHANGE que era do antigo de cima; (b)
+  // se o de baixo era o fim de VERDADE do desenho (fechava com END), esse
+  // MESMO stitch de END é realocado para o novo fim do array — nunca fica
+  // "enterrado" no meio, o que deixaria um END solto a meio caminho e um
+  // COLOR_CHANGE sobrando como último stitch do arquivo (corrompendo
+  // qualquer exportação/leitura futura). A troca é sua própria inversa:
+  // aplicá-la de novo com `blocks` recém derivado do resultado devolve
+  // exatamente o estado original, END incluído.
   function swapBlocks(stitches, threads, plan) {
     const ccUpperIdx = plan.upperEnd - 1;
     const ccUpper = stitches[ccUpperIdx];
     if (!ccUpper || (ccUpper[2] & COMMAND_MASK) !== COLOR_CHANGE) {
       throw new Error('ColorBlocks.swapBlocks: bloco de cima sem COLOR_CHANGE de fechamento');
     }
-    const lowerHasCC = hasClosingColorChange(stitches, plan.lowerStart, plan.lowerEnd);
+    const lowerHasClosing = hasClosingMarker(stitches, plan.lowerStart, plan.lowerEnd);
     const pureUpper = stitches.slice(plan.upperStart, ccUpperIdx);
-    const lowerContentEnd = lowerHasCC ? plan.lowerEnd - 1 : plan.lowerEnd;
+    const lowerContentEnd = lowerHasClosing ? plan.lowerEnd - 1 : plan.lowerEnd;
     const pureLower = stitches.slice(plan.lowerStart, lowerContentEnd);
-    const ccLower = lowerHasCC ? stitches[plan.lowerEnd - 1] : null;
+    const closingLower = lowerHasClosing ? stitches[plan.lowerEnd - 1] : null;
 
     const newSegment = pureLower.map((s) => s.slice());
     newSegment.push(ccUpper.slice());
     for (const s of pureUpper) newSegment.push(s.slice());
-    if (ccLower) newSegment.push(ccLower.slice());
+    if (closingLower) newSegment.push(closingLower.slice());
 
     stitches.splice(plan.upperStart, plan.lowerEnd - plan.upperStart, ...newSegment);
 

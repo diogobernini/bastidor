@@ -363,6 +363,79 @@ test('swapUnits: índice fora do intervalo devolve null', () => {
   assert.equal(ObjectModel.swapUnits([], blocks, stitches, [{}], -1), null);
 });
 
+// Todo design de verdade (arquivo aberto, ou texto/SVG recém-gerados)
+// termina com um stitch END de verdade — makeStitchesFor (acima) não bota
+// um, de propósito, pra manter os testes anteriores focados só no
+// COLOR_CHANGE. Este bloco cobre especificamente a borda com END: sem o
+// cuidado extra em swapUnits, mover a última unidade (a que carrega o END)
+// pra uma posição do meio deixaria o END "enterrado" ali e um COLOR_CHANGE
+// sobrando como último stitch do array inteiro — corrompendo qualquer
+// leitura/exportação futura (mesmo cuidado de ColorBlocks.swapBlocks em
+// src/core/colorblocks.js, issue #61).
+test('swapUnits: move o objeto multi-bloco que carrega o END para o meio — o END é realocado pro novo fim, não fica preso no meio', () => {
+  const C = require('../src/core/commands');
+  // 3 unidades: bloco solto (2 pontos + CC), objeto svg-shape de 2 blocos
+  // (preenchimento + contorno, cada um 2 pontos, fechados por CC entre si
+  // e a última fechada só pelo END de verdade do desenho).
+  const stitches = [
+    [0, 0, C.STITCH], [0, 0, C.STITCH], [0, 0, C.COLOR_CHANGE], // bloco solto (unidade 0)
+    [1, 1, C.STITCH], [1, 1, C.STITCH], [1, 1, C.COLOR_CHANGE], // svg fill (bloco 1)
+    [2, 2, C.STITCH], [2, 2, C.STITCH], [2, 2, C.END], // svg contorno (bloco 2, ÚLTIMO: fecha com END)
+  ];
+  const blocks = [block(0, 3), block(3, 6), block(6, 9)];
+  const threads = [{ color: '#111' }, { color: '#222' }, { color: '#333' }];
+  // assignObjectRanges consome objects[] a partir do CURSOR 0 (ver
+  // cabeçalho do arquivo): pra o svg-shape cobrir blocks[1] e blocks[2] (não
+  // blocks[0]), a entrada solta do bloco 0 precisa vir PRIMEIRO em objects[]
+  // — o mesmo estado que normalizeObjects já produziria se rodasse antes.
+  const objects = [
+    ObjectModel.makeObject(ObjectModel.TYPES.STITCH_BLOCK, null, null, 1),
+    ObjectModel.makeObject('svg-shape', { svgText: '<svg/>' }, {}, 2),
+  ];
+
+  const result = ObjectModel.swapUnits(objects, blocks, stitches, threads, 0); // sobe o objeto svg pra 1ª posição
+  assert.ok(result);
+
+  assert.equal(
+    result.stitches[result.stitches.length - 1][2] & C.COMMAND_MASK,
+    C.END,
+    'o END continua sendo o último stitch do array inteiro, não fica preso no meio'
+  );
+  assert.equal(
+    result.stitches.filter((s) => (s[2] & C.COMMAND_MASK) === C.END).length,
+    1,
+    'exatamente 1 END no array inteiro'
+  );
+  assert.equal(result.stitches.length, stitches.length, 'total de agulhadas conservado');
+  assert.equal(result.objects.length, 2);
+  assert.equal(result.objects[0].type, 'svg-shape', 'o objeto svg-shape assumiu a posição 0 (subiu inteiro, com os 2 blocos)');
+  assert.equal(result.objects[1].type, ObjectModel.TYPES.STITCH_BLOCK, 'o bloco solto foi para a última posição');
+
+  // O bloco solto (agora último) precisa continuar íntegro: 2 agulhadas +
+  // o END herdado do svg-shape.
+  const blocksAfter = [];
+  {
+    let start = 0, ti = 0;
+    for (let i = 0; i < result.stitches.length; i++) {
+      if ((result.stitches[i][2] & C.COMMAND_MASK) === C.COLOR_CHANGE) {
+        blocksAfter.push({ threadIndex: ti, start, end: i + 1 });
+        ti++;
+        start = i + 1;
+      }
+    }
+    if (start < result.stitches.length) blocksAfter.push({ threadIndex: ti, start, end: result.stitches.length });
+  }
+  assert.equal(blocksAfter.length, 3, 'nenhum bloco sumiu ou surgiu');
+  assert.equal(blocksAfter[2].end, result.stitches.length);
+
+  // Round-trip: re-deriva e troca de novo (mesma posição 0) — restaura o
+  // desenho original exatamente, END incluído.
+  const blocks2 = blocksAfter;
+  const result2 = ObjectModel.swapUnits(result.objects, blocks2, result.stitches, result.threads, 0);
+  assert.deepEqual(result2.stitches, stitches, 'a segunda troca restaura os stitches originais (END de volta no fim)');
+  assert.deepEqual(result2.threads, threads);
+});
+
 // -------------------------------------------------------------------------- cloneObject
 
 test('cloneObject: clone profundo independente do original', () => {

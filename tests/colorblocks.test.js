@@ -400,8 +400,79 @@ test('swapAdjacentBlocks: primeiro bloco (upperIndex 0) troca corretamente quand
   assert.equal(threads[0].description, 'Azul', 'bloco 0 agora sedia o conteúdo (e a cor) do antigo bloco 1');
 });
 
-// Reproduz hasClosingColorChange (privada em ColorBlocks) o suficiente pra
-// verificar as bordas nos testes acima, sem expor a função interna.
+// Todo design de verdade (arquivo aberto ou gerado por texto/SVG) termina
+// com um stitch END de verdade (confirmado abrindo samples/rosacea.xxx: o
+// último stitch é sempre cmd=END) — as fixtures acima não tinham um só
+// pra manter os testes de borda focados no COLOR_CHANGE. Este bloco cobre
+// especificamente o END: sem o cuidado extra em hasClosingMarker/swapBlocks,
+// trocar o penúltimo bloco com o último relocaria o END pro MEIO do array
+// (preso ao antigo último bloco, que deixa de ser o último) e um
+// COLOR_CHANGE sobraria como o stitch final do arquivo inteiro — os dois
+// corrompendo qualquer leitura/exportação futura.
+function threeBlockDesignEndingInEND() {
+  const stitches = [];
+  for (let i = 0; i < 5; i++) stitches.push([i, i, C.STITCH]); // bloco 0: 5 pontos
+  stitches.push([5, 5, C.COLOR_CHANGE]);
+  for (let i = 0; i < 3; i++) stitches.push([i, i, C.STITCH]); // bloco 1: 3 pontos
+  stitches.push([9, 9, C.COLOR_CHANGE]);
+  for (let i = 0; i < 2; i++) stitches.push([i, i, C.STITCH]); // bloco 2 (último): 2 pontos
+  stitches.push([1, 1, C.END]); // fim de verdade do desenho
+  const threads = [{ color: '#c94f4f' }, { color: '#4f7dc9' }, { color: '#4fc98a' }];
+  return { stitches, threads };
+}
+
+test('swapAdjacentBlocks: troca o penúltimo com o último quando o último termina em END (não em COLOR_CHANGE)', () => {
+  const { stitches, threads } = threeBlockDesignEndingInEND();
+  const blocksBefore = deriveBlocks(stitches);
+  const totalBefore = totalStitchCount(blocksBefore);
+
+  const ok = ColorBlocks.swapAdjacentBlocks(stitches, threads, blocksBefore, 1); // troca bloco 1 (penúltimo) com bloco 2 (último)
+  assert.equal(ok, true);
+
+  // O END não pode sobrar no meio: o ÚLTIMO stitch do array inteiro precisa
+  // continuar sendo o END (relocado junto com o bloco 2, que sai da última
+  // posição), nunca um COLOR_CHANGE.
+  assert.equal(stitches[stitches.length - 1][2] & C.COMMAND_MASK, C.END, 'o END continua sendo o último stitch do arquivo, não fica preso no meio');
+  assert.equal(
+    stitches.filter((s) => (s[2] & C.COMMAND_MASK) === C.END).length,
+    1,
+    'exatamente 1 END no array inteiro (não duplicou nem sumiu)'
+  );
+
+  const blocksAfter = deriveBlocks(stitches);
+  assert.equal(blocksAfter.length, 3, 'nenhum bloco sumiu ou surgiu');
+  assert.equal(totalStitchCount(blocksAfter), totalBefore, 'total de pontos conservado (END contado como 1 "ponto" de comando, mas não stitch de fato)');
+
+  // O que passa a ser o último (antigo bloco 1, 3 pontos) herda o END.
+  assert.equal(blocksAfter[2].stitchCount, 3);
+  assert.equal(blocksAfter[2].end, stitches.length);
+
+  // O que sai da última posição (antigo bloco 2, 2 pontos) ganha um
+  // COLOR_CHANGE de fechamento (não o END, que foi embora com ele).
+  assert.equal(blocksAfter[1].stitchCount, 2);
+  assert.equal(hasClosingCC(stitches, blocksAfter[1]), true);
+});
+
+test('swapAdjacentBlocks + END: repetível — trocar de novo restaura o desenho original, END incluído', () => {
+  const { stitches, threads } = threeBlockDesignEndingInEND();
+  const stitchesOriginal = stitches.map((s) => s.slice());
+  const threadsOriginal = JSON.parse(JSON.stringify(threads));
+
+  let blocks = deriveBlocks(stitches);
+  ColorBlocks.swapAdjacentBlocks(stitches, threads, blocks, 1);
+  assert.notDeepEqual(stitches, stitchesOriginal);
+
+  blocks = deriveBlocks(stitches);
+  ColorBlocks.swapAdjacentBlocks(stitches, threads, blocks, 1);
+
+  assert.deepEqual(stitches, stitchesOriginal, 'restaura os stitches originais, com o END de volta no fim');
+  assert.deepEqual(threads, threadsOriginal);
+});
+
+// Confere especificamente um fechamento por COLOR_CHANGE (não por END) —
+// versão restrita de isClosingStitch/hasClosingMarker (privadas em
+// ColorBlocks), o suficiente pra verificar as bordas nos testes acima sem
+// expor as funções internas.
 function hasClosingCC(stitches, block) {
   if (block.end <= block.start) return false;
   return (stitches[block.end - 1][2] & C.COMMAND_MASK) === C.COLOR_CHANGE;
