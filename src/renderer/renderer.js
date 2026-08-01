@@ -1423,6 +1423,32 @@ async function saveAsExternal() {
   }
 }
 
+// Projeto nativo .bastidor (issue #29 fase 2): ao contrário de
+// saveAsExternal (formatos de máquina, só a projeção achatada), guarda
+// design.objects[] inteiro — é o que faz um redimensionamento paramétrico
+// continuar funcionando depois de reabrir (ver src/core/project.js).
+async function saveProjectFlow() {
+  if (!state.design) return;
+  const base = (state.design.name || 'projeto').replace(/\.[^.]+$/, '');
+  try {
+    const result = await window.api.projectSave(
+      {
+        name: state.design.name,
+        metadata: state.design.metadata || {},
+        threads: state.design.threads,
+        objects: state.design.objects || [],
+        stitches: state.design.stitches,
+      },
+      base + '.bastidor'
+    );
+    if (!result) return; // diálogo cancelado
+    const savedName = result.path.split('/').pop().split('\\').pop();
+    toast(tr('toast.projectSaved', { name: savedName }));
+  } catch (err) {
+    toast(tr('toast.projectError') + err.message, 'error', 5000);
+  }
+}
+
 async function exportPng() {
   if (!state.design) return;
   const base = (state.design.name || 'matriz').replace(/\.[^.]+$/, '');
@@ -1477,6 +1503,22 @@ async function openPath(p) {
     toast(tr('toast.openError') + err.message, 'error', 5000);
   }
   refreshEmptyRecents();
+}
+
+// Abrir um projeto .bastidor (issue #29 fase 2): design.objects[] chega
+// pronto do processo principal (src/core/project.js já valida o JSON);
+// setDesign() trata como qualquer outro design — os objetos ficam
+// disponíveis pro próximo redimensionamento paramétrico regenerar de verdade
+// (ver src/renderer/objects.js), sem precisar rodar nenhum gerador agora.
+async function openProjectFlow() {
+  try {
+    const design = await window.api.projectOpen();
+    if (!design) return; // diálogo cancelado
+    setDesign(design);
+    toast(tr('toast.projectOpened', { name: design.name || '' }));
+  } catch (err) {
+    toast(tr('toast.projectError') + err.message, 'error', 5000);
+  }
 }
 
 // --------------------------------------------------------------- configurações
@@ -3774,6 +3816,8 @@ function bindMenuAndKeys() {
       open: openViaDialog,
       'save-as': saveAs,
       'export-png': exportPng,
+      'save-project': saveProjectFlow,
+      'open-project': openProjectFlow,
       settings: openSettings,
       undo,
       redo,
@@ -3803,7 +3847,7 @@ function bindMenuAndKeys() {
       'update-error': () => toast(tr('update.error'), 'error', 5000),
     };
     const alwaysAvailable = [
-      'open', 'settings', 'formats', 'shortcuts', 'digitize-image',
+      'open', 'open-project', 'settings', 'formats', 'shortcuts', 'digitize-image',
       'update-checking', 'update-available', 'update-not-available', 'update-downloaded', 'update-error',
     ];
     if (state.design || alwaysAvailable.includes(action)) {

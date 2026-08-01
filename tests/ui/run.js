@@ -151,6 +151,7 @@ function buildFixtures(tmpRoot) {
     resizeBefore: path.join(tmpRoot, 'resize', 'before.xxx'),
     resizeAfter: path.join(tmpRoot, 'resize', 'after.xxx'),
     roundtripPath: path.join(tmpRoot, 'roundtrip', 'saved.xxx'),
+    projectPath: path.join(tmpRoot, 'project', 'projeto.bastidor'),
   };
 }
 
@@ -173,6 +174,10 @@ function buildScenarioDefs(fx) {
       ],
     },
     { name: 'text-object-resize', args: ['--dialog=text', '--lang=pt-BR'] },
+    {
+      name: 'project-roundtrip',
+      args: ['--dialog=text', '--lang=pt-BR', `--stub-project-path=${fx.projectPath}`],
+    },
     { name: 'library-dialog', args: ['--lang=pt-BR', `--library=${fx.libraryDir}`] },
     { name: 'drives-dialog', args: ['--lang=pt-BR', `--fake-drive=${fx.fakeDriveDir}`] },
   ];

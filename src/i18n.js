@@ -16,6 +16,8 @@ const STRINGS = {
     'menu.clearRecent': 'Clear recent',
     'menu.saveAs': 'Save As…',
     'menu.exportPng': 'Export PNG…',
+    'menu.saveProject': 'Save Project As… (.bastidor)',
+    'menu.openProject': 'Open Project… (.bastidor)',
     'menu.exit': 'Exit',
     'menu.edit': 'Edit',
     'menu.undo': 'Undo',
@@ -336,6 +338,16 @@ const STRINGS = {
     'dig.openError': 'Could not open image: ',
     'toast.digitized': 'Image digitized: {n} stitches, {c} colors',
 
+    // Native project format (issue #29 phase 2): objects + threads + params
+    // as JSON, so parametric editing (regenerate on resize) survives a
+    // save/reopen — machine formats stay flat exports, unaffected.
+    'dlg.saveProjectTitle': 'Save Bastidor project',
+    'dlg.openProjectTitle': 'Open Bastidor project',
+    'dlg.filterBastidor': 'Bastidor projects',
+    'toast.projectSaved': 'Project saved: {name}',
+    'toast.projectOpened': 'Project opened: {name}',
+    'toast.projectError': 'Project error: ',
+
     // Library manager (issue #17): browse the catalog by folder, with search,
     // filters, favorites and open/save-as integration.
     'lib.titleOpen': 'Library · Open design',
@@ -458,6 +470,8 @@ const STRINGS = {
     'menu.clearRecent': 'Limpar recentes',
     'menu.saveAs': 'Salvar como…',
     'menu.exportPng': 'Exportar PNG…',
+    'menu.saveProject': 'Salvar Projeto como… (.bastidor)',
+    'menu.openProject': 'Abrir Projeto… (.bastidor)',
     'menu.exit': 'Sair',
     'menu.edit': 'Editar',
     'menu.undo': 'Desfazer',
@@ -777,6 +791,17 @@ const STRINGS = {
     'dig.confirmReplace': 'Substituir a matriz aberta pela imagem digitalizada?',
     'dig.openError': 'Não foi possível abrir a imagem: ',
     'toast.digitized': 'Imagem digitalizada: {n} pontos, {c} cores',
+
+    // Formato de projeto nativo (issue #29 fase 2): objetos + fios + parâmetros
+    // em JSON, pra edição paramétrica (regenerar ao redimensionar) sobreviver
+    // a salvar/reabrir — formatos de máquina continuam exportação achatada,
+    // sem mudança.
+    'dlg.saveProjectTitle': 'Salvar projeto Bastidor',
+    'dlg.openProjectTitle': 'Abrir projeto Bastidor',
+    'dlg.filterBastidor': 'Projetos Bastidor',
+    'toast.projectSaved': 'Projeto salvo: {name}',
+    'toast.projectOpened': 'Projeto aberto: {name}',
+    'toast.projectError': 'Erro no projeto: ',
 
     // Gestão de biblioteca (issue #17): navegar o catálogo por pastas, com
     // busca, filtros, favoritos e integração com abrir/salvar como.
