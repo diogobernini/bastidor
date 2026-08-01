@@ -654,9 +654,11 @@ function drawStitches(c, project, scale, limit, opts) {
     if (cmd === STITCH || cmd === SEQUIN_EJECT) {
       const [sx, sy] = project(st[0], st[1]);
       if (!penDown || px === null) {
-        mainPath.moveTo(sx, sy);
-      } else {
-        mainPath.lineTo(sx, sy);
+        // Igual ao modo normal: o ponto parte da posição anterior (pós-salto).
+        mainPath.moveTo(px === null ? sx : px, py === null ? sy : py);
+      }
+      mainPath.lineTo(sx, sy);
+      if (px !== null) {
         const dx = sx - px;
         const dy = sy - py;
         const len = Math.hypot(dx, dy);
