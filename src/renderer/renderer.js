@@ -54,6 +54,7 @@ const state = {
     selection: { library: new Set(), drive: new Set() },
     cache: new Map(), // "caminho::mtime" -> {ok:true,design} | {ok:false,error} | Promise disso
   },
+  svgImport: null, // { path, text, name } aguardando os parâmetros do dialog
 };
 
 function bumpArt() {
@@ -1906,6 +1907,40 @@ function bindDialogs() {
   $('set-hooppreset').addEventListener('change', syncHoopCustomVisibility);
 }
 
+// --------------------------------------------------------------- importar SVG
+
+function handleSvgPicked(payload) {
+  if (state.design && !confirm(tr('svgimport.confirmReplace'))) return;
+  state.svgImport = payload;
+  $('svgimport-filename').textContent = payload.name;
+  $('dlg-svg-import').showModal();
+}
+
+async function applySvgImport() {
+  const picked = state.svgImport;
+  if (!picked) return;
+  const opts = {
+    fillSpacingMm: clampNum($('svgimport-spacing').value, 0.1, 2, 0.4),
+    fillAngleDeg: clampNum($('svgimport-angle').value, -180, 180, 0),
+    fillStitchMm: clampNum($('svgimport-fillstitch').value, 1, 8, 3),
+    outlineStitchMm: clampNum($('svgimport-outlinestitch').value, 0.5, 8, 2.5),
+    outline: $('svgimport-outline').checked,
+  };
+  try {
+    await window.api.importSvg({ text: picked.text, opts, name: picked.name, path: picked.path });
+    toast(tr('toast.svgImported', { name: picked.name }));
+  } catch (err) {
+    toast(tr('toast.svgImportError') + err.message, 'error', 5000);
+  }
+}
+
+function bindSvgImportDialog() {
+  window.api.onSvgPicked(handleSvgPicked);
+  $('svgimport-form').addEventListener('submit', (e) => {
+    if (e.submitter && e.submitter.value === 'apply') applySvgImport();
+  });
+}
+
 function bindMenuAndKeys() {
   window.api.onMenu((action) => {
     const actions = {
@@ -2007,6 +2042,7 @@ async function boot() {
   bindCanvas();
   bindToolbar();
   bindDialogs();
+  bindSvgImportDialog();
   bindMenuAndKeys();
   bindDragDrop();
   bindDrivesDialog();

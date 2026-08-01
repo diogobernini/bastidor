@@ -43,4 +43,7 @@ contextBridge.exposeInMainWorld('api', {
   deleteFromDrive: (paths, root) => ipcRenderer.invoke('drives:delete', { paths, root }),
   cleanHiddenFiles: (driveRoot) => ipcRenderer.invoke('drives:clean-hidden', driveRoot),
   openFromDrive: (filePath) => ipcRenderer.invoke('drives:open-design', filePath),
+  // Digitalização (importar SVG): main escolhe o arquivo e avisa o renderer.
+  onSvgPicked: (cb) => ipcRenderer.on('svg:picked', (e, payload) => cb(payload)),
+  importSvg: (payload) => ipcRenderer.invoke('svg:import', payload),
 });

@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Folha simples: um preenchimento (contorno) e um traço (nervuras). Usada
+     nos testes de digitalização (importSvg) e como exemplo de "Importar SVG". -->
+<svg xmlns="http://www.w3.org/2000/svg" width="50mm" height="60mm" viewBox="0 0 50 60">
+  <path d="M25,6 C40,16 46,36 25,56 C4,36 10,16 25,6 Z" fill="#2e7d32" stroke="none"/>
+  <path d="M25,52 C23,40 27,22 25,8 M25,42 C20,40 16,36 13,30 M25,34 C30,32 34,28 37,23"
+        fill="none" stroke="#1b5e20" stroke-width="0.6"/>
+</svg>
