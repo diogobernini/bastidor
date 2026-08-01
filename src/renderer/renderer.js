@@ -36,7 +36,14 @@ const state = {
   undoStack: [],
   dirty: false,
   renderQueued: false,
+  interacting: false, // pan/zoom em andamento (mouse/wheel)
+  artVersion: 0, // incrementa a cada mudança que afeta o desenho dos pontos
+  realisticCache: null, // canvas offscreen com a arte realista já desenhada
 };
+
+function bumpArt() {
+  state.artVersion++;
+}
 
 // --------------------------------------------------------------- i18n
 
@@ -205,6 +212,7 @@ function setDesign(design, opts = {}) {
   state.design = design;
   state.sim.playing = false;
   state.sim.pos = Infinity;
+  bumpArt();
   if (!opts.keepUndo) {
     state.undoStack = [];
     state.dirty = false;
@@ -252,6 +260,7 @@ function undo() {
   if (!snap) return;
   state.design.stitches = snap.stitches;
   state.design.threads = snap.threads;
+  bumpArt();
   if (state.undoStack.length === 0) $('t-undo').disabled = true;
   deriveBlocks();
   deriveStats();
@@ -302,6 +311,7 @@ function updateSidebar() {
       const t = state.design.threads[block.threadIndex];
       if (t) t.color = sw.value;
       else state.design.threads[block.threadIndex] = { color: sw.value };
+      bumpArt();
       updateSidebar();
       requestRender();
     });
@@ -509,6 +519,38 @@ function roundRect(c, x, y, w, h, r) {
   c.closePath();
 }
 
+// ------------------------------------------------------- realismo do fio
+
+// Ajustes da técnica de 3 passadas (base escura, corpo, brilho deslocado).
+const REALISTIC_DARK_AMOUNT = 0.35; // escurecimento da base larga
+const REALISTIC_LIGHT_AMOUNT = 0.45; // clareamento do brilho
+const REALISTIC_BASE_WIDTH_MUL = 1.15; // largura da base em relação ao fio
+const REALISTIC_GLOW_WIDTH_MUL = 0.25; // largura do brilho em relação ao fio
+const REALISTIC_GLOW_OFFSET_MUL = 0.3; // deslocamento perpendicular do brilho
+const REALISTIC_GLOW_ALPHA = 0.8;
+
+function hexToRgb(hex) {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex || '');
+  if (!m) return [200, 200, 200];
+  const num = parseInt(m[1], 16);
+  return [(num >> 16) & 255, (num >> 8) & 255, num & 255];
+}
+
+function clamp255(v) {
+  return Math.max(0, Math.min(255, Math.round(v)));
+}
+
+// Escurece/clareia uma cor hex no espaço RGB simples (sem HSL).
+function darkenColor(hex, amount) {
+  const [r, g, b] = hexToRgb(hex);
+  return `rgb(${clamp255(r * (1 - amount))}, ${clamp255(g * (1 - amount))}, ${clamp255(b * (1 - amount))})`;
+}
+
+function lightenColor(hex, amount) {
+  const [r, g, b] = hexToRgb(hex);
+  return `rgb(${clamp255(r + (255 - r) * amount)}, ${clamp255(g + (255 - g) * amount)}, ${clamp255(b + (255 - b) * amount)})`;
+}
+
 // Desenha os pontos até "limit" usando a função de projeção dada.
 // Compartilhado entre a tela e a exportação PNG.
 function drawStitches(c, project, scale, limit, opts) {
@@ -527,9 +569,84 @@ function drawStitches(c, project, scale, limit, opts) {
   let lastPos = null;
   const max = Math.min(limit, stitches.length);
 
-  c.strokeStyle = color;
-  c.lineWidth = lineWidth;
-  c.beginPath();
+  // ---- modo normal: um traço só por bloco de cor (rápido) ----
+  if (!opts.realistic) {
+    c.strokeStyle = color;
+    c.lineWidth = lineWidth;
+    c.beginPath();
+
+    for (let i = 0; i < max; i++) {
+      const st = stitches[i];
+      const cmd = st[2] & COMMAND_MASK;
+      if (cmd === STITCH || cmd === SEQUIN_EJECT) {
+        const [sx, sy] = project(st[0], st[1]);
+        if (!penDown || px === null) {
+          c.moveTo(px === null ? sx : px, py === null ? sy : py);
+          penDown = true;
+        }
+        c.lineTo(sx, sy);
+        px = sx;
+        py = sy;
+        lastPos = [sx, sy];
+      } else if (cmd === JUMP) {
+        const [sx, sy] = project(st[0], st[1]);
+        if (showJumps && px !== null) {
+          c.stroke();
+          c.save();
+          c.strokeStyle = 'rgba(155,152,143,0.5)';
+          c.lineWidth = Math.max(1, lineWidth * 0.4);
+          c.setLineDash([5, 4]);
+          c.beginPath();
+          c.moveTo(px, py);
+          c.lineTo(sx, sy);
+          c.stroke();
+          c.restore();
+          c.strokeStyle = color;
+          c.lineWidth = lineWidth;
+          c.beginPath();
+        }
+        penDown = false;
+        px = sx;
+        py = sy;
+        lastPos = [sx, sy];
+      } else if (cmd === TRIM || cmd === STOP) {
+        penDown = false;
+      } else if (cmd === COLOR_CHANGE) {
+        c.stroke();
+        colorCount++;
+        color = threadColor(colorCount);
+        c.strokeStyle = color;
+        c.lineWidth = lineWidth;
+        c.beginPath();
+        penDown = false;
+      }
+    }
+    c.stroke();
+    return lastPos;
+  }
+
+  // ---- modo realista: base escura + corpo + brilho deslocado (3 passadas) ----
+  const glowOffset = lineWidth * REALISTIC_GLOW_OFFSET_MUL;
+  const glowWidth = Math.max(lineWidth * REALISTIC_GLOW_WIDTH_MUL, 0.6);
+  let mainPath = new Path2D();
+  let glowPath = new Path2D();
+
+  const flush = () => {
+    c.strokeStyle = darkenColor(color, REALISTIC_DARK_AMOUNT);
+    c.lineWidth = lineWidth * REALISTIC_BASE_WIDTH_MUL;
+    c.stroke(mainPath);
+    c.strokeStyle = color;
+    c.lineWidth = lineWidth;
+    c.stroke(mainPath);
+    c.save();
+    c.globalAlpha = REALISTIC_GLOW_ALPHA;
+    c.strokeStyle = lightenColor(color, REALISTIC_LIGHT_AMOUNT);
+    c.lineWidth = glowWidth;
+    c.stroke(glowPath);
+    c.restore();
+    mainPath = new Path2D();
+    glowPath = new Path2D();
+  };
 
   for (let i = 0; i < max; i++) {
     const st = stitches[i];
@@ -537,17 +654,27 @@ function drawStitches(c, project, scale, limit, opts) {
     if (cmd === STITCH || cmd === SEQUIN_EJECT) {
       const [sx, sy] = project(st[0], st[1]);
       if (!penDown || px === null) {
-        c.moveTo(px === null ? sx : px, py === null ? sy : py);
-        penDown = true;
+        mainPath.moveTo(sx, sy);
+      } else {
+        mainPath.lineTo(sx, sy);
+        const dx = sx - px;
+        const dy = sy - py;
+        const len = Math.hypot(dx, dy);
+        if (len > 1e-6) {
+          const nx = (-dy / len) * glowOffset;
+          const ny = (dx / len) * glowOffset;
+          glowPath.moveTo(px + nx, py + ny);
+          glowPath.lineTo(sx + nx, sy + ny);
+        }
       }
-      c.lineTo(sx, sy);
+      penDown = true;
       px = sx;
       py = sy;
       lastPos = [sx, sy];
     } else if (cmd === JUMP) {
       const [sx, sy] = project(st[0], st[1]);
       if (showJumps && px !== null) {
-        c.stroke();
+        flush();
         c.save();
         c.strokeStyle = 'rgba(155,152,143,0.5)';
         c.lineWidth = Math.max(1, lineWidth * 0.4);
@@ -557,9 +684,6 @@ function drawStitches(c, project, scale, limit, opts) {
         c.lineTo(sx, sy);
         c.stroke();
         c.restore();
-        c.strokeStyle = color;
-        c.lineWidth = lineWidth;
-        c.beginPath();
       }
       penDown = false;
       px = sx;
@@ -568,17 +692,73 @@ function drawStitches(c, project, scale, limit, opts) {
     } else if (cmd === TRIM || cmd === STOP) {
       penDown = false;
     } else if (cmd === COLOR_CHANGE) {
-      c.stroke();
+      flush();
       colorCount++;
       color = threadColor(colorCount);
-      c.strokeStyle = color;
-      c.lineWidth = lineWidth;
-      c.beginPath();
       penDown = false;
     }
   }
-  c.stroke();
+  flush();
   return lastPos;
+}
+
+// Garante um canvas offscreen com a arte realista pronta para a view atual;
+// só refaz o desenho quando o design/view mudou e não há interação em curso.
+function ensureRealisticCache() {
+  if (!state.design) return null;
+  let cache = state.realisticCache;
+  const needFresh = !cache || cache.pxWidth !== canvas.width || cache.pxHeight !== canvas.height || cache.dpr !== dpr;
+  if (needFresh) {
+    const off = document.createElement('canvas');
+    off.width = canvas.width;
+    off.height = canvas.height;
+    cache = state.realisticCache = {
+      canvas: off,
+      pxWidth: canvas.width,
+      pxHeight: canvas.height,
+      dpr,
+      view: { scale: NaN, tx: NaN, ty: NaN },
+      artVersion: NaN,
+    };
+  }
+  const viewChanged =
+    cache.view.scale !== state.view.scale || cache.view.tx !== state.view.tx || cache.view.ty !== state.view.ty;
+  const contentChanged = cache.artVersion !== state.artVersion;
+  if (!state.interacting && (needFresh || viewChanged || contentChanged)) {
+    const octx = cache.canvas.getContext('2d');
+    octx.setTransform(1, 0, 0, 1, 0, 0);
+    octx.clearRect(0, 0, cache.canvas.width, cache.canvas.height);
+    octx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    drawStitches(octx, toScreen, state.view.scale, state.design.stitches.length, {
+      showJumps: state.settings.view.showJumps,
+      minLineWidth: 1.1,
+      realistic: true,
+    });
+    cache.view = { scale: state.view.scale, tx: state.view.tx, ty: state.view.ty };
+    cache.artVersion = state.artVersion;
+  }
+  return cache;
+}
+
+// Compõe a arte realista cacheada na tela. Enquanto o usuário arrasta/dá
+// zoom, reaproveita o bitmap antigo com um transform barato (sem redesenhar
+// os pontos) para manter a interação fluida mesmo em designs grandes.
+function renderRealisticCached() {
+  const cache = ensureRealisticCache();
+  if (!cache) return;
+  const matches =
+    cache.view.scale === state.view.scale && cache.view.tx === state.view.tx && cache.view.ty === state.view.ty;
+  ctx.save();
+  if (matches) {
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+  } else {
+    const k = state.view.scale / cache.view.scale;
+    const offsetX = dpr * (state.view.tx - k * cache.view.tx);
+    const offsetY = dpr * (state.view.ty - k * cache.view.ty);
+    ctx.setTransform(k, 0, 0, k, offsetX, offsetY);
+  }
+  ctx.drawImage(cache.canvas, 0, 0);
+  ctx.restore();
 }
 
 function render() {
@@ -592,13 +772,22 @@ function render() {
   drawHoop();
 
   if (state.design) {
-    const limit = state.sim.pos === Infinity ? state.design.stitches.length : Math.floor(state.sim.pos);
-    const needle = drawStitches(ctx, toScreen, state.view.scale, limit, {
-      showJumps: state.settings.view.showJumps,
-      minLineWidth: 1.1,
-    });
+    const simming = state.sim.pos !== Infinity;
+    const limit = simming ? Math.floor(state.sim.pos) : state.design.stitches.length;
+    const realistic = !!state.settings.view.realistic;
+    let needle = null;
+    if (realistic && !simming) {
+      // Fora da simulação dá pra cachear a arte (ver ensureRealisticCache).
+      renderRealisticCached();
+    } else {
+      needle = drawStitches(ctx, toScreen, state.view.scale, limit, {
+        showJumps: state.settings.view.showJumps,
+        minLineWidth: 1.1,
+        realistic,
+      });
+    }
     // Agulha na simulação.
-    if (state.sim.pos !== Infinity && needle) {
+    if (simming && needle) {
       ctx.strokeStyle = '#e8a13d';
       ctx.lineWidth = 1.6;
       ctx.beginPath();
@@ -667,6 +856,7 @@ function applyToStitches(fn) {
     st[0] = x;
     st[1] = y;
   }
+  bumpArt();
   deriveStats();
   updateSidebar();
   updateStatusbar();
@@ -761,6 +951,7 @@ async function exportPng() {
     drawStitches(oc, (x, y) => [x * scale + tx, y * scale + ty], scale, Infinity, {
       showJumps: false,
       minLineWidth: 1,
+      realistic: !!state.settings.view.realistic,
     });
     await window.api.writePng(filePath, off.toDataURL('image/png'));
     toast(tr('toast.exported') + filePath.split('/').pop());
@@ -807,6 +998,7 @@ function settingsToForm() {
   $('set-background').value = s.view.background;
   $('set-threadwidth').value = s.view.threadWidthMm;
   $('set-showjumps').checked = s.view.showJumps;
+  $('set-realistic').checked = s.view.realistic;
   $('set-simspeed').value = s.sim.stitchesPerSecond;
   $('set-hoopshow').checked = s.hoop.show;
   $('set-hooppreset').value = s.hoop.preset;
@@ -839,6 +1031,7 @@ function formToSettings() {
       background: $('set-background').value,
       threadWidthMm: clampNum($('set-threadwidth').value, 0.1, 1.5, 0.4),
       showJumps: $('set-showjumps').checked,
+      realistic: $('set-realistic').checked,
     },
     sim: { stitchesPerSecond: clampNum($('set-simspeed').value, 50, 5000, 600) },
     hoop: { show: $('set-hoopshow').checked, preset: presetKey, width, height },
@@ -882,6 +1075,7 @@ function openSettings() {
 async function applySettingsFromForm() {
   const result = await window.api.setSettings(formToSettings());
   state.settings = result.settings;
+  bumpArt(); // espessura do fio, saltos ou modo realista podem ter mudado
   const langChanged = result.lang !== state.lang;
   state.lang = result.lang;
   if (langChanged) applyI18n();
@@ -905,13 +1099,22 @@ function bindCanvas() {
   const wrap = $('canvas-wrap');
   new ResizeObserver(resizeCanvas).observe(wrap);
 
+  let wheelIdleTimer = null;
   canvas.addEventListener('wheel', (e) => {
     e.preventDefault();
     const rect = canvas.getBoundingClientRect();
     const cx = e.clientX - rect.left;
     const cy = e.clientY - rect.top;
     const factor = Math.exp(-e.deltaY * (e.ctrlKey ? 0.008 : 0.0016));
+    // Marca interação para o cache do modo realista (ver ensureRealisticCache):
+    // evita redesenhar a arte a cada evento de wheel, só quando ele parar.
+    state.interacting = true;
     zoomAt(cx, cy, factor);
+    clearTimeout(wheelIdleTimer);
+    wheelIdleTimer = setTimeout(() => {
+      state.interacting = false;
+      requestRender();
+    }, 180);
   }, { passive: false });
 
   let panning = false;
@@ -919,6 +1122,7 @@ function bindCanvas() {
   let lastY = 0;
   canvas.addEventListener('pointerdown', (e) => {
     panning = true;
+    state.interacting = true;
     lastX = e.clientX;
     lastY = e.clientY;
     canvas.classList.add('panning');
@@ -940,6 +1144,10 @@ function bindCanvas() {
   const stopPan = (e) => {
     panning = false;
     canvas.classList.remove('panning');
+    if (state.interacting) {
+      state.interacting = false;
+      requestRender(); // reconstrói o cache realista já parado, com nitidez
+    }
   };
   canvas.addEventListener('pointerup', stopPan);
   canvas.addEventListener('pointercancel', stopPan);
@@ -998,6 +1206,7 @@ function bindToolbar() {
   for (const [id, get, set] of toggles) {
     $(id).addEventListener('click', async () => {
       set(!get());
+      bumpArt(); // saltos afetam o desenho; grade/bastidor são inofensivos aqui
       syncToggleButtons();
       requestRender();
       await window.api.setSettings(state.settings);
