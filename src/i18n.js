@@ -394,6 +394,43 @@ const STRINGS = {
     'update.available': 'A new version is available and is downloading…',
     'update.downloaded': 'Update downloaded. It will install the next time you quit Bastidor.',
     'update.error': 'Could not check for updates',
+    // Keyboard shortcuts dialog (issue #38): "?" / Shift+/, and Help menu.
+    // The table itself lives in src/renderer/renderer.js (SHORTCUTS); these
+    // are just the labels it looks up.
+    'menu.shortcuts': 'Keyboard shortcuts',
+    'shortcuts.title': 'Keyboard shortcuts',
+    'shortcuts.hKeys': 'Shortcut',
+    'shortcuts.hDesc': 'Action',
+    'shortcuts.hContext': 'Context',
+    'shortcuts.ctxGlobal': 'Global',
+    'shortcuts.ctxEdit': 'Point editing',
+    'shortcuts.ctxDialog': 'Dialogs',
+    'shortcuts.desc.sim': 'Play/pause the stitch simulation',
+    'shortcuts.desc.edit': 'Toggle point editing mode',
+    'shortcuts.desc.grid': 'Toggle the grid',
+    'shortcuts.desc.hoop': 'Toggle the hoop',
+    'shortcuts.desc.jumps': 'Toggle jump lines',
+    'shortcuts.desc.fit': 'Fit the design to the screen',
+    'shortcuts.desc.zoomIn': 'Zoom in',
+    'shortcuts.desc.zoomOut': 'Zoom out',
+    'shortcuts.desc.insertPoint': 'Insert a point after the selected one',
+    'shortcuts.desc.nudgePoint': 'Move the selected point (1 unit)',
+    'shortcuts.desc.nudgePoint10': 'Move the selected point (10 units)',
+    'shortcuts.desc.deletePoint': 'Delete the selected point',
+    'shortcuts.desc.deselectPoint': 'Deselect the point',
+    'shortcuts.desc.closeDialog': 'Close the dialog',
+    'shortcuts.desc.open': 'Open a design',
+    'shortcuts.desc.saveAs': 'Save as',
+    'shortcuts.desc.exportPng': 'Export PNG',
+    'shortcuts.desc.resize': 'Resize',
+    'shortcuts.desc.undo': 'Undo',
+    'shortcuts.desc.settings': 'Settings',
+    'shortcuts.desc.help': 'Show this shortcuts dialog',
+
+    // Configurable machine speed (issue #38): used by the library's
+    // "sewing ≈" estimate (src/core/sewtime.js), which used to be a fixed
+    // 600 spm constant in the renderer.
+    'set.machineSpeed': 'Machine speed (stitches/min)',
   },
 
   'pt-BR': {
@@ -788,6 +825,43 @@ const STRINGS = {
     'update.available': 'Uma nova versão está disponível e está sendo baixada…',
     'update.downloaded': 'Atualização baixada. Será instalada na próxima vez que o Bastidor for encerrado.',
     'update.error': 'Não foi possível buscar atualizações',
+    // Diálogo de atalhos de teclado (issue #38): "?" / Shift+/, e menu Ajuda.
+    // A tabela em si fica em src/renderer/renderer.js (SHORTCUTS); estas são
+    // só as legendas que ela busca.
+    'menu.shortcuts': 'Atalhos de teclado',
+    'shortcuts.title': 'Atalhos de teclado',
+    'shortcuts.hKeys': 'Atalho',
+    'shortcuts.hDesc': 'Ação',
+    'shortcuts.hContext': 'Contexto',
+    'shortcuts.ctxGlobal': 'Global',
+    'shortcuts.ctxEdit': 'Edição de pontos',
+    'shortcuts.ctxDialog': 'Diálogos',
+    'shortcuts.desc.sim': 'Simular/pausar o bordado',
+    'shortcuts.desc.edit': 'Ativar/desativar a edição de pontos',
+    'shortcuts.desc.grid': 'Mostrar/ocultar a grade',
+    'shortcuts.desc.hoop': 'Mostrar/ocultar o bastidor',
+    'shortcuts.desc.jumps': 'Mostrar/ocultar linhas de salto',
+    'shortcuts.desc.fit': 'Ajustar a matriz à tela',
+    'shortcuts.desc.zoomIn': 'Aproximar',
+    'shortcuts.desc.zoomOut': 'Afastar',
+    'shortcuts.desc.insertPoint': 'Inserir um ponto após o selecionado',
+    'shortcuts.desc.nudgePoint': 'Mover o ponto selecionado (1 unidade)',
+    'shortcuts.desc.nudgePoint10': 'Mover o ponto selecionado (10 unidades)',
+    'shortcuts.desc.deletePoint': 'Apagar o ponto selecionado',
+    'shortcuts.desc.deselectPoint': 'Desselecionar o ponto',
+    'shortcuts.desc.closeDialog': 'Fechar o diálogo',
+    'shortcuts.desc.open': 'Abrir matriz',
+    'shortcuts.desc.saveAs': 'Salvar como',
+    'shortcuts.desc.exportPng': 'Exportar PNG',
+    'shortcuts.desc.resize': 'Redimensionar',
+    'shortcuts.desc.undo': 'Desfazer',
+    'shortcuts.desc.settings': 'Configurações',
+    'shortcuts.desc.help': 'Mostrar este diálogo de atalhos',
+
+    // Velocidade de máquina configurável (issue #38): usada na estimativa
+    // "confecção ≈" da biblioteca (src/core/sewtime.js), que antes era uma
+    // constante fixa de 600 spm no renderer.
+    'set.machineSpeed': 'Velocidade da máquina (agulhadas/min)',
   },
 };
 

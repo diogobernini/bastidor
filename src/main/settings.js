@@ -26,6 +26,10 @@ const DEFAULTS = {
     realistic: false,
   },
   sim: { stitchesPerSecond: 600 },
+  // Velocidade real da máquina (issue #38), usada na estimativa "confecção ≈"
+  // da biblioteca — diferente de sim.stitchesPerSecond, que é só a velocidade
+  // da simulação na tela.
+  machine: { speedSpm: 650 },
   write: {
     maxStitchMm: 12.1,
     limitStitchLength: false,

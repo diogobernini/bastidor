@@ -185,6 +185,10 @@
           <span data-i18n="set.simSpeed">Velocidade padrão da simulação (pts/s)</span>
           <input type="number" id="set-simspeed" min="50" max="5000" step="50" />
         </label>
+        <label class="row">
+          <span data-i18n="set.machineSpeed">Velocidade da máquina (agulhadas/min)</span>
+          <input type="number" id="set-machinespeed" min="100" max="2000" step="10" />
+        </label>
       </div>
 
       <div class="tab-pane" data-tab="hoop" hidden>
@@ -426,6 +430,26 @@
     </div>
   </dialog>
 
+  <!-- Diálogo de atalhos de teclado (issue #38): tecla "?" / Shift+/ e menu
+       Ajuda. A tabela abaixo (tbody vazio) é preenchida a partir da fonte
+       única SHORTCUTS em renderer.js (renderShortcutsTable); os bindings de
+       verdade ficam em bindMenuAndKeys (mesmo arquivo) e nos accelerators do
+       menu Electron (src/main/main.js). -->
+  <dialog id="dlg-shortcuts">
+    <h2 data-i18n="shortcuts.title">Atalhos de teclado</h2>
+    <table class="shortcuts">
+      <thead><tr>
+        <th data-i18n="shortcuts.hKeys">Atalho</th>
+        <th data-i18n="shortcuts.hDesc">Ação</th>
+        <th data-i18n="shortcuts.hContext">Contexto</th>
+      </tr></thead>
+      <tbody id="shortcuts-body"></tbody>
+    </table>
+    <div class="dlg-actions">
+      <form method="dialog"><button class="tb-btn accent" data-i18n="drv.close">Fechar</button></form>
+    </div>
+  </dialog>
+
   <dialog id="dlg-drives" class="wide">
     <div class="drives-head">
       <h2 data-i18n="drv.title">Gestão de pendrive</h2>
@@ -653,6 +677,8 @@
 
   <script src="../core/densityscale.js"></script>
   <script src="../core/spatial.js"></script>
+  <script src="../core/viewportclamp.js"></script>
+  <script src="../core/sewtime.js"></script>
   <script src="renderer.js"></script>
 </body>
 </html>
