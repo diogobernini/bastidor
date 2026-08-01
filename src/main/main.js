@@ -495,7 +495,12 @@ function setupIpc() {
     // preview: o dialog quer só olhar o resultado; nada de design:opened.
     if (preview) return { ok: true, widthMm, heightMm, design };
     sendToRenderer('design:opened', design);
-    return { ok: true, stitches: pattern.countStitches(), widthMm, heightMm };
+    // `design` vai também na resposta direta da invocação (além do canal
+    // "design:opened"): quem chamou (applySvgImport) usa isso pra registrar
+    // o objeto paramétrico (issue #29 fase 2, threads.length = nº de cores)
+    // sem depender da ordem de entrega entre o canal de evento e a resposta
+    // do invoke.
+    return { ok: true, stitches: pattern.countStitches(), widthMm, heightMm, design };
   });
 
   // Lettering (issue #7): fontes de traço único em fonts/, layout e pontos

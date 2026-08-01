@@ -1,35 +1,56 @@
 'use strict';
-// Modo de seleção de objetos (issue #29, fase 1): trata os blocos de cor do
-// desenho (ver deriveBlocks em renderer.js) como objetos Inkscape-like —
-// clicar seleciona (bbox + 8 alças), arrastar move, alças redimensionam
-// (proporcional por padrão, livre com Alt), Delete apaga, Esc desseleciona.
-// Fases 2/3 (modelo paramétrico, .bastidor, rotação/multi-seleção) ficam de
-// fora de propósito.
+// Modo de seleção de objetos (issue #29).
+//
+// Fase 1 (na main): trata os blocos de cor do desenho (ver deriveBlocks em
+// renderer.js) como objetos Inkscape-like — clicar seleciona (bbox + 8
+// alças), arrastar move, alças redimensionam (proporcional por padrão, livre
+// com Alt), Delete apaga, Esc desseleciona. Redimensionar escala as
+// coordenadas do bloco (mantendo densidade via src/core/densityscale.js).
+//
+// Fase 2 (este arquivo): as ferramentas paramétricas (texto, importação de
+// SVG, digitalização de imagem) passam a registrar um OBJETO em
+// design.objects[] — o `source` (payload paramétrico) e os `stitchParams`
+// usados na inserção, ver src/core/objectmodel.js. Um objeto pode ocupar
+// vários blocos de cor consecutivos (ex.: SVG com preenchimento + contorno).
+// Redimensionar PROPORCIONALMENTE um objeto com `source` roda o MESMO
+// gerador de novo (window.api.letteringBuild/importSvg/digitizeGenerate) com
+// o tamanho-alvo ajustado pelo fator do gesto — densidade/espaçamento/
+// comprimento de ponto continuam exatamente como configurados, em vez de
+// escalar coordenadas. Redimensionar LIVRE (Alt) e mover continuam no
+// caminho antigo (fase 1: escala de coordenadas + guarda de espaçamento),
+// porque nenhum dos três geradores aceita controle independente por eixo.
+// Blocos sem objeto associado (arquivo de máquina aberto) também continuam
+// no caminho antigo — "stitch-block" da issue é isso: opaco, sem source.
 //
 // Carregado por <script> ANTES de renderer.js (depois de densityscale.js,
-// spatial.js e minspacing.js): tudo fica dentro desta IIFE — script clássico
-// compartilha o escopo global da página, e identificadores como `state`,
-// `api` ou `COMMAND_MASK` já existem em renderer.js/preload.js. Só
-// "window.ObjectCanvas" escapa. renderer.js só tem os ganchos mínimos
+// spatial.js, minspacing.js e objectmodel.js): tudo fica dentro desta IIFE —
+// script clássico compartilha o escopo global da página, e identificadores
+// como `state`, `api` ou `COMMAND_MASK` já existem em renderer.js/preload.js.
+// Só "window.ObjectCanvas" escapa. renderer.js só tem os ganchos mínimos
 // (pointerdown/pointermove/pointerup/render/keydown) chamando os métodos
-// abaixo; toda a lógica de gesto, hit-test e desenho do overlay mora aqui.
+// abaixo, mais os pontos de registro de objeto nas próprias ferramentas
+// (insertTextDesign/applySvgImport/confirmDigitize) — ver relatório da
+// tarefa para a lista exata. Toda a lógica de gesto, hit-test, regeneração e
+// desenho do overlay mora aqui.
 //
 // A ponte com o estado "vivo" do renderer (state, toScreen/toDesign, canvas,
 // snapshotUndo, deriveBlocks, afterPointMutation, setEditMode, simReset, tr,
-// updateToolbarEnabled) é injetada explicitamente por ObjectCanvas.init(...)
-// dentro de boot() — em vez de depender da ordem de carregamento dos
-// scripts, o que funcionaria (const de nível de topo de um script clássico
-// entra no ambiente léxico global, visível a qualquer código que rode
-// depois) mas seria implícito e frágil a reordenações futuras.
+// updateToolbarEnabled, decodeDataURLImage) é injetada explicitamente por
+// ObjectCanvas.init(...) dentro de boot() — em vez de depender da ordem de
+// carregamento dos scripts, o que funcionaria (const de nível de topo de um
+// script clássico entra no ambiente léxico global, visível a qualquer código
+// que rode depois) mas seria implícito e frágil a reordenações futuras (ver
+// issue #33, reestruturação de renderer.js em paralelo).
 
 (function () {
   // spatial.js só expõe o identificador léxico "Spatial" (const de topo de
   // um script clássico), não window.Spatial como densityscale.js/
-  // minspacing.js — por isso o fallback do navegador aqui lê o identificador
-  // global direto (spatial.js já rodou, carrega antes no index.html), e não
-  // "window.Spatial". De propósito, nenhuma variável chamada "Spatial" é
-  // declarada neste arquivo: sombrear o identificador quebraria essa leitura
-  // (o "const" local ainda não estaria inicializado nesse ponto).
+  // minspacing.js/objectmodel.js — por isso o fallback do navegador aqui lê
+  // o identificador global direto (spatial.js já rodou, carrega antes no
+  // index.html), e não "window.Spatial". De propósito, nenhuma variável
+  // chamada "Spatial" é declarada neste arquivo: sombrear o identificador
+  // quebraria essa leitura (o "const" local ainda não estaria inicializado
+  // nesse ponto).
   function resolveSpatial() {
     if (typeof module !== 'undefined' && module.exports) return require('../core/spatial.js');
     if (typeof Spatial !== 'undefined') return Spatial;
@@ -40,13 +61,20 @@
     if (typeof module !== 'undefined' && module.exports) return require('../core/minspacing.js');
     return null;
   }
+  function resolveObjectModel() {
+    if (typeof window !== 'undefined' && window.ObjectModel) return window.ObjectModel;
+    if (typeof module !== 'undefined' && module.exports) return require('../core/objectmodel.js');
+    return null;
+  }
   const SpatialLib = resolveSpatial();
   const MinSpacing = resolveMinSpacing();
+  const ObjectModel = resolveObjectModel();
 
   // Duplicados localmente (mesma convenção de spatial.js/densityscale.js):
   // evita depender da ordem de carregamento pras constantes de comando.
   const STITCH_CMD = 0;
   const JUMP_CMD = 1;
+  const END_CMD = 5;
   const SEQUIN_EJECT_CMD = 7;
   const COMMAND_MASK = 0xff;
 
@@ -68,9 +96,10 @@
 
   const oc = {
     active: false,
-    selected: -1, // índice em host.state.blocks, ou -1
+    selected: -1, // índice em host.state.blocks (bloco "âncora", ver currentUnit), ou -1
     drag: null, // gesto em andamento (mover/redimensionar), ver startMoveDrag/startResizeDrag
     pendingWarning: null, // mensagem da guarda de espaçamento mínimo (side bar), ou null
+    regenerating: false, // true enquanto uma regeneração paramétrica está em voo (issue #29 fase 2)
   };
 
   // ------------------------------------------------------------- geometria pura
@@ -208,8 +237,10 @@
     return oc.pendingWarning;
   }
 
-  // Só leitura: índice do bloco selecionado (-1 se nenhum). Usado pela
-  // barra de status/depuração e pelo harness de verificação (issue #29).
+  // Só leitura: índice do bloco "âncora" selecionado (-1 se nenhum) — o
+  // bloco onde o usuário clicou, não necessariamente o primeiro bloco do
+  // objeto (ver currentUnit para a faixa inteira). Usado pela barra de
+  // status/depuração e pelo harness de verificação (issue #29).
   function selectedIndex() {
     return oc.selected;
   }
@@ -230,10 +261,15 @@
     host.requestRender();
   }
 
-  function selectedBlock() {
+  // Unidade de manipulação do bloco selecionado no momento: a faixa inteira
+  // de um objeto paramétrico (issue #29 fase 2, possivelmente vários blocos
+  // de cor) quando o bloco pertence a um, ou o bloco sozinho (fase 1,
+  // "stitch-block" — arquivo de máquina aberto ou objeto dessincronizado).
+  // Devolve null se não há seleção válida. Ver ObjectModel.findUnit.
+  function currentUnit() {
     const state = host.state;
     if (!state.design || oc.selected < 0 || oc.selected >= state.blocks.length) return null;
-    return state.blocks[oc.selected];
+    return ObjectModel.findUnit(state.design.objects || [], state.blocks, oc.selected);
   }
 
   // ------------------------------------------------------------------- gestos
@@ -244,16 +280,16 @@
   }
 
   function onPointerDown(e) {
-    if (!oc.active || !host || !host.state.design) return false;
+    if (!oc.active || !host || !host.state.design || oc.regenerating) return false;
     const state = host.state;
     const [sx, sy] = clientToCanvas(e);
 
-    const block = selectedBlock();
-    if (block) {
-      const bbox = computeBBox(state.design.stitches, block.start, block.end);
+    const unit = currentUnit();
+    if (unit) {
+      const bbox = computeBBox(state.design.stitches, unit.start, unit.end);
       const handle = bbox && hitHandle(bbox, sx, sy, host.toScreen);
       if (handle) {
-        startResizeDrag(handle, block, bbox, sx, sy);
+        startResizeDrag(handle, unit, bbox, sx, sy);
         host.canvas.setPointerCapture(e.pointerId);
         return true;
       }
@@ -272,35 +308,43 @@
       return false;
     }
     selectBlock(blockIndex);
-    const picked = state.blocks[blockIndex];
-    startMoveDrag(picked, sx, sy);
+    const pickedUnit = currentUnit();
+    startMoveDrag(pickedUnit, sx, sy);
     host.canvas.setPointerCapture(e.pointerId);
     return true;
   }
 
-  function startMoveDrag(block, sx, sy) {
+  function startMoveDrag(unit, sx, sy) {
     const [startX, startY] = host.toDesign(sx, sy);
     oc.drag = {
       kind: 'move',
       moved: false,
-      blockStart: block.start,
-      blockEnd: block.end,
-      origSegment: sliceCopy(host.state.design.stitches, block.start, block.end),
+      start: unit.start,
+      end: unit.end,
+      object: unit.object,
+      unitBlockStart: unit.blockStart,
+      unitBlockEnd: unit.blockEnd,
+      origSegment: sliceCopy(host.state.design.stitches, unit.start, unit.end),
+      origBBox: computeBBox(host.state.design.stitches, unit.start, unit.end),
       startDesign: [startX, startY],
       liveTransform: null,
     };
     host.canvas.style.cursor = 'move';
   }
 
-  function startResizeDrag(handle, block, bbox, sx, sy) {
+  function startResizeDrag(handle, unit, bbox, sx, sy) {
     const [startX, startY] = host.toDesign(sx, sy);
     oc.drag = {
       kind: 'resize',
       handle,
       moved: false,
-      blockStart: block.start,
-      blockEnd: block.end,
-      origSegment: sliceCopy(host.state.design.stitches, block.start, block.end),
+      start: unit.start,
+      end: unit.end,
+      object: unit.object,
+      unitBlockStart: unit.blockStart,
+      unitBlockEnd: unit.blockEnd,
+      origSegment: sliceCopy(host.state.design.stitches, unit.start, unit.end),
+      origBBox: bbox,
       startDesign: [startX, startY],
       pivot: handlePoint(bbox, OPPOSITE[handle]),
       handleStart: handlePoint(bbox, handle),
@@ -311,15 +355,15 @@
 
   // Aplica uma transformação barata (sem reconstrução de densidade) direto
   // no array vivo, só para a prévia visual durante o arraste. A regeneração
-  // "de verdade" (densidade + guarda de espaçamento) só acontece ao soltar,
-  // em finalizeDrag — ver regenerateBlock em src/core/minspacing.js.
+  // "de verdade" (paramétrica ou densidade + guarda de espaçamento) só
+  // acontece ao soltar, em finalizeDrag/onPointerUp.
   function applyLiveTransform(drag, transform) {
     const stitches = host.state.design.stitches;
     const seg = drag.origSegment;
     const { dx, dy, scaleX, scaleY, pivot } = transform;
     for (let i = 0; i < seg.length; i++) {
       const s = seg[i];
-      const dst = stitches[drag.blockStart + i];
+      const dst = stitches[drag.start + i];
       dst[0] = Math.round(pivot[0] + (s[0] - pivot[0]) * scaleX + dx);
       dst[1] = Math.round(pivot[1] + (s[1] - pivot[1]) * scaleY + dy);
     }
@@ -357,6 +401,134 @@
     return true;
   }
 
+  // Confirma o gesto pelo caminho ANTIGO (fase 1): escala de coordenadas do
+  // trecho + guarda de espaçamento mínimo. Usado para mover (nunca muda
+  // densidade, só translada), redimensionar livre/Alt (nenhum gerador aceita
+  // eixos independentes) e qualquer bloco sem objeto paramétrico associado.
+  // Também serve de FALLBACK se a regeneração paramétrica falhar ou sair
+  // com uma contagem de cores diferente da esperada (ver regenerateParametric).
+  function commitLegacyTransform(drag, transform) {
+    const state = host.state;
+    const minSpacingMm = (state.settings.write && state.settings.write.minSpacingMm) || 0;
+    const minSpacingUnits = minSpacingMm * 10; // unidades do design = 0,1 mm
+    const { stitches: regenerated, removed } = MinSpacing.regenerateBlock(drag.origSegment, transform, { minSpacingUnits });
+
+    // slice+concat em vez de splice(...array): evita espalhar um array
+    // grande como argumentos individuais para objetos com muitas agulhadas.
+    const all = state.design.stitches;
+    state.design.stitches = all.slice(0, drag.start).concat(regenerated, all.slice(drag.end));
+
+    host.deriveBlocks(); // mover/redimensionar não muda a quantidade de blocos, mas os índices são recalculados do zero
+    oc.pendingWarning = removed > 0 ? host.tr('objects.warnMinSpacing', { n: removed }) : null;
+    host.afterPointMutation();
+  }
+
+  // Remove um eventual C.END (5) do FIM do trecho: o gerador paramétrico
+  // sempre produz um Pattern autocontido (pattern.end() grava um END), mas
+  // um END só pode existir na última posição do design INTEIRO — o mesmo
+  // ajuste que insertTextDesign já faz em renderer.js ao emendar texto.
+  function stripTrailingEnd(stitches) {
+    if (stitches.length && (stitches[stitches.length - 1][2] & COMMAND_MASK) === END_CMD) {
+      return stitches.slice(0, -1);
+    }
+    return stitches;
+  }
+
+  // Roda o gerador de verdade (issue #29 fase 2) para um objeto paramétrico
+  // redimensionado PROPORCIONALMENTE: recalcula os parâmetros com o novo
+  // tamanho-alvo (ObjectModel.resizedXParams — densidade/espaçamento
+  // continuam os mesmos), chama a MESMA API que a inserção original usou,
+  // realinha o resultado (centralizado na convenção do gerador) ao
+  // retângulo-alvo que o usuário desenhou arrastando a alça, roda a guarda
+  // de espaçamento mínimo e substitui o trecho antigo. Se qualquer coisa
+  // falhar ou sair inconsistente (nº de cores mudou), cai no caminho antigo
+  // (commitLegacyTransform) — o gesto nunca fica "pendurado" sem efeito.
+  async function regenerateParametric(drag, transform) {
+    const object = drag.object;
+    const factor = transform.scaleX; // proporcional garantido por ObjectModel.canRegenerate
+    const designRef = host.state.design; // ver comentário abaixo sobre corrida
+    oc.regenerating = true;
+    host.updateToolbarEnabled();
+
+    try {
+      let newDesign = null;
+      let newStitchParams = null;
+
+      if (object.type === ObjectModel.TYPES.TEXT) {
+        newStitchParams = ObjectModel.resizedTextParams(object.stitchParams, factor);
+        const res = await window.api.letteringBuild(Object.assign({}, object.source, newStitchParams));
+        if (res && res.ok && res.design.stitches.length) newDesign = res.design;
+      } else if (object.type === ObjectModel.TYPES.SVG_SHAPE) {
+        newStitchParams = ObjectModel.resizedSvgParams(object.stitchParams, factor);
+        const res = await window.api.importSvg({
+          text: object.source.svgText,
+          opts: newStitchParams,
+          name: object.source.name,
+          path: object.source.path,
+          preview: true,
+        });
+        if (res && res.ok && res.design.stitches.length) newDesign = res.design;
+      } else if (object.type === ObjectModel.TYPES.RASTER_TRACE) {
+        const imageData = await host.decodeDataURLImage(object.source.imageDataURL);
+        newStitchParams = ObjectModel.resizedRasterParams(object.stitchParams, factor);
+        const opts = ObjectModel.rasterOptsFromParams(newStitchParams, imageData.width);
+        const design = await window.api.digitizeGenerate(imageData, opts);
+        if (design && design.stitches.length) newDesign = design;
+      }
+
+      // Corrida: se o design foi trocado (outro arquivo aberto, undo/redo)
+      // enquanto a chamada IPC estava em voo, descarta o resultado — não há
+      // mais um "trecho antigo" válido para substituir.
+      if (host.state.design !== designRef) return;
+
+      const expectedColors = drag.unitBlockEnd - drag.unitBlockStart;
+      if (!newDesign || newDesign.threads.length !== expectedColors) {
+        commitLegacyTransform(drag, transform);
+        return;
+      }
+
+      let seg = stripTrailingEnd(newDesign.stitches.map((s) => [s[0], s[1], s[2]]));
+      const newBBox = computeBBox(seg, 0, seg.length);
+      const targetBBox = ObjectModel.transformBBox(drag.origBBox, transform);
+      if (newBBox) {
+        const [ox, oy] = ObjectModel.centerAlignOffset(newBBox, targetBBox);
+        for (const s of seg) {
+          s[0] = Math.round(s[0] + ox);
+          s[1] = Math.round(s[1] + oy);
+        }
+      }
+
+      const state = host.state;
+      const minSpacingMm = (state.settings.write && state.settings.write.minSpacingMm) || 0;
+      const minSpacingUnits = minSpacingMm * 10;
+      const { stitches: finalSeg, removed } = MinSpacing.enforceMinSpacing(seg, minSpacingUnits);
+
+      const all = state.design.stitches;
+      const wasLast = drag.end === all.length;
+      const hadTrailingEnd = wasLast && all.length > 0 && (all[all.length - 1][2] & COMMAND_MASK) === END_CMD;
+      let combined = all.slice(0, drag.start).concat(finalSeg, all.slice(drag.end));
+      if (hadTrailingEnd && combined.length) {
+        const last = combined[combined.length - 1];
+        combined.push([last[0], last[1], END_CMD]);
+      }
+      state.design.stitches = combined;
+      state.design.threads = state.design.threads
+        .slice(0, drag.unitBlockStart)
+        .concat(newDesign.threads.map((t) => (t ? Object.assign({}, t) : null)), state.design.threads.slice(drag.unitBlockEnd));
+
+      object.stitchParams = newStitchParams; // persiste o novo tamanho (próximo redimensionamento parte daqui)
+
+      host.deriveBlocks();
+      oc.pendingWarning = removed > 0 ? host.tr('objects.warnMinSpacing', { n: removed }) : null;
+      host.afterPointMutation();
+    } catch (err) {
+      if (host.state.design === designRef) commitLegacyTransform(drag, transform);
+    } finally {
+      oc.regenerating = false;
+      host.updateToolbarEnabled();
+    }
+  }
+
   function onPointerUp() {
     if (!oc.drag) return false;
     const drag = oc.drag;
@@ -364,31 +536,24 @@
     host.canvas.style.cursor = oc.active ? 'default' : '';
     if (!drag.moved) return true; // só foi um clique de seleção, nada a regenerar
 
-    const state = host.state;
-    const minSpacingMm = (state.settings.write && state.settings.write.minSpacingMm) || 0;
-    const minSpacingUnits = minSpacingMm * 10; // unidades do design = 0,1 mm
     const transform = drag.liveTransform || { dx: 0, dy: 0, scaleX: 1, scaleY: 1, pivot: [0, 0] };
-    const { stitches: regenerated, removed } = MinSpacing.regenerateBlock(drag.origSegment, transform, { minSpacingUnits });
-
-    // slice+concat em vez de splice(...array): evita espalhar um array
-    // grande como argumentos individuais para blocos com muitas agulhadas.
-    const all = state.design.stitches;
-    state.design.stitches = all.slice(0, drag.blockStart).concat(regenerated, all.slice(drag.blockEnd));
-
-    host.deriveBlocks(); // mover/redimensionar não muda a quantidade de blocos, mas os índices são recalculados do zero
-    oc.pendingWarning = removed > 0 ? host.tr('objects.warnMinSpacing', { n: removed }) : null;
-    host.afterPointMutation();
+    const canRegen = drag.kind === 'resize' && drag.object && drag.object.source && ObjectModel.canRegenerate(transform);
+    if (canRegen) {
+      regenerateParametric(drag, transform); // assíncrono (IPC): ver função acima
+    } else {
+      commitLegacyTransform(drag, transform);
+    }
     return true;
   }
 
   function updateHoverCursor(e) {
     if (!host.canvas) return;
-    const block = selectedBlock();
-    if (!block) {
+    const unit = currentUnit();
+    if (!unit) {
       host.canvas.style.cursor = 'default';
       return;
     }
-    const bbox = computeBBox(host.state.design.stitches, block.start, block.end);
+    const bbox = computeBBox(host.state.design.stitches, unit.start, unit.end);
     if (!bbox) {
       host.canvas.style.cursor = 'default';
       return;
@@ -402,10 +567,14 @@
 
   function deleteSelected() {
     const state = host.state;
-    const block = selectedBlock();
-    if (!block) return;
+    const unit = currentUnit();
+    if (!unit) return;
     host.snapshotUndo();
-    state.design.stitches.splice(block.start, block.end - block.start);
+    state.design.stitches.splice(unit.start, unit.end - unit.start);
+    if (unit.object && state.design.objects) {
+      const i = state.design.objects.indexOf(unit.object);
+      if (i !== -1) state.design.objects.splice(i, 1);
+    }
     oc.selected = -1;
     oc.drag = null;
     oc.pendingWarning = null;
@@ -432,10 +601,10 @@
 
   function draw(ctx) {
     if (!oc.active) return;
-    const block = selectedBlock();
-    if (!block) return;
+    const unit = currentUnit();
+    if (!unit) return;
     const state = host.state;
-    const bbox = computeBBox(state.design.stitches, block.start, block.end);
+    const bbox = computeBBox(state.design.stitches, unit.start, unit.end);
     if (!bbox) return;
 
     const p0 = host.toScreen(bbox.minX, bbox.minY);
@@ -462,6 +631,21 @@
     ctx.restore();
   }
 
+  // ---------------------------------------------------------- registro de objetos
+
+  // Chamado pelas ferramentas paramétricas (insertTextDesign/applySvgImport/
+  // confirmDigitize em renderer.js) logo depois de inserir o resultado no
+  // design: registra o objeto paramétrico (issue #29 fase 2) para que um
+  // redimensionamento futuro rode o gerador de novo em vez de escalar
+  // coordenadas. `blockCount` é quantos blocos de cor consecutivos, a partir
+  // de onde os objetos anteriores pararam, este objeto acabou de inserir.
+  function registerObject(type, source, stitchParams, blockCount) {
+    const state = host.state;
+    if (!state.design) return;
+    if (!state.design.objects) state.design.objects = [];
+    state.design.objects.push(ObjectModel.makeObject(type, source, stitchParams, blockCount));
+  }
+
   const ObjectCanvas = {
     init,
     isActive,
@@ -476,6 +660,7 @@
     onPointerUp,
     onKeyDown,
     draw,
+    registerObject,
   };
 
   if (typeof window !== 'undefined') {
