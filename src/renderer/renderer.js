@@ -68,6 +68,7 @@ const state = {
     moveTarget: null,
     moveChosenRelDir: '',
     renameTarget: null,
+    newFolderTarget: null, // 'main' | 'move': qual árvore pediu o dialog de nova pasta (issue #28, item 1)
     searching: false,
     truncated: false,
     baseItems: [], // itens da pasta/busca antes dos filtros de dimensão/pontos
@@ -2901,6 +2902,43 @@ async function confirmLibraryMove() {
   }
 }
 
+// ---- criar pasta nos pickers de "salvar em" e "mover para" (issue #28, item 1) ----
+// Antes só era possível arquivar em pastas já existentes; os handlers de fs
+// (write-design, move) já toleravam destino inexistente (mkdir recursivo),
+// mas não havia como criar uma pasta vazia, sem salvar/mover nada nela ainda.
+// target diz qual árvore abriu o dialog: a pasta-pai é a que já está
+// selecionada nela (state.library.currentRelDir p/ "main", moveChosenRelDir
+// p/ "move"); ao confirmar, a nova pasta vira a seleção da mesma árvore,
+// reaproveitando o onSelect de cada opts (mainLibTreeOpts/moveLibTreeOpts)
+// pra não duplicar a lógica de expandir/recarregar.
+function openLibraryNewFolder(target) {
+  state.library.newFolderTarget = target;
+  const parentRelDir = target === 'move' ? state.library.moveChosenRelDir : state.library.currentRelDir;
+  $('lib-newfolder-parent').textContent = parentRelDir || tr('lib.root');
+  $('lib-newfolder-input').value = '';
+  $('dlg-lib-newfolder').showModal();
+  $('lib-newfolder-input').focus();
+}
+
+async function confirmLibraryNewFolder() {
+  const target = state.library.newFolderTarget;
+  const parentRelDir = target === 'move' ? state.library.moveChosenRelDir : state.library.currentRelDir;
+  const name = $('lib-newfolder-input').value.trim();
+  if (!name) return;
+  try {
+    const created = await window.api.libraryCreateFolder(parentRelDir, name);
+    invalidateLibraryTreeCache();
+    if (target === 'move') {
+      await moveLibTreeOpts.onSelect(created.relDir);
+    } else {
+      await mainLibTreeOpts.onSelect(created.relDir);
+    }
+    toast(tr('lib.toastFolderCreated', { name: created.name }));
+  } catch (err) {
+    toast(tr('lib.toastFolderCreateError') + err.message, 'error', 5000);
+  }
+}
+
 // ---- pendrive (dropdown local, independente do modal de gestão de pendrive) ----
 
 async function refreshLibraryDriveSelect() {
@@ -3086,6 +3124,13 @@ function bindLibraryDialog() {
 
   $('lib-move-cancel').addEventListener('click', () => $('dlg-lib-move').close());
   $('lib-move-confirm').addEventListener('click', confirmLibraryMove);
+
+  // Criar pasta (issue #28, item 1): mesmo dialog/form atende os dois pickers.
+  $('lib-tree-newfolder').addEventListener('click', () => openLibraryNewFolder('main'));
+  $('lib-move-newfolder').addEventListener('click', () => openLibraryNewFolder('move'));
+  $('lib-newfolder-form').addEventListener('submit', (e) => {
+    if (e.submitter && e.submitter.value === 'ok') confirmLibraryNewFolder();
+  });
 }
 
 // --------------------------------------------------------------- lettering (texto)

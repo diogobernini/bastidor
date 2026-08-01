@@ -1049,8 +1049,21 @@ textarea {
   margin-top: 10px;
 }
 
-.lib-tree {
+/* Envolve a árvore de pastas + botão "Nova pasta" (issue #28, item 1): a
+   árvore (nav#lib-tree/#lib-move-tree) tem o innerHTML todo substituído a
+   cada renderLibraryTree, então o botão fica FORA dela, num wrapper com a
+   mesma largura/altura que a árvore ocupava sozinha antes. */
+.lib-tree-pane {
   flex: 0 0 220px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 0;
+}
+
+.lib-tree {
+  flex: 1 1 auto;
+  min-height: 0;
   overflow-y: auto;
   background: var(--bg-inset);
   border: 1px solid var(--line);
@@ -1370,9 +1383,9 @@ textarea {
   gap: 10px;
 }
 
-.lib-move-body .lib-tree {
-  /* sobrescreve o flex-basis de .lib-tree (220px): num container flex em
-     coluna, flex-basis manda mais que height quando não é "auto". */
+.lib-move-body .lib-tree-pane {
+  /* sobrescreve o flex-basis de .lib-tree-pane (220px): num container flex
+     em coluna, flex-basis manda mais que height quando não é "auto". */
   flex: 0 0 280px;
 }
 
