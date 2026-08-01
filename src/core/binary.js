@@ -133,6 +133,11 @@ class BinWriter {
     this.bytes.push(v & 0xff, (v >> 8) & 0xff, (v >> 16) & 0xff);
   }
 
+  // Usado pelo VP3 (cor do fio em 24 bits big-endian).
+  u24be(v) {
+    this.bytes.push((v >> 16) & 0xff, (v >> 8) & 0xff, v & 0xff);
+  }
+
   u32le(v) {
     this.bytes.push(v & 0xff, (v >> 8) & 0xff, (v >> 16) & 0xff, (v >> 24) & 0xff);
   }
@@ -172,6 +177,14 @@ class BinWriter {
     this.bytes[pos + 1] = (v >> 8) & 0xff;
     this.bytes[pos + 2] = (v >> 16) & 0xff;
     this.bytes[pos + 3] = (v >> 24) & 0xff;
+  }
+
+  // Usado pelo VP3 (placeholders de deslocamento de bloco em 32 bits big-endian).
+  patchU32be(pos, v) {
+    this.bytes[pos] = (v >> 24) & 0xff;
+    this.bytes[pos + 1] = (v >> 16) & 0xff;
+    this.bytes[pos + 2] = (v >> 8) & 0xff;
+    this.bytes[pos + 3] = v & 0xff;
   }
 
   toBuffer() {

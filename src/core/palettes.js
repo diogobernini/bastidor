@@ -1,7 +1,9 @@
 'use strict';
 // Tabelas de fios de fábrica, portadas de pystitch (MIT, inkstitch/pystitch):
-// EmbThreadPec.py (Brother) e EmbThreadJef.py (Janome).
-// O índice 0 é null em ambas (marcador de "sem fio"/parada).
+// EmbThreadPec.py (Brother), EmbThreadJef.py (Janome), EmbThreadHus.py (Husqvarna)
+// e EmbThreadSew.py (Janome/SEW).
+// O índice 0 é null nas paletas PEC/JEF (marcador de "sem fio"/parada); HUS e SEW
+// não têm esse marcador — o índice lido do arquivo indexa a paleta diretamente.
 // Também traz o casamento de cor mais próxima (EmbThread.py: color_distance_red_mean
 // / find_nearest_color_index / build_unique_palette), usado pelos writers PEC/PES/JEF.
 
@@ -179,6 +181,147 @@ function getJefThreadSet() {
   ];
 }
 
+function hus(hex, description, catalog) {
+  const t = new Thread(hex);
+  t.description = description;
+  t.catalogNumber = catalog;
+  t.brand = 'Hus';
+  t.chart = 'Hus';
+  return t;
+}
+
+function sew(r, g, b, description, catalog) {
+  const t = new Thread((r << 16) | (g << 8) | b);
+  t.description = description;
+  t.catalogNumber = catalog;
+  t.brand = 'Sew';
+  t.chart = 'Sew';
+  return t;
+}
+
+// EmbThreadHus.get_thread_set(): 29 cores, sem marcador nulo — o índice do
+// arquivo (u16le) indexa este array diretamente (sem módulo no pystitch).
+function getHusThreadSet() {
+  return [
+    hus('#000000', 'Black', '026'),
+    hus('#0000e7', 'Blue', '005'),
+    hus('#00c600', 'Green', '002'),
+    hus('#ff0000', 'Red', '014'),
+    hus('#840084', 'Purple', '008'),
+    hus('#ffff00', 'Yellow', '020'),
+    hus('#848484', 'Grey', '024'),
+    hus('#8484e7', 'Light Blue', '006'),
+    hus('#00ff84', 'Light Green', '003'),
+    hus('#ff7b31', 'Orange', '017'),
+    hus('#ff8ca5', 'Pink', '011'),
+    hus('#845200', 'Brown', '028'),
+    hus('#ffffff', 'White', '022'),
+    hus('#000084', 'Dark Blue', '004'),
+    hus('#008400', 'Dark Green', '001'),
+    hus('#7b0000', 'Dark Red', '013'),
+    hus('#ff6384', 'Light Red', '015'),
+    hus('#522952', 'Dark Purple', '007'),
+    hus('#ff00ff', 'Light Purple', '009'),
+    hus('#ffde00', 'Dark Yellow', '019'),
+    hus('#ffff9c', 'Light Yellow', '021'),
+    hus('#525252', 'Dark Grey', '025'),
+    hus('#d6d6d6', 'Light Grey', '023'),
+    hus('#ff5208', 'Dark Orange', '016'),
+    hus('#ff9c5a', 'Light Orange', '018'),
+    hus('#ff52b5', 'Dark Pink', '010'),
+    hus('#ffc6de', 'Light Pink', '012'),
+    hus('#523100', 'Dark Brown', '027'),
+    hus('#b5a584', 'Light Brown', '029'),
+  ];
+}
+
+// EmbThreadSew.get_thread_set(): 79 cores, índice 0 = "Unknown" (preto) — o
+// leitor aplica módulo (index %= 79), então qualquer índice fora da faixa cai
+// numa cor válida em vez de estourar.
+function getSewThreadSet() {
+  return [
+    sew(0, 0, 0, 'Unknown', '0'),
+    sew(0, 0, 0, 'Black', '1'),
+    sew(255, 255, 255, 'White', '2'),
+    sew(255, 255, 23, 'Sunflower', '3'),
+    sew(250, 160, 96, 'Hazel', '4'),
+    sew(92, 118, 73, 'Green Dust', '5'),
+    sew(64, 192, 48, 'Green', '6'),
+    sew(101, 194, 200, 'Sky', '7'),
+    sew(172, 128, 190, 'Purple', '8'),
+    sew(245, 188, 203, 'Pink', '9'),
+    sew(255, 0, 0, 'Red', '10'),
+    sew(192, 128, 0, 'Brown', '11'),
+    sew(0, 0, 240, 'Blue', '12'),
+    sew(228, 195, 93, 'Gold', '13'),
+    sew(165, 42, 42, 'Dark Brown', '14'),
+    sew(213, 176, 212, 'Pale Violet', '15'),
+    sew(252, 242, 148, 'Pale Yellow', '16'),
+    sew(240, 208, 192, 'Pale Pink', '17'),
+    sew(255, 192, 0, 'Peach', '18'),
+    sew(201, 164, 128, 'Beige', '19'),
+    sew(155, 61, 75, 'Wine Red', '20'),
+    sew(160, 184, 204, 'Pale Sky', '21'),
+    sew(127, 194, 28, 'Yellow Green', '22'),
+    sew(185, 185, 185, 'Silver Grey', '23'),
+    sew(160, 160, 160, 'Grey', '24'),
+    sew(152, 214, 189, 'Pale Aqua', '25'),
+    sew(184, 240, 240, 'Baby Blue', '26'),
+    sew(54, 139, 160, 'Powder Blue', '27'),
+    sew(79, 131, 171, 'Bright Blue', '28'),
+    sew(56, 106, 145, 'Slate Blue', '29'),
+    sew(0, 32, 107, 'Nave Blue', '30'),
+    sew(229, 197, 202, 'Salmon Pink', '31'),
+    sew(249, 103, 107, 'Coral', '32'),
+    sew(227, 49, 31, 'Burnt Orange', '33'),
+    sew(226, 161, 136, 'Cinnamon', '34'),
+    sew(181, 148, 116, 'Umber', '35'),
+    sew(228, 207, 153, 'Blonde', '36'),
+    sew(225, 203, 0, 'Sunflower', '37'),
+    sew(225, 173, 212, 'Orchid Pink', '38'),
+    sew(195, 0, 126, 'Peony Purple', '39'),
+    sew(128, 0, 75, 'Burgundy', '40'),
+    sew(160, 96, 176, 'Royal Purple', '41'),
+    sew(192, 64, 32, 'Cardinal Red', '42'),
+    sew(202, 224, 192, 'Opal Green', '43'),
+    sew(137, 152, 86, 'Moss Green', '44'),
+    sew(0, 170, 0, 'Meadow Green', '45'),
+    sew(33, 138, 33, 'Dark Green', '46'),
+    sew(93, 174, 148, 'Aquamarine', '47'),
+    sew(76, 191, 143, 'Emerald Green', '48'),
+    sew(0, 119, 114, 'Peacock Green', '49'),
+    sew(112, 112, 112, 'Dark Grey', '50'),
+    sew(242, 255, 255, 'Ivory White', '51'),
+    sew(177, 88, 24, 'Hazel', '52'),
+    sew(203, 138, 7, 'Toast', '53'),
+    sew(247, 146, 123, 'Salmon', '54'),
+    sew(152, 105, 45, 'Cocoa Brown', '55'),
+    sew(162, 113, 72, 'Sienna', '56'),
+    sew(123, 85, 74, 'Sepia', '57'),
+    sew(79, 57, 70, 'Dark Sepia', '58'),
+    sew(82, 58, 151, 'Violet Blue', '59'),
+    sew(0, 0, 160, 'Blue Ink', '60'),
+    sew(0, 150, 222, 'Solar Blue', '61'),
+    sew(178, 221, 83, 'Green Dust', '62'),
+    sew(250, 143, 187, 'Crimson', '63'),
+    sew(222, 100, 158, 'Floral Pink', '64'),
+    sew(181, 80, 102, 'Wine', '65'),
+    sew(94, 87, 71, 'Olive Drab', '66'),
+    sew(76, 136, 31, 'Meadow', '67'),
+    sew(228, 220, 121, 'Canary Yellow', '68'),
+    sew(203, 138, 26, 'Toast', '69'),
+    sew(198, 170, 66, 'Beige', '70'),
+    sew(236, 176, 44, 'Honey Dew', '71'),
+    sew(248, 128, 64, 'Tangerine', '72'),
+    sew(255, 229, 5, 'Ocean Blue', '73'),
+    sew(250, 122, 122, 'Sepia', '74'),
+    sew(107, 224, 0, 'Royal Purple', '75'),
+    sew(56, 108, 174, 'Yellow Ocher', '76'),
+    sew(208, 186, 176, 'Beige Grey', '77'),
+    sew(227, 190, 129, 'Bamboo', '78'),
+  ];
+}
+
 // Distância de cor "red mean" (https://www.compuphase.com/cmetric.htm).
 // redMean usa arredondamento par-mais-próximo (round() do Python), diferente
 // do Math.round (que arredonda 0,5 sempre para cima).
@@ -233,4 +376,11 @@ function buildUniquePalette(threadPalette, threadlist) {
   return threadlist.map((thread) => findNearestColorIndex(thread, chart));
 }
 
-module.exports = { getPecThreadSet, getJefThreadSet, findNearestColorIndex, buildUniquePalette };
+module.exports = {
+  getPecThreadSet,
+  getJefThreadSet,
+  getHusThreadSet,
+  getSewThreadSet,
+  findNearestColorIndex,
+  buildUniquePalette,
+};

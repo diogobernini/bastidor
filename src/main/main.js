@@ -227,6 +227,10 @@ function setupIpc() {
         { name: 'Brother PES/PEC', extensions: ['pes', 'pec'] },
         { name: 'Janome JEF', extensions: ['jef'] },
         { name: 'Melco EXP', extensions: ['exp'] },
+        { name: 'Husqvarna/Pfaff VP3', extensions: ['vp3'] },
+        { name: 'Husqvarna HUS', extensions: ['hus'] },
+        { name: 'Janome SEW', extensions: ['sew'] },
+        { name: 'Pfaff PCS', extensions: ['pcs'] },
         { name: t('dlg.filterAny'), extensions: ['*'] },
       ],
     });
@@ -295,6 +299,8 @@ function setupIpc() {
         { name: 'Brother PEC', extensions: ['pec'] },
         { name: 'Janome JEF', extensions: ['jef'] },
         { name: 'Melco EXP', extensions: ['exp'] },
+        { name: 'Husqvarna/Pfaff VP3', extensions: ['vp3'] },
+        { name: 'Pfaff PCS', extensions: ['pcs'] },
         { name: 'SVG', extensions: ['svg'] },
       ],
     });
