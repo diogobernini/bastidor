@@ -2,8 +2,10 @@
 // Tabelas de fios de fábrica, portadas de pystitch (MIT, inkstitch/pystitch):
 // EmbThreadPec.py (Brother) e EmbThreadJef.py (Janome).
 // O índice 0 é null em ambas (marcador de "sem fio"/parada).
+// Também traz o casamento de cor mais próxima (EmbThread.py: color_distance_red_mean
+// / find_nearest_color_index / build_unique_palette), usado pelos writers PEC/PES/JEF.
 
-const { Thread } = require('./pattern');
+const { Thread, threadsEqual } = require('./pattern');
 
 function pec(r, g, b, description, catalog) {
   const t = new Thread((r << 16) | (g << 8) | b);
@@ -177,4 +179,58 @@ function getJefThreadSet() {
   ];
 }
 
-module.exports = { getPecThreadSet, getJefThreadSet };
+// Distância de cor "red mean" (https://www.compuphase.com/cmetric.htm).
+// redMean usa arredondamento par-mais-próximo (round() do Python), diferente
+// do Math.round (que arredonda 0,5 sempre para cima).
+function colorDistanceRedMean(r1, g1, b1, r2, g2, b2) {
+  const sum = r1 + r2;
+  const half = sum >> 1;
+  const redMean = sum % 2 === 0 ? half : half % 2 === 0 ? half : half + 1;
+  const r = r1 - r2;
+  const g = g1 - g2;
+  const b = b1 - b2;
+  return (((512 + redMean) * r * r) >> 8) + 4 * g * g + (((767 - redMean) * b * b) >> 8);
+}
+
+// findColor: Thread ou inteiro 0xRRGGBB. values: array com null nas entradas
+// já consumidas/inexistentes (ignoradas). Em empate fica com o ÚLTIMO índice
+// (mesmo critério do pystitch: comparação com <=).
+function findNearestColorIndex(findColor, values) {
+  const color = findColor && typeof findColor === 'object' ? findColor.color : findColor;
+  const red = (color >> 16) & 0xff;
+  const green = (color >> 8) & 0xff;
+  const blue = color & 0xff;
+  let closestIndex = null;
+  let currentClosest = Infinity;
+  for (let i = 0; i < values.length; i++) {
+    const t = values[i];
+    if (!t) continue;
+    const dist = colorDistanceRedMean(red, green, blue, t.red(), t.green(), t.blue());
+    if (dist <= currentClosest) {
+      currentClosest = dist;
+      closestIndex = i;
+    }
+  }
+  return closestIndex;
+}
+
+// Mapeia cada fio do threadlist para um índice único dentro de threadPalette
+// (casamento por cor mais próxima, sem repetir slot). Muta threadPalette
+// (zera os slots já usados) — sempre passe uma paleta obtida na hora
+// (getPecThreadSet()/getJefThreadSet() já retornam um array novo por chamada).
+function buildUniquePalette(threadPalette, threadlist) {
+  const chart = new Array(threadPalette.length).fill(null);
+  const unique = [];
+  for (const thread of threadlist) {
+    if (!unique.some((u) => threadsEqual(u, thread))) unique.push(thread);
+  }
+  for (const thread of unique) {
+    const index = findNearestColorIndex(thread, threadPalette);
+    if (index === null) break; // sem slots livres na paleta
+    threadPalette[index] = null;
+    chart[index] = thread;
+  }
+  return threadlist.map((thread) => findNearestColorIndex(thread, chart));
+}
+
+module.exports = { getPecThreadSet, getJefThreadSet, findNearestColorIndex, buildUniquePalette };

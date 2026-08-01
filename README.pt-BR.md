@@ -49,8 +49,8 @@ O app é bilíngue (português do Brasil e inglês) e acompanha o idioma do sist
 | XXX | Singer Futura / Compucon | ✓ | ✓ |
 | DST | Tajima e a maioria das industriais | ✓ | ✓ |
 | EXP | Melco / Bernina | ✓ | ✓ |
-| PES / PEC | Brother / Babylock | ✓ | · |
-| JEF | Janome / Elna | ✓ | · |
+| PES / PEC | Brother / Babylock | ✓ | ✓ |
+| JEF | Janome / Elna | ✓ | ✓ |
 | SVG / PNG | vetor e imagem | · | ✓ |
 
 Os parsers são validados de forma cruzada contra o [pystitch](https://github.com/inkstitch/pystitch):
@@ -114,7 +114,7 @@ então os parsers podem ser reaproveitados em CLI ou servidor.
 4. Edição de pontos individuais (mover, apagar, inserir)
 5. Recalcular densidade ao redimensionar
 6. Modo de visualização realista (textura de fio)
-7. Gravação de PES e JEF; suporte a VP3, HUS, SEW e PCS
+7. Suporte a VP3, HUS, SEW e PCS
 8. Gestão de pendrive: carregar e descarregar matrizes estilo biblioteca, com ejeção segura e limpeza dos arquivos ocultos do macOS
 
 ## Créditos e agradecimentos

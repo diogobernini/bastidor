@@ -159,6 +159,9 @@ function setupIpc() {
       filters: [
         { name: 'Singer XXX', extensions: ['xxx'] },
         { name: 'Tajima DST', extensions: ['dst'] },
+        { name: 'Brother PES', extensions: ['pes'] },
+        { name: 'Brother PEC', extensions: ['pec'] },
+        { name: 'Janome JEF', extensions: ['jef'] },
         { name: 'Melco EXP', extensions: ['exp'] },
         { name: 'SVG', extensions: ['svg'] },
       ],
