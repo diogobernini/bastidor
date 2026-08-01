@@ -36,6 +36,7 @@ const DEFAULTS = {
     tieOn: false,
     tieOff: false,
     trimAtJumps: 3,
+    minSpacingMm: 0.3, // guarda de distância mínima entre agulhadas (issue #29)
   },
   warnings: {
     longStitchMm: 12.1,

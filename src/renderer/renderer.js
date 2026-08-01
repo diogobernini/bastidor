@@ -278,6 +278,7 @@ function setDesign(design, opts = {}) {
   state.edit.selected = -1;
   $('btn-edit').classList.remove('on');
   canvas.classList.remove('edit-mode');
+  if (window.ObjectCanvas) ObjectCanvas.reset(); // troca de arquivo: seleção de objeto não é mais válida (issue #29)
   if (!opts.keepUndo) {
     history.clear();
     state.dirty = false;
@@ -424,6 +425,7 @@ function redo() {
 function afterHistoryNav() {
   bumpArt();
   state.edit.selected = -1; // índice pode não valer mais (insert/delete mudam o tamanho do array)
+  if (window.ObjectCanvas) ObjectCanvas.reset(); // idem para a seleção de objeto (issue #29)
   deriveBlocks();
   deriveStats();
   updateSidebar();
@@ -498,6 +500,7 @@ function updateSidebar() {
     const h = state.settings.hoop;
     warnings.push(tr('warn.hoop', { w: h.width, h: h.height }));
   }
+  if (window.ObjectCanvas && ObjectCanvas.sidebarWarning()) warnings.push(ObjectCanvas.sidebarWarning()); // issue #29
   $('warnings-section').hidden = warnings.length === 0;
   const wl = $('warning-list');
   wl.innerHTML = '';
@@ -539,9 +542,10 @@ function updateStatusbar() {
 
 function updateToolbarEnabled() {
   const has = !!state.design;
-  for (const id of ['btn-save', 'btn-export', 'btn-edit']) $(id).disabled = !has;
-  // Simulação e edição de pontos são mutuamente exclusivas.
-  const simEnabled = has && !state.edit.active;
+  for (const id of ['btn-save', 'btn-export', 'btn-edit', 'btn-objects']) $(id).disabled = !has;
+  // Simulação, edição de pontos e modo de objetos são mutuamente exclusivos (issue #29).
+  const objActive = !!(window.ObjectCanvas && ObjectCanvas.isActive());
+  const simEnabled = has && !state.edit.active && !objActive;
   $('btn-sim').disabled = !simEnabled;
   $('sim-progress').disabled = !simEnabled;
 }
@@ -1099,10 +1103,11 @@ function render() {
     const limit = simming ? Math.floor(state.sim.pos) : state.design.stitches.length;
     const realistic = !!state.settings.view.realistic;
     let needle = null;
-    if (realistic && !simming && !state.edit.active) {
+    const objDragging = !!(window.ObjectCanvas && ObjectCanvas.isDragging()); // issue #29
+    if (realistic && !simming && !state.edit.active && !objDragging) {
       // Fora da simulação e da edição dá pra cachear a arte. No modo de
-      // edição desenha ao vivo: arrastar um ponto muda a arte a cada frame
-      // e o blit do cache mostraria o fio parado com o marcador andando.
+      // edição (ou arrastando um objeto) desenha ao vivo: mudar a arte a
+      // cada frame com o blit do cache mostraria o fio parado.
       renderRealisticCached();
     } else {
       needle = drawStitches(ctx, toScreen, state.view.scale, limit, {
@@ -1138,6 +1143,7 @@ function render() {
       ctx.fill();
       ctx.stroke();
     }
+    if (window.ObjectCanvas) ObjectCanvas.draw(ctx); // bbox + alças do objeto selecionado (issue #29)
   }
 
   drawTimeline();
@@ -1148,6 +1154,7 @@ function render() {
 function simSetPlaying(playing) {
   if (!state.design) return;
   if (playing && state.edit.active) setEditMode(false); // mutuamente exclusivo com a edição
+  if (playing && window.ObjectCanvas && ObjectCanvas.isActive()) ObjectCanvas.setActive(false); // idem, objetos (issue #29)
   state.sim.playing = playing;
   $('btn-sim').textContent = playing ? '⏸' : '▶';
   if (playing) {
@@ -1196,7 +1203,10 @@ function setEditMode(active) {
   state.edit.active = active;
   $('btn-edit').classList.toggle('on', active);
   canvas.classList.toggle('edit-mode', active);
-  if (active) simReset();
+  if (active) {
+    simReset();
+    if (window.ObjectCanvas) ObjectCanvas.setActive(false); // mutuamente exclusivo (issue #29)
+  }
   updateToolbarEnabled();
   setSelectedStitch(-1);
 }
@@ -1468,6 +1478,7 @@ function settingsToForm() {
   $('set-tieon').checked = s.write.tieOn;
   $('set-tieoff').checked = s.write.tieOff;
   $('set-trimat').value = s.write.trimAtJumps;
+  $('set-minspacing').value = s.write.minSpacingMm;
   $('set-warnlong').value = s.warnings.longStitchMm;
   $('set-librarypath').value = s.library.path;
   syncHoopCustomVisibility();
@@ -1505,6 +1516,7 @@ function formToSettings() {
       tieOn: $('set-tieon').checked,
       tieOff: $('set-tieoff').checked,
       trimAtJumps: Math.round(clampNum($('set-trimat').value, 2, 8, 3)),
+      minSpacingMm: clampNum($('set-minspacing').value, 0, 2, 0.3),
     },
     warnings: { longStitchMm: clampNum($('set-warnlong').value, 1, 30, 12.1) },
   };
@@ -3093,6 +3105,7 @@ function bindCanvas() {
   let dragMoved = false;
   let dragFrom = null; // posição do ponto ao iniciar o arraste, p/ montar o op movePoint completo no fim
   canvas.addEventListener('pointerdown', (e) => {
+    if (window.ObjectCanvas && ObjectCanvas.isActive() && ObjectCanvas.onPointerDown(e)) return; // issue #29
     if (state.edit.active) {
       const rect = canvas.getBoundingClientRect();
       const [dx, dy] = toDesign(e.clientX - rect.left, e.clientY - rect.top);
@@ -3120,6 +3133,7 @@ function bindCanvas() {
     const opts = { minimumFractionDigits: 1, maximumFractionDigits: 1 };
     $('st-pos').textContent =
       `x ${(dx / 10).toLocaleString(locale(), opts)}  y ${(dy / 10).toLocaleString(locale(), opts)} mm`;
+    if (window.ObjectCanvas && ObjectCanvas.isActive() && ObjectCanvas.onPointerMove(e)) return; // issue #29
     if (dragIndex !== -1) {
       const st = state.design.stitches[dragIndex];
       if (!dragMoved) {
@@ -3139,6 +3153,7 @@ function bindCanvas() {
     requestRender();
   });
   const stopPan = (e) => {
+    if (window.ObjectCanvas) ObjectCanvas.onPointerUp(e); // issue #29
     panning = false;
     // Um único movePoint pro arraste inteiro (não por pixel), igual ao
     // snapshotUndo() único de antes — só que agora o "to" só existe no
@@ -3226,6 +3241,7 @@ function bindToolbar() {
   }
 
   $('btn-edit').addEventListener('click', toggleEditMode);
+  $('btn-objects').addEventListener('click', () => window.ObjectCanvas && ObjectCanvas.toggle()); // issue #29
 
   $('btn-sim').addEventListener('click', () => simSetPlaying(!state.sim.playing));
   $('sim-progress').addEventListener('input', () => {
@@ -3579,6 +3595,9 @@ function bindMenuAndKeys() {
     if (document.querySelector('dialog[open]')) return;
     const key = e.key.toLowerCase();
 
+    // Atalhos exclusivos do modo de objetos (issue #29): Esc desseleciona, Delete apaga o bloco.
+    if (window.ObjectCanvas && ObjectCanvas.isActive() && ObjectCanvas.onKeyDown(e)) return;
+
     // Atalhos exclusivos do modo de edição de pontos (issue #3).
     if (state.edit.active) {
       if (key === 'escape') {
@@ -3880,6 +3899,38 @@ async function boot() {
   populateTextFontSelect();
   syncToggleButtons();
   $('sim-speed').value = String(nearestSimOption(state.settings.sim.stitchesPerSecond));
+
+  // Injeta a ponte com o estado do renderer no modo de objetos (issue #29);
+  // ver cabeçalho de src/renderer/objects.js.
+  if (window.ObjectCanvas) {
+    // Integração #29 + #37: o gesto de objeto captura o "antes" quando começa
+    // a mutar (snapshotUndo do host) e empilha uma operação 'snapshot' no
+    // History junto do afterPointMutation que fecha o gesto.
+    let objBefore = null;
+    ObjectCanvas.init({
+      state,
+      toScreen,
+      toDesign,
+      canvas,
+      snapshotUndo: () => {
+        objBefore = cloneDesignData();
+      },
+      bumpArt,
+      deriveBlocks,
+      afterPointMutation: () => {
+        if (objBefore) {
+          pushHistory({ type: 'snapshot', before: objBefore, after: cloneDesignData() });
+          objBefore = null;
+        }
+        afterPointMutation();
+      },
+      setEditMode,
+      simReset,
+      tr,
+      updateToolbarEnabled,
+      requestRender,
+    });
+  }
 
   bindCanvas();
   bindToolbar();
