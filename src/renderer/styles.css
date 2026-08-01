@@ -447,6 +447,14 @@ input:focus {
 
 /* ---------------------------------------------------------- diálogos */
 
+/* Dialogs estilizados com display próprio (flex, para layout interno) venceriam
+   o "dialog:not([open]) { display: none }" do navegador (regra de autor ganha
+   da regra de UA), deixando o modal visível na tela mesmo depois do close() —
+   foi o caso do navegador de biblioteca. Esta regra devolve a prioridade. */
+dialog:not([open]) {
+  display: none !important;
+}
+
 dialog {
   background: var(--bg-raised);
   color: var(--text);
