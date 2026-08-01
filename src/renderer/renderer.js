@@ -515,81 +515,9 @@ let dpr = window.devicePixelRatio || 1;
 // RenderCanvas.render() principal moram em RenderCanvas — ver render-canvas.js.
 
 // --------------------------------------------------------------- edição de pontos (issue #3)
-
-// Liga/desliga o modo "Editar pontos". Mutuamente exclusivo com a simulação:
-// entrar em edição pausa e reseta a simulação em andamento.
-function setEditMode(active) {
-  active = !!active && !!state.design;
-  state.edit.active = active;
-  $('btn-edit').classList.toggle('on', active);
-  canvas.classList.toggle('edit-mode', active);
-  if (active) {
-    Sim.simReset();
-    if (window.ObjectCanvas) ObjectCanvas.setActive(false); // mutuamente exclusivo (issue #29)
-  }
-  updateToolbarEnabled();
-  setSelectedStitch(-1);
-}
-
-function toggleEditMode() {
-  if (!state.design) return;
-  setEditMode(!state.edit.active);
-}
-
-function setSelectedStitch(index) {
-  const valid = state.design && index >= 0 && index < state.design.stitches.length;
-  state.edit.selected = valid ? index : -1;
-  updateStatusbar();
-  RenderCanvas.requestRender();
-}
-
-function selectedStitch() {
-  if (!state.design || state.edit.selected < 0) return null;
-  return state.design.stitches[state.edit.selected] || null;
-}
-
-// Chamado depois de qualquer mutação de ponto (mover, apagar, inserir).
-function afterPointMutation() {
-  bumpArt(); // invalida o cache do modo realista
-  deriveStats();
-  updateSidebar();
-  updateStatusbar();
-  RenderCanvas.requestRender();
-}
-
-function deleteSelectedStitch() {
-  const i = state.edit.selected;
-  if (!state.design || i < 0 || i >= state.design.stitches.length) return;
-  const stitch = state.design.stitches[i].slice();
-  pushHistory({ type: 'deletePoint', index: i, stitch });
-  state.design.stitches.splice(i, 1);
-  state.edit.selected = -1;
-  afterPointMutation();
-}
-
-// Insere um ponto STITCH no meio do segmento entre o ponto selecionado e o
-// próximo (tecla I ou duplo clique). O novo ponto passa a ser o selecionado,
-// permitindo subdividir o mesmo trecho repetidamente.
-function insertAfterSelected() {
-  const i = state.edit.selected;
-  if (!state.design || i < 0 || i >= state.design.stitches.length - 1) return;
-  const newIndex = Spatial.insertMidpoint(state.design.stitches, i);
-  if (newIndex === -1) return;
-  pushHistory({ type: 'insertPoint', index: newIndex, stitch: state.design.stitches[newIndex].slice() });
-  state.edit.selected = newIndex;
-  afterPointMutation();
-}
-
-function nudgeSelectedStitch(dx, dy) {
-  const st = selectedStitch();
-  if (!st) return;
-  const from = [st[0], st[1]];
-  const to = [st[0] + dx, st[1] + dy];
-  pushHistory({ type: 'movePoint', index: state.edit.selected, from, to });
-  st[0] = to[0];
-  st[1] = to[1];
-  afterPointMutation();
-}
+//
+// Modo "Editar pontos" (selecionar/mover/inserir/apagar agulhadas) mora em
+// Edit — ver modules/edit.js.
 
 // --------------------------------------------------------------- transformações
 
@@ -2458,7 +2386,7 @@ function bindCanvas() {
       const [dx, dy] = RenderCanvas.toDesign(e.clientX - rect.left, e.clientY - rect.top);
       const maxDist = EDIT_PICK_RADIUS_PX / state.view.scale;
       const idx = Spatial.nearestStitch(state.design.stitches, dx, dy, maxDist);
-      setSelectedStitch(idx);
+      Edit.setSelectedStitch(idx);
       if (idx !== -1) {
         dragIndex = idx;
         dragMoved = false;
@@ -2489,7 +2417,7 @@ function bindCanvas() {
       }
       st[0] = Math.round(dx);
       st[1] = Math.round(dy);
-      afterPointMutation();
+      Edit.afterPointMutation();
       return;
     }
     if (!panning) return;
@@ -2521,7 +2449,7 @@ function bindCanvas() {
   canvas.addEventListener('pointerup', stopPan);
   canvas.addEventListener('pointercancel', stopPan);
   canvas.addEventListener('dblclick', () => {
-    if (state.edit.active) insertAfterSelected();
+    if (state.edit.active) Edit.insertAfterSelected();
     else RenderCanvas.fitView();
   });
   canvas.addEventListener('pointerleave', () => {
@@ -2587,7 +2515,7 @@ function bindToolbar() {
     });
   }
 
-  $('btn-edit').addEventListener('click', toggleEditMode);
+  $('btn-edit').addEventListener('click', Edit.toggleEditMode);
   $('btn-objects').addEventListener('click', () => window.ObjectCanvas && ObjectCanvas.toggle()); // issue #29
 
   $('btn-sim').addEventListener('click', () => Sim.simSetPlaying(!state.sim.playing));
@@ -2943,23 +2871,23 @@ function bindMenuAndKeys() {
     // Atalhos exclusivos do modo de edição de pontos (issue #3).
     if (state.edit.active) {
       if (key === 'escape') {
-        setSelectedStitch(-1);
+        Edit.setSelectedStitch(-1);
         return;
       }
       if (key === 'delete' || key === 'backspace') {
         e.preventDefault();
-        deleteSelectedStitch();
+        Edit.deleteSelectedStitch();
         return;
       }
       if (key === 'i') {
-        insertAfterSelected();
+        Edit.insertAfterSelected();
         return;
       }
       if (key.startsWith('arrow')) {
         e.preventDefault();
         const step = e.shiftKey ? 10 : 1;
         const deltas = { arrowup: [0, -step], arrowdown: [0, step], arrowleft: [-step, 0], arrowright: [step, 0] };
-        nudgeSelectedStitch(deltas[key][0], deltas[key][1]);
+        Edit.nudgeSelectedStitch(deltas[key][0], deltas[key][1]);
         return;
       }
     }
@@ -2967,7 +2895,7 @@ function bindMenuAndKeys() {
     if (key === ' ') {
       e.preventDefault();
       Sim.simSetPlaying(!state.sim.playing);
-    } else if (key === 'e' && !e.metaKey && !e.ctrlKey) toggleEditMode(); // Cmd/Ctrl+E é o acelerador de exportar PNG
+    } else if (key === 'e' && !e.metaKey && !e.ctrlKey) Edit.toggleEditMode(); // Cmd/Ctrl+E é o acelerador de exportar PNG
     else if (key === 'g') $('btn-grid').click();
     else if (key === 'b') $('btn-hoop').click();
     else if (key === 'j') $('btn-jumps').click();
@@ -3264,9 +3192,9 @@ async function boot() {
           pushHistory({ type: 'snapshot', before: objBefore, after: cloneDesignData() });
           objBefore = null;
         }
-        afterPointMutation();
+        Edit.afterPointMutation();
       },
-      setEditMode,
+      setEditMode: Edit.setEditMode,
       simReset: Sim.simReset,
       tr: I18n.tr,
       updateToolbarEnabled,
