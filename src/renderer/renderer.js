@@ -316,6 +316,7 @@ const historyApplyFns = {
   snapshot(op) {
     state.design.stitches = op.after.stitches;
     state.design.threads = op.after.threads;
+    state.design.objects = op.after.objects || [];
   },
 };
 
@@ -334,14 +335,18 @@ function updateUndoRedoButtons() {
   $('t-redo').disabled = !history.canRedo();
 }
 
-// Copia stitches/threads do design atual (mesmo formato usado antes por
-// snapshotUndo): usado para montar a operação 'snapshot' de fallback nas
+// Copia stitches/threads/objects do design atual (mesmo formato usado antes
+// por snapshotUndo): usado para montar a operação 'snapshot' de fallback nas
 // mutações sem inversa analítica barata (redimensionar com densidade,
-// inserir texto como bloco novo).
+// inserir texto como bloco novo, regenerar um objeto paramétrico — issue
+// #29 fase 2). `objects` entra no snapshot pra desfazer/refazer também
+// reverter o registro paramétrico (source/stitchParams/blockCount), não só
+// as agulhadas.
 function cloneDesignData() {
   return {
     stitches: state.design.stitches.map((s) => [s[0], s[1], s[2]]),
     threads: JSON.parse(JSON.stringify(state.design.threads)),
+    objects: JSON.parse(JSON.stringify(state.design.objects || [])),
   };
 }
 
@@ -685,6 +690,32 @@ async function saveAsExternal() {
   }
 }
 
+// Projeto nativo .bastidor (issue #29 fase 2): ao contrário de
+// saveAsExternal (formatos de máquina, só a projeção achatada), guarda
+// design.objects[] inteiro — é o que faz um redimensionamento paramétrico
+// continuar funcionando depois de reabrir (ver src/core/project.js).
+async function saveProjectFlow() {
+  if (!state.design) return;
+  const base = (state.design.name || 'projeto').replace(/\.[^.]+$/, '');
+  try {
+    const result = await window.api.projectSave(
+      {
+        name: state.design.name,
+        metadata: state.design.metadata || {},
+        threads: state.design.threads,
+        objects: state.design.objects || [],
+        stitches: state.design.stitches,
+      },
+      base + '.bastidor'
+    );
+    if (!result) return; // diálogo cancelado
+    const savedName = result.path.split('/').pop().split('\\').pop();
+    toast(I18n.tr('toast.projectSaved', { name: savedName }));
+  } catch (err) {
+    toast(I18n.tr('toast.projectError') + err.message, 'error', 5000);
+  }
+}
+
 async function exportPng() {
   if (!state.design) return;
   const base = (state.design.name || 'matriz').replace(/\.[^.]+$/, '');
@@ -739,6 +770,22 @@ async function openPath(p) {
     toast(I18n.tr('toast.openError') + err.message, 'error', 5000);
   }
   refreshEmptyRecents();
+}
+
+// Abrir um projeto .bastidor (issue #29 fase 2): design.objects[] chega
+// pronto do processo principal (src/core/project.js já valida o JSON);
+// setDesign() trata como qualquer outro design — os objetos ficam
+// disponíveis pro próximo redimensionamento paramétrico regenerar de verdade
+// (ver src/renderer/objects.js), sem precisar rodar nenhum gerador agora.
+async function openProjectFlow() {
+  try {
+    const design = await window.api.projectOpen();
+    if (!design) return; // diálogo cancelado
+    setDesign(design);
+    toast(I18n.tr('toast.projectOpened', { name: design.name || '' }));
+  } catch (err) {
+    toast(I18n.tr('toast.projectError') + err.message, 'error', 5000);
+  }
 }
 
 // Configurações (dlg-settings), incluindo nearestSimOption, moram em Dialogs
@@ -994,6 +1041,8 @@ function bindMenuAndKeys() {
       open: openViaDialog,
       'save-as': saveAs,
       'export-png': exportPng,
+      'save-project': saveProjectFlow,
+      'open-project': openProjectFlow,
       settings: Dialogs.openSettings,
       undo,
       redo,
@@ -1023,7 +1072,7 @@ function bindMenuAndKeys() {
       'update-error': () => toast(I18n.tr('update.error'), 'error', 5000),
     };
     const alwaysAvailable = [
-      'open', 'settings', 'formats', 'shortcuts', 'digitize-image',
+      'open', 'open-project', 'settings', 'formats', 'shortcuts', 'digitize-image',
       'update-checking', 'update-available', 'update-not-available', 'update-downloaded', 'update-error',
     ];
     if (state.design || alwaysAvailable.includes(action)) {
@@ -1163,6 +1212,7 @@ async function boot() {
       tr: I18n.tr,
       updateToolbarEnabled,
       requestRender: RenderCanvas.requestRender,
+      decodeDataURLImage: Dialogs.decodeDataURLImage, // issue #29 fase 2: regenerar um objeto raster-trace precisa da imagem de volta
     });
   }
 

@@ -11,6 +11,7 @@ const { patternToDesign, designToPattern } = require('../core/design');
 const digitize = require('../core/digitize');
 const lettering = require('../core/lettering');
 const raster = require('../core/digitize/raster');
+const project = require('../core/project');
 const { SettingsStore, HOOP_PRESETS } = require('./settings');
 const { STRINGS, resolveLang, makeT } = require('../i18n');
 const drives = require('./drives');
@@ -361,6 +362,43 @@ function setupIpc() {
     return result;
   });
 
+  // Projeto nativo .bastidor (issue #29 fase 2): ao contrário de
+  // dialog:save/design:write (formatos de máquina, dois passos porque
+  // "Salvar" sem diálogo reaproveita um caminho já conhecido), aqui é só
+  // "Salvar Projeto como…"/"Abrir Projeto…" — diálogo e leitura/escrita num
+  // único IPC. De propósito NÃO entra na lista de recentes/biblioteca: essas
+  // telas assumem um dos formatos de máquina (io.extOf/io.readBuffer) e
+  // ensiná-las sobre .bastidor fica fora do escopo desta fase.
+  ipcMain.handle('project:save', async (e, { design, defaultName }) => {
+    const result = await dialog.showSaveDialog(win, {
+      title: t('dlg.saveProjectTitle'),
+      defaultPath: defaultName || 'projeto.bastidor',
+      filters: [{ name: t('dlg.filterBastidor'), extensions: ['bastidor'] }],
+    });
+    if (result.canceled || !result.filePath) return null;
+    const json = project.serializeProject(design);
+    fs.mkdirSync(path.dirname(result.filePath), { recursive: true });
+    fs.writeFileSync(result.filePath, json);
+    return { path: result.filePath, bytes: Buffer.byteLength(json) };
+  });
+
+  ipcMain.handle('project:open', async () => {
+    const result = await dialog.showOpenDialog(win, {
+      title: t('dlg.openProjectTitle'),
+      properties: ['openFile'],
+      filters: [{ name: t('dlg.filterBastidor'), extensions: ['bastidor'] }],
+    });
+    if (result.canceled || result.filePaths.length === 0) return null;
+    const filePath = result.filePaths[0];
+    const json = fs.readFileSync(filePath, 'utf8');
+    const parsed = project.parseProject(json);
+    return Object.assign(parsed, {
+      path: filePath,
+      format: 'bastidor',
+      name: parsed.name || path.basename(filePath, path.extname(filePath)),
+    });
+  });
+
   ipcMain.handle('png:write', (e, { filePath, dataURL }) => {
     const base64 = dataURL.replace(/^data:image\/png;base64,/, '');
     fs.writeFileSync(filePath, Buffer.from(base64, 'base64'));
@@ -498,7 +536,12 @@ function setupIpc() {
     // preview: o dialog quer só olhar o resultado; nada de design:opened.
     if (preview) return { ok: true, widthMm, heightMm, design };
     sendToRenderer('design:opened', design);
-    return { ok: true, stitches: pattern.countStitches(), widthMm, heightMm };
+    // `design` vai também na resposta direta da invocação (além do canal
+    // "design:opened"): quem chamou (applySvgImport) usa isso pra registrar
+    // o objeto paramétrico (issue #29 fase 2, threads.length = nº de cores)
+    // sem depender da ordem de entrega entre o canal de evento e a resposta
+    // do invoke.
+    return { ok: true, stitches: pattern.countStitches(), widthMm, heightMm, design };
   });
 
   // Lettering (issue #7): fontes de traço único em fonts/, layout e pontos
@@ -631,6 +674,15 @@ function buildMenuTemplate() {
           label: t('menu.exportPng'),
           accelerator: 'CmdOrCtrl+E',
           click: () => sendToRenderer('menu', 'export-png'),
+        },
+        { type: 'separator' },
+        {
+          label: t('menu.saveProject'),
+          click: () => sendToRenderer('menu', 'save-project'),
+        },
+        {
+          label: t('menu.openProject'),
+          click: () => sendToRenderer('menu', 'open-project'),
         },
         ...(!isMac
           ? [

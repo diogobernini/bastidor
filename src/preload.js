@@ -27,6 +27,13 @@ contextBridge.exposeInMainWorld('api', {
   writePng: (filePath, dataURL) => ipcRenderer.invoke('png:write', { filePath, dataURL }),
   showItemInFolder: (filePath) => ipcRenderer.invoke('shell:show-item', filePath),
 
+  // Projeto nativo .bastidor (issue #29 fase 2): objetos + fios + parâmetros,
+  // pra edição paramétrica sobreviver a salvar/reabrir. Diálogo e leitura/
+  // escrita num único IPC cada (ao contrário de saveDialog+writeDesign): não
+  // há um "Salvar" que reaproveite caminho conhecido, só "Salvar como…".
+  projectSave: (design, defaultName) => ipcRenderer.invoke('project:save', { design, defaultName }),
+  projectOpen: () => ipcRenderer.invoke('project:open'),
+
   // Lettering (issue #7): texto -> pontos, via núcleo no processo principal.
   letteringListFonts: () => ipcRenderer.invoke('lettering:list-fonts'),
   letteringBuild: (opts) => ipcRenderer.invoke('lettering:build', opts),

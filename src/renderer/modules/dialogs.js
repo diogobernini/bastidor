@@ -14,6 +14,12 @@
 // RenderCanvas.requestRender/RenderCanvas.drawDesignInto. confirmDialog é usado
 // por DrivesUI e LibraryUI (ainda não extraídos — chamam Dialogs.confirmDialog
 // bare a partir do renderer.js remainder).
+//
+// issue #29 (fase 2): insertTextDesign/applySvgImport/confirmDigitize também
+// registram o objeto paramétrico recém-inserido via window.ObjectCanvas.
+// registerObject (src/renderer/objects.js) e window.ObjectModel.
+// rasterOptsFromParams (src/core/objectmodel.js) — ambos scripts clássicos
+// carregados antes deste módulo, ver index.html.
 window.Dialogs = (function () {
 
 function scaleDesign(factor) {
@@ -396,6 +402,21 @@ function openTextDialog() {
   if ($('text-input').value.trim()) scheduleTextPreview();
 }
 
+// Registra o objeto paramétrico (issue #29 fase 2) para o texto recém
+// inserido: `source` guarda o texto+fonte (o que identifica QUAL glifo
+// desenhar), `stitchParams` guarda o resto (tamanho, espaçamento,
+// acabamento) — resizedTextParams em src/core/objectmodel.js só mexe em
+// heightMm num redimensionamento futuro, mantendo densidade/comprimento de
+// ponto como configurados aqui.
+function registerTextObject(opts, threadCount) {
+  if (!window.ObjectCanvas) return;
+  const source = { text: opts.text, fontId: opts.fontId };
+  const stitchParams = Object.assign({}, opts);
+  delete stitchParams.text;
+  delete stitchParams.fontId;
+  ObjectCanvas.registerObject('text', source, stitchParams, threadCount);
+}
+
 // Insere o texto: se já há um design aberto, emenda como um novo bloco de
 // cor ao final (COLOR_CHANGE antes, se já houver pontos); senão, o texto
 // vira o design. Em ambos os casos o bloco de texto já chega centrado na
@@ -405,7 +426,8 @@ async function insertTextDesign() {
     toast(I18n.tr('toast.textEmpty'), 'warn');
     return;
   }
-  const result = await window.api.letteringBuild(readTextFormOpts());
+  const opts = readTextFormOpts();
+  const result = await window.api.letteringBuild(opts);
   if (!result.ok) {
     toast(I18n.tr('toast.textError') + result.error, 'error', 4200);
     return;
@@ -418,6 +440,7 @@ async function insertTextDesign() {
 
   if (!state.design) {
     setDesign(textDesign);
+    registerTextObject(opts, textDesign.threads.length);
     toast(I18n.tr('toast.textCreated'));
   } else {
     // Operação composta (agulhadas + threads mudam juntas, tamanho do
@@ -434,6 +457,7 @@ async function insertTextDesign() {
     for (const st of textDesign.stitches) stitches.push([st[0], st[1], st[2]]);
     state.design.stitches = stitches;
     state.design.threads.push(...textDesign.threads);
+    registerTextObject(opts, textDesign.threads.length);
     pushHistory({ type: 'snapshot', before, after: cloneDesignData() });
     bumpArt();
     deriveBlocks();
@@ -603,7 +627,19 @@ async function applySvgImport() {
   const picked = state.svgImport;
   if (!picked) return;
   try {
-    await window.api.importSvg({ text: picked.text, opts: svgImportOpts(), name: picked.name, path: picked.path });
+    const opts = svgImportOpts();
+    const res = await window.api.importSvg({ text: picked.text, opts, name: picked.name, path: picked.path });
+    // Registra o objeto paramétrico (issue #29 fase 2): a importação
+    // SUBSTITUI o design inteiro (ver handleSvgPicked/confirmReplace), então
+    // o objeto cobre todas as cores. `res` chega DEPOIS de "design:opened"
+    // já ter trocado state.design (mesmo canal IPC, ordem preservada) — o
+    // resto dos parâmetros (largura-alvo concreta, mesmo que o campo tenha
+    // ficado em branco) vem de res.widthMm, não do <input> vazio.
+    if (window.ObjectCanvas && state.design) {
+      const source = { svgText: picked.text, name: picked.name, path: picked.path };
+      const stitchParams = Object.assign({}, opts, { targetWidthMm: res.widthMm });
+      ObjectCanvas.registerObject('svg-shape', source, stitchParams, res.design.threads.length);
+    }
     toast(I18n.tr('toast.svgImported', { name: picked.name }));
   } catch (err) {
     toast(I18n.tr('toast.svgImportError') + err.message, 'error', 5000);
@@ -740,6 +776,28 @@ function paintImageData(canvasEl, imgData) {
   canvasEl.getContext('2d').putImageData(new ImageData(imgData.data, imgData.width, imgData.height), 0, 0);
 }
 
+// Codifica pixels crus como PNG em base64 (issue #29 fase 2): guardado como
+// `source.imageDataURL` de um objeto raster-trace, pra reconstruir a
+// ImageData completa quando o usuário redimensiona o objeto e o gerador
+// precisa rodar de novo (ver decodeDataURLImage e regenerateParametric em
+// src/renderer/objects.js).
+function imageDataToDataURL(imgData) {
+  const cv = document.createElement('canvas');
+  cv.width = imgData.width;
+  cv.height = imgData.height;
+  cv.getContext('2d').putImageData(new ImageData(imgData.data, imgData.width, imgData.height), 0, 0);
+  return cv.toDataURL('image/png');
+}
+
+// Caminho inverso: decodifica o dataURL guardado de volta pra ImageData na
+// resolução original (sem downscale, ao contrário do imageToImageData(img,
+// 256) usado só pra prévia do diálogo). Exportado como Dialogs.
+// decodeDataURLImage e injetado no ObjectCanvas via host.decodeDataURLImage
+// — ver boot() no remainder de renderer.js.
+function decodeDataURLImage(dataURL) {
+  return loadImageEl(dataURL).then((img) => imageToImageData(img, null));
+}
+
 function digitizeColorsLabel() {
   $('dig-colors-value').textContent = $('dig-colors').value;
 }
@@ -759,16 +817,17 @@ function updateDigitizeSummary(previewDesign) {
   $('dig-summary').textContent = txt;
 }
 
-// Parâmetros do formulário para uma imagem (work no preview, full ao aplicar):
-// escala px->0,1mm e tolerância dependem da resolução da imagem usada.
-function digitizeOptsFor(image) {
-  const widthMm = clampNum($('dig-width').value, 5, 600, 80);
-  const toleranceMm = clampNum($('dig-tolerance').value, 0, 5, 0.3);
+// Parâmetros CRUS do formulário (largura/tolerância em mm, não convertidos
+// pra escala de pixel): é isso que fica guardado como stitchParams de um
+// objeto raster-trace (issue #29 fase 2) — ObjectModel.rasterOptsFromParams
+// deriva os campos que dependem da resolução da imagem (scale/simplifyTol) a
+// partir daqui, tanto pro diálogo quanto pra um redimensionamento futuro.
+function digitizeRawParams() {
   return {
+    widthMm: clampNum($('dig-width').value, 5, 600, 80),
+    toleranceMm: clampNum($('dig-tolerance').value, 0, 5, 0.3),
     colors: Number($('dig-colors').value),
     ignoreBackground: $('dig-ignorebg').checked,
-    scale: (widthMm * 10) / image.width,
-    simplifyTol: (toleranceMm * image.width) / widthMm,
     stitchLenMm: clampNum($('dig-stitchlen').value, 0.5, 6, 2.5),
     outline: $('dig-outline').checked,
     fill: $('dig-fill').checked,
@@ -777,6 +836,12 @@ function digitizeOptsFor(image) {
     fillStitchMm: clampNum($('dig-fillstitch').value, 1, 8, 3),
     name: digitize.name,
   };
+}
+
+// Parâmetros do formulário para uma imagem (work no preview, full ao aplicar):
+// escala px->0,1mm e tolerância dependem da resolução da imagem usada.
+function digitizeOptsFor(image) {
+  return window.ObjectModel.rasterOptsFromParams(digitizeRawParams(), image.width);
 }
 
 // Prévia dos pontos: gera de verdade (na imagem de trabalho, menor) e desenha
@@ -866,8 +931,18 @@ async function confirmDigitize() {
   if (!digitize.full) return false;
   if (state.design && !window.confirm(I18n.tr('dig.confirmReplace'))) return false;
   try {
-    const design = await window.api.digitizeGenerate(digitize.full, digitizeOptsFor(digitize.full));
+    const rawParams = digitizeRawParams();
+    const design = await window.api.digitizeGenerate(digitize.full, window.ObjectModel.rasterOptsFromParams(rawParams, digitize.full.width));
     setDesign(design);
+    // Registra o objeto paramétrico (issue #29 fase 2): digitalizar SUBSTITUI
+    // o design inteiro, então o objeto cobre todas as cores. `source` guarda
+    // a imagem original codificada em PNG/base64 (imageDataToDataURL) — é o
+    // que permite rodar raster.rasterToPaths de novo num redimensionamento
+    // futuro, na resolução completa, em vez de escalar as coordenadas.
+    if (window.ObjectCanvas) {
+      const source = { imageDataURL: imageDataToDataURL(digitize.full), name: digitize.name };
+      ObjectCanvas.registerObject('raster-trace', source, rawParams, state.blocks.length);
+    }
     toast(I18n.tr('toast.digitized', { n: I18n.fmtNum(state.stats.stitches), c: I18n.fmtNum(state.blocks.length) }));
     return true;
   } catch (err) {
@@ -956,8 +1031,11 @@ function bindDigitizeDialog() {
     loadImageEl,
     imageToImageData,
     paintImageData,
+    imageDataToDataURL,
+    decodeDataURLImage,
     digitizeColorsLabel,
     updateDigitizeSummary,
+    digitizeRawParams,
     digitizeOptsFor,
     runDigitizeStitchPreview,
     queueDigitizeStitchPreview,
