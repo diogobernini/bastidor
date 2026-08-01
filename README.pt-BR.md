@@ -31,8 +31,10 @@ O app é bilíngue (português do Brasil e inglês) e acompanha o idioma do sist
 - **Visualização em canvas** com zoom, pan, grade em mm e bastidor configurável
 - **Simulador de bordado**: reproduz o caminho da agulha ponto a ponto, com velocidade ajustável e barra de progresso
 - **Informações da matriz**: dimensões, pontos, trocas de cor, saltos, cortes, ponto médio/máximo e densidade
-- **Edição de cores** por bloco (as cores são gravadas nos formatos que as suportam, como o XXX)
+- **Edição de cores** por bloco (gravadas nos formatos que as suportam, como o XXX), com prévia ao vivo no seletor e mesclagem de blocos adjacentes (uma parada de linha a menos, sequência de bordado intacta)
 - **Transformações**: centralizar, girar 90°, espelhar e redimensionar, com desfazer
+- **Canvas de objetos**: selecionar, mover, redimensionar e apagar elementos como num editor vetorial; texto, SVG e imagens digitalizadas são objetos paramétricos, então um redimensionamento proporcional roda o gerador de novo na densidade configurada em vez de esticar pontos
+- **Projeto nativo (.bastidor)**: mantém os objetos editáveis ao salvar e reabrir · formatos de máquina continuam como exportação achatada
 - **Conversão entre formatos** com regulagens de gravação:
   - divisão automática de pontos longos respeitando o limite de cada formato
   - limite de comprimento de ponto configurável (aperta além do limite do formato)
@@ -51,7 +53,11 @@ O app é bilíngue (português do Brasil e inglês) e acompanha o idioma do sist
 | EXP | Melco / Bernina | ✓ | ✓ |
 | PES / PEC | Brother / Babylock | ✓ | ✓ |
 | JEF | Janome / Elna | ✓ | ✓ |
+| VP3 | Husqvarna Viking / Pfaff | ✓ | ✓ |
+| HUS / SEW | Husqvarna Viking · Janome/Elna (antigos) | ✓ | – |
+| PCS | Pfaff | ✓ | ✓ |
 | SVG / PNG | vetor e imagem (digitalizados em pontos ao importar) | ✓ | ✓ |
+| BASTIDOR | projeto nativo: objetos, parâmetros e pontos (a edição paramétrica sobrevive ao reabrir) | ✓ | ✓ |
 
 Os parsers são validados de forma cruzada contra o [pystitch](https://github.com/inkstitch/pystitch):
 os arquivos gravados pelo Bastidor são lidos pela biblioteca de referência com geometria
@@ -122,12 +128,12 @@ então os parsers podem ser reaproveitados em CLI ou servidor.
 8. ✅ Gestão de pendrive: carregar e descarregar matrizes estilo biblioteca, com ejeção segura e limpeza dos arquivos ocultos do macOS
 9. ✅ Gestão de biblioteca: navegar o catálogo por pastas, com busca, miniaturas e integração com abrir/salvar como ([issue #17](https://github.com/diogobernini/bastidor/issues/17))
 
-### Fase 2 (em planejamento)
+### Fase 2
 
-1. **Canvas de objetos**: selecionar, mover, redimensionar e apagar elementos como num editor vetorial, com regeneração de pontos e guarda de distância mínima ([#29](https://github.com/diogobernini/bastidor/issues/29))
-2. Confiabilidade e distribuição: CI em todo PR ([#30](https://github.com/diogobernini/bastidor/issues/30)), assinatura/notarização/instaladores/auto-update ([#31](https://github.com/diogobernini/bastidor/issues/31)), validação em máquina física ([#32](https://github.com/diogobernini/bastidor/issues/32))
-3. Fundação: modularização do renderer ([#33](https://github.com/diogobernini/bastidor/issues/33)), suíte de testes de interface ([#34](https://github.com/diogobernini/bastidor/issues/34)), biblioteca em escala de 10-15 mil matrizes ([#35](https://github.com/diogobernini/bastidor/issues/35), [#28](https://github.com/diogobernini/bastidor/issues/28)), undo por deltas ([#37](https://github.com/diogobernini/bastidor/issues/37))
-4. Polimento: atualização das capturas ([#36](https://github.com/diogobernini/bastidor/issues/36)), ajuda de atalhos e acessibilidade ([#38](https://github.com/diogobernini/bastidor/issues/38))
+1. **Canvas de objetos** ([#29](https://github.com/diogobernini/bastidor/issues/29)): ✅ fases 1-2 — selecionar, mover, redimensionar e apagar como num editor vetorial, objetos paramétricos com regeneração real de pontos, guarda de distância mínima e o projeto nativo `.bastidor`. Fase 3 aberta: rotação, seleção múltipla, alinhar/distribuir, ordem de costura, duplicar
+2. ✅ Confiabilidade e distribuição: CI em todo PR ([#30](https://github.com/diogobernini/bastidor/issues/30)), assinatura/notarização/instaladores/auto-update ([#31](https://github.com/diogobernini/bastidor/issues/31)) · pendente: validação em máquina física ([#32](https://github.com/diogobernini/bastidor/issues/32))
+3. ✅ Fundação: modularização do renderer ([#33](https://github.com/diogobernini/bastidor/issues/33)), suíte de testes de interface ([#34](https://github.com/diogobernini/bastidor/issues/34)), biblioteca em escala de 10-15 mil matrizes ([#35](https://github.com/diogobernini/bastidor/issues/35), [#28](https://github.com/diogobernini/bastidor/issues/28)), undo por deltas ([#37](https://github.com/diogobernini/bastidor/issues/37))
+4. ✅ Polimento: atualização das capturas ([#36](https://github.com/diogobernini/bastidor/issues/36)), ajuda de atalhos e acessibilidade ([#38](https://github.com/diogobernini/bastidor/issues/38))
 
 ## Créditos e agradecimentos
 

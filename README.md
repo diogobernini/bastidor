@@ -31,8 +31,10 @@ The app is bilingual (English and Brazilian Portuguese) and follows your system 
 - **Canvas viewer** with zoom, pan, millimeter grid and configurable hoop
 - **Stitch-by-stitch simulator**: plays back the needle path with adjustable speed and a scrubber
 - **Design details**: dimensions, stitches, color changes, jumps, trims, average/longest stitch and density
-- **Per-block color editing** (colors are written to formats that store them, like XXX)
+- **Per-block color editing** (written to formats that store colors, like XXX), with live preview while picking and merging of adjacent blocks (one fewer thread stop, stitch sequence untouched)
 - **Transforms**: center, rotate 90°, mirror and resize, with undo
+- **Object canvas**: select, move, resize and delete design elements like a vector editor; lettering, SVG and digitized objects are parametric, so a proportional resize re-runs the real generator at the configured density instead of stretching stitches
+- **Native project file (.bastidor)**: keeps objects editable across save and reopen · machine formats stay flat exports
 - **Format conversion** with saving adjustments:
   - automatic splitting of long stitches, always respecting each format's limit
   - configurable maximum stitch length (tightens beyond the format limit)
@@ -51,7 +53,11 @@ The app is bilingual (English and Brazilian Portuguese) and follows your system 
 | EXP | Melco / Bernina | ✓ | ✓ |
 | PES / PEC | Brother / Babylock | ✓ | ✓ |
 | JEF | Janome / Elna | ✓ | ✓ |
+| VP3 | Husqvarna Viking / Pfaff | ✓ | ✓ |
+| HUS / SEW | Husqvarna Viking · Janome/Elna (older) | ✓ | – |
+| PCS | Pfaff | ✓ | ✓ |
 | SVG / PNG | vector and image (digitized into stitches on import) | ✓ | ✓ |
+| BASTIDOR | native project: objects, parameters and stitches (parametric editing survives reopen) | ✓ | ✓ |
 
 The parsers are cross-validated against [pystitch](https://github.com/inkstitch/pystitch):
 files written by Bastidor are read back by the reference library with identical geometry
@@ -122,12 +128,12 @@ dependency, so the parsers can be reused in a CLI or server.
 8. ✅ USB drive manager: library-style load and unload of designs, with safe eject and macOS hidden-file cleanup
 9. ✅ Library manager: browse the design catalog by folder, with search, thumbnails and open/save-as integration ([issue #17](https://github.com/diogobernini/bastidor/issues/17))
 
-### Phase 2 (in planning)
+### Phase 2
 
-1. **Object canvas**: select, move, resize and delete design elements like a vector editor, with stitch regeneration and a minimum-spacing guard ([#29](https://github.com/diogobernini/bastidor/issues/29))
-2. Reliability and distribution: CI on every PR ([#30](https://github.com/diogobernini/bastidor/issues/30)), signing/notarization/installers/auto-update ([#31](https://github.com/diogobernini/bastidor/issues/31)), validation on a physical machine ([#32](https://github.com/diogobernini/bastidor/issues/32))
-3. Foundation: renderer modularization ([#33](https://github.com/diogobernini/bastidor/issues/33)), Electron UI test suite ([#34](https://github.com/diogobernini/bastidor/issues/34)), 10-15k-design library scale ([#35](https://github.com/diogobernini/bastidor/issues/35), [#28](https://github.com/diogobernini/bastidor/issues/28)), delta undo ([#37](https://github.com/diogobernini/bastidor/issues/37))
-4. Polish: docs refresh ([#36](https://github.com/diogobernini/bastidor/issues/36)), shortcuts help and accessibility ([#38](https://github.com/diogobernini/bastidor/issues/38))
+1. **Object canvas** ([#29](https://github.com/diogobernini/bastidor/issues/29)): ✅ phases 1-2 — select, move, resize and delete like a vector editor, parametric objects with real stitch regeneration, minimum-spacing guard and the native `.bastidor` project file. Phase 3 open: rotation, multi-select, align/distribute, stitch order, duplicate
+2. ✅ Reliability and distribution: CI on every PR ([#30](https://github.com/diogobernini/bastidor/issues/30)), signing/notarization/installers/auto-update ([#31](https://github.com/diogobernini/bastidor/issues/31)) · pending: validation on a physical machine ([#32](https://github.com/diogobernini/bastidor/issues/32))
+3. ✅ Foundation: renderer modularization ([#33](https://github.com/diogobernini/bastidor/issues/33)), Electron UI test suite ([#34](https://github.com/diogobernini/bastidor/issues/34)), 10-15k-design library scale ([#35](https://github.com/diogobernini/bastidor/issues/35), [#28](https://github.com/diogobernini/bastidor/issues/28)), delta undo ([#37](https://github.com/diogobernini/bastidor/issues/37))
+4. ✅ Polish: docs refresh ([#36](https://github.com/diogobernini/bastidor/issues/36)), shortcuts help and accessibility ([#38](https://github.com/diogobernini/bastidor/issues/38))
 
 ## Credits and thanks
 
