@@ -401,6 +401,27 @@ textarea:focus-visible,
   font-size: 11.5px;
 }
 
+/* Ação de mesclar blocos de cor adjacentes (issue #50): botão pequeno por
+   linha, escondido no último bloco (ver updateSidebar em renderer.js). */
+.colors .merge-btn {
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--accent);
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.colors .merge-btn:hover {
+  background: #3a2c14;
+  border-color: var(--accent);
+}
+
 .transform-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;

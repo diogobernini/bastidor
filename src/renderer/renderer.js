@@ -346,6 +346,25 @@ const historyApplyFns = {
     if (t) t.color = op.to;
     else state.design.threads[op.index] = { color: op.to };
   },
+  // Mesclar blocos de cor adjacentes (issue #50): ver ColorBlocks
+  // (src/core/colorblocks.js) para a mutação em si; aqui só repassamos os
+  // arrays do design atual. mergeColorBlock é a direção "fazer" (remove);
+  // splitColorBlock é a inversa (reinsere) — usada tanto por undo() quanto
+  // como operação direta caso ela mesma seja desfeita de novo (redo).
+  mergeColorBlock(op) {
+    ColorBlocks.mergeBlock(state.design.stitches, state.design.threads, {
+      colorChangeIndex: op.colorChangeIndex,
+      threadIndex: op.threadIndex,
+    });
+  },
+  splitColorBlock(op) {
+    ColorBlocks.splitBlock(
+      state.design.stitches,
+      state.design.threads,
+      { colorChangeIndex: op.colorChangeIndex, threadIndex: op.threadIndex },
+      { stitch: op.stitch, thread: op.thread }
+    );
+  },
   transform(op) {
     applyTransformToDesign(op.kind, op.params);
   },
@@ -510,6 +529,22 @@ function updateSidebar() {
     count.className = 'count';
     count.textContent = fmtNum(block.stitchCount);
     li.append(sw, name, count);
+    // Ação de mesclar (issue #50): funde o bloco de BAIXO neste, mantendo a
+    // linha/config deste bloco. Escondida no último, que não tem bloco
+    // abaixo para mesclar.
+    if (bi < state.blocks.length - 1) {
+      const mergeBtn = document.createElement('button');
+      mergeBtn.type = 'button';
+      mergeBtn.className = 'merge-btn';
+      mergeBtn.textContent = '⇊';
+      mergeBtn.title = tr('colors.merge');
+      mergeBtn.setAttribute('aria-label', mergeBtn.title); // issue #38: tooltip dobra de rótulo p/ leitor de tela
+      mergeBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        mergeColorBlockWithNext(bi);
+      });
+      li.append(mergeBtn);
+    }
     list.appendChild(li);
   });
 
@@ -530,6 +565,36 @@ function updateSidebar() {
     li.textContent = w;
     wl.appendChild(li);
   }
+}
+
+// Mesclagem de blocos de cor adjacentes (issue #50): funde o bloco
+// state.blocks[bi + 1] (o de BAIXO) no bloco state.blocks[bi] (o de CIMA),
+// mantendo a linha/config do de cima. A sequência de bordado não muda: só
+// o COLOR_CHANGE entre os dois some (uma parada a menos pra trocar de
+// linha) e a entrada de thread do bloco de baixo é removida — as contagens
+// de ponto somam automaticamente porque os stitches continuam os mesmos,
+// só que agora num único bloco. Núcleo puro em src/core/colorblocks.js;
+// aqui só montamos a operação de histórico com o que foi removido (mesmo
+// padrão de insertAfterSelected: muta primeiro, história descreve o que já
+// mudou, porque é a própria mutação que revela o valor exato removido).
+function mergeColorBlockWithNext(bi) {
+  if (!state.design) return;
+  const plan = ColorBlocks.deriveMergePlan(state.blocks, bi + 1);
+  if (!plan) return; // blocos não adjacentes de verdade (bloco vazio escondido entre eles) — não faz nada
+  const removed = ColorBlocks.mergeBlock(state.design.stitches, state.design.threads, plan);
+  pushHistory({
+    type: 'mergeColorBlock',
+    colorChangeIndex: plan.colorChangeIndex,
+    threadIndex: plan.threadIndex,
+    stitch: removed.stitch,
+    thread: removed.thread,
+  });
+  bumpArt();
+  deriveBlocks();
+  deriveStats();
+  updateSidebar();
+  updateStatusbar();
+  requestRender();
 }
 
 function updateStatusbar() {
