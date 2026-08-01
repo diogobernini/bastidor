@@ -19,6 +19,7 @@ const STRINGS = {
     'menu.exit': 'Exit',
     'menu.edit': 'Edit',
     'menu.undo': 'Undo',
+    'menu.redo': 'Redo',
     'menu.center': 'Center at origin',
     'menu.resize': 'Resize…',
     'menu.rotateCw': 'Rotate 90° clockwise',
@@ -113,6 +114,8 @@ const STRINGS = {
     't.flipVTip': 'Flip vertical',
     't.undo': 'Undo',
     't.undoTip': 'Undo (Cmd/Ctrl+Z)',
+    't.redo': 'Redo',
+    't.redoTip': 'Redo (Cmd/Ctrl+Shift+Z)',
 
     'warn.long': '{n} stitches longer than {len} (split on save)',
     'warn.longShort': '{n} stitches longer than {len}',
@@ -450,6 +453,7 @@ const STRINGS = {
     'menu.exit': 'Sair',
     'menu.edit': 'Editar',
     'menu.undo': 'Desfazer',
+    'menu.redo': 'Refazer',
     'menu.center': 'Centralizar na origem',
     'menu.resize': 'Redimensionar…',
     'menu.rotateCw': 'Girar 90° horário',
@@ -544,6 +548,8 @@ const STRINGS = {
     't.flipVTip': 'Espelhar vertical',
     't.undo': 'Desfazer',
     't.undoTip': 'Desfazer (Cmd/Ctrl+Z)',
+    't.redo': 'Refazer',
+    't.redoTip': 'Refazer (Cmd/Ctrl+Shift+Z)',
 
     'warn.long': '{n} pontos acima de {len} (serão divididos ao gravar)',
     'warn.longShort': '{n} pontos acima de {len}',

@@ -37,7 +37,6 @@ const state = {
   view: { scale: 1, tx: 0, ty: 0 },
   sim: { playing: false, pos: Infinity, lastT: 0 },
   edit: { active: false, selected: -1 }, // modo "Editar pontos" (issue #3)
-  undoStack: [],
   dirty: false,
   renderQueued: false,
   interacting: false, // pan/zoom em andamento (mouse/wheel)
@@ -280,7 +279,7 @@ function setDesign(design, opts = {}) {
   $('btn-edit').classList.remove('on');
   canvas.classList.remove('edit-mode');
   if (!opts.keepUndo) {
-    state.undoStack = [];
+    history.clear();
     state.dirty = false;
   }
   deriveBlocks();
@@ -288,6 +287,7 @@ function setDesign(design, opts = {}) {
   updateSidebar();
   updateStatusbar();
   updateToolbarEnabled();
+  updateUndoRedoButtons();
   $('empty-state').style.display = 'none';
   $('sidebar').hidden = false;
   if (!opts.keepView) fitView();
@@ -310,28 +310,124 @@ function hoopExceeded() {
   return state.stats.width > h.width * 10 || state.stats.height > h.height * 10;
 }
 
-function snapshotUndo() {
-  state.undoStack.push({
-    stitches: state.design.stitches.map((s) => [s[0], s[1], s[2]]),
-    threads: JSON.parse(JSON.stringify(state.design.threads)),
-  });
-  if (state.undoStack.length > 20) state.undoStack.shift();
+// --------------------------------------------------------------- undo/redo (issue #37)
+//
+// Histórico por operações com inversa barata (src/core/history.js), em vez
+// do snapshot completo por mutação de antes. Cada call-site monta a
+// operação mínima que descreve o que mudou (ver comentário no topo de
+// history.js) e chama pushHistory(op); história.js cuida do cap por
+// quantidade/memória e de limpar o redo a cada novo push. `historyApplyFns`
+// é o dicionário que sabe aplicar cada tipo de operação de volta no design
+// — usado tanto por undo() (com a operação invertida) quanto por redo()
+// (com a operação original).
+
+const history = History.create();
+
+const historyApplyFns = {
+  movePoint(op) {
+    const st = state.design.stitches[op.index];
+    st[0] = op.to[0];
+    st[1] = op.to[1];
+  },
+  deletePoint(op) {
+    state.design.stitches.splice(op.index, 1);
+  },
+  insertPoint(op) {
+    state.design.stitches.splice(op.index, 0, op.stitch.slice());
+  },
+  recolorThread(op) {
+    const t = state.design.threads[op.index];
+    if (t) t.color = op.to;
+    else state.design.threads[op.index] = { color: op.to };
+  },
+  transform(op) {
+    applyTransformToDesign(op.kind, op.params);
+  },
+  snapshot(op) {
+    state.design.stitches = op.after.stitches;
+    state.design.threads = op.after.threads;
+  },
+};
+
+// Empilha uma operação (delta ou snapshot) e atualiza os efeitos colaterais
+// que antes viviam dentro de snapshotUndo(): marca o design como sujo e
+// mantém os botões Desfazer/Refazer e a barra de status em dia.
+function pushHistory(op) {
+  history.push(op);
   state.dirty = true;
-  $('t-undo').disabled = false;
+  updateUndoRedoButtons();
   updateStatusbar();
 }
 
+function updateUndoRedoButtons() {
+  $('t-undo').disabled = !history.canUndo();
+  $('t-redo').disabled = !history.canRedo();
+}
+
+// Copia stitches/threads do design atual (mesmo formato usado antes por
+// snapshotUndo): usado para montar a operação 'snapshot' de fallback nas
+// mutações sem inversa analítica barata (redimensionar com densidade,
+// inserir texto como bloco novo).
+function cloneDesignData() {
+  return {
+    stitches: state.design.stitches.map((s) => [s[0], s[1], s[2]]),
+    threads: JSON.parse(JSON.stringify(state.design.threads)),
+  };
+}
+
+// Aplica uma transformação global (kind/params) a cada agulhada do design.
+// Usada tanto pela ação direta (centerToOrigin/rotate90/flip/scaleDesign)
+// quanto pelo undo/redo de uma operação 'transform' — mesma matemática,
+// pra nunca divergir entre "fazer" e "desfazer/refazer".
+function transformPoint(kind, params, x, y) {
+  switch (kind) {
+    case 'translate':
+      // dx/dy já chegam inteiros (ver centerToOrigin): soma exata, sem
+      // perda de precisão em nenhuma direção (undo/redo ida e volta).
+      return [x + params.dx, y + params.dy];
+    case 'rotate90': {
+      const dx = x - params.cx;
+      const dy = y - params.cy;
+      return params.clockwise ? [params.cx - dy, params.cy + dx] : [params.cx + dy, params.cy - dx];
+    }
+    case 'flip':
+      return params.horizontal ? [2 * params.cx - x, y] : [x, 2 * params.cy - y];
+    case 'scale':
+      return [params.cx + (x - params.cx) * params.factor, params.cy + (y - params.cy) * params.factor];
+    default:
+      return [x, y];
+  }
+}
+
+function applyTransformToDesign(kind, params) {
+  for (const st of state.design.stitches) {
+    const [x, y] = transformPoint(kind, params, st[0], st[1]);
+    st[0] = x;
+    st[1] = y;
+  }
+}
+
 function undo() {
-  const snap = state.undoStack.pop();
-  if (!snap) return;
-  state.design.stitches = snap.stitches;
-  state.design.threads = snap.threads;
+  const applied = history.undo(historyApplyFns);
+  if (!applied) return;
+  afterHistoryNav();
+}
+
+function redo() {
+  const applied = history.redo(historyApplyFns);
+  if (!applied) return;
+  afterHistoryNav();
+}
+
+// Efeitos colaterais comuns depois de desfazer ou refazer uma operação
+// qualquer (mesma sequência que undo() já fazia antes desta issue).
+function afterHistoryNav() {
   bumpArt();
-  state.edit.selected = -1; // o array foi substituído: o índice selecionado não é confiável
-  if (state.undoStack.length === 0) $('t-undo').disabled = true;
+  state.edit.selected = -1; // índice pode não valer mais (insert/delete mudam o tamanho do array)
   deriveBlocks();
   deriveStats();
   updateSidebar();
+  updateUndoRedoButtons();
   updateStatusbar();
   requestRender();
 }
@@ -374,10 +470,12 @@ function updateSidebar() {
     sw.value = threadColor(block.threadIndex);
     sw.title = tr('colors.tip');
     sw.addEventListener('change', () => {
-      snapshotUndo();
+      const from = threadColor(block.threadIndex);
+      const to = sw.value;
+      pushHistory({ type: 'recolorThread', index: block.threadIndex, from, to });
       const t = state.design.threads[block.threadIndex];
-      if (t) t.color = sw.value;
-      else state.design.threads[block.threadIndex] = { color: sw.value };
+      if (t) t.color = to;
+      else state.design.threads[block.threadIndex] = { color: to };
       bumpArt();
       updateSidebar();
       requestRender();
@@ -1132,7 +1230,8 @@ function afterPointMutation() {
 function deleteSelectedStitch() {
   const i = state.edit.selected;
   if (!state.design || i < 0 || i >= state.design.stitches.length) return;
-  snapshotUndo();
+  const stitch = state.design.stitches[i].slice();
+  pushHistory({ type: 'deletePoint', index: i, stitch });
   state.design.stitches.splice(i, 1);
   state.edit.selected = -1;
   afterPointMutation();
@@ -1144,8 +1243,9 @@ function deleteSelectedStitch() {
 function insertAfterSelected() {
   const i = state.edit.selected;
   if (!state.design || i < 0 || i >= state.design.stitches.length - 1) return;
-  snapshotUndo();
   const newIndex = Spatial.insertMidpoint(state.design.stitches, i);
+  if (newIndex === -1) return;
+  pushHistory({ type: 'insertPoint', index: newIndex, stitch: state.design.stitches[newIndex].slice() });
   state.edit.selected = newIndex;
   afterPointMutation();
 }
@@ -1153,22 +1253,23 @@ function insertAfterSelected() {
 function nudgeSelectedStitch(dx, dy) {
   const st = selectedStitch();
   if (!st) return;
-  snapshotUndo();
-  st[0] += dx;
-  st[1] += dy;
+  const from = [st[0], st[1]];
+  const to = [st[0] + dx, st[1] + dy];
+  pushHistory({ type: 'movePoint', index: state.edit.selected, from, to });
+  st[0] = to[0];
+  st[1] = to[1];
   afterPointMutation();
 }
 
 // --------------------------------------------------------------- transformações
 
-function applyToStitches(fn) {
+// Aplica uma transformação global (kind/params, ver transformPoint) ao
+// design inteiro, empilhando a operação ANTES de mutar — mesmo padrão que
+// os outros deltas (push descreve o que vai mudar, depois muda).
+function applyTransform(kind, params) {
   if (!state.design) return;
-  snapshotUndo();
-  for (const st of state.design.stitches) {
-    const [x, y] = fn(st[0], st[1]);
-    st[0] = x;
-    st[1] = y;
-  }
+  pushHistory({ type: 'transform', kind, params });
+  applyTransformToDesign(kind, params);
   bumpArt();
   deriveStats();
   updateSidebar();
@@ -1184,29 +1285,29 @@ function designCenter() {
 
 function centerToOrigin() {
   const [cx, cy] = designCenter();
-  applyToStitches((x, y) => [Math.round(x - cx), Math.round(y - cy)]);
+  // Arredonda o delta (não cada ponto) para dx/dy inteiros: soma exata em
+  // ambas as direções, então undo/redo nunca deriva por arredondamento
+  // mesmo quando o centro geométrico cai em .5 (largura/altura ímpar).
+  // Math.round(x - cx) === x + Math.round(-cx) para todo x inteiro.
+  applyTransform('translate', { dx: Math.round(-cx), dy: Math.round(-cy) });
   fitView();
   toast(tr('toast.centered'));
 }
 
 function rotate90(clockwise) {
   const [cx, cy] = designCenter();
-  applyToStitches((x, y) => {
-    const dx = x - cx;
-    const dy = y - cy;
-    return clockwise ? [cx - dy, cy + dx] : [cx + dy, cy - dx];
-  });
+  applyTransform('rotate90', { cx, cy, clockwise });
   fitView();
 }
 
 function flip(horizontal) {
   const [cx, cy] = designCenter();
-  applyToStitches((x, y) => (horizontal ? [2 * cx - x, y] : [x, 2 * cy - y]));
+  applyTransform('flip', { cx, cy, horizontal });
 }
 
 function scaleDesign(factor) {
   const [cx, cy] = designCenter();
-  applyToStitches((x, y) => [cx + (x - cx) * factor, cy + (y - cy) * factor]);
+  applyTransform('scale', { cx, cy, factor });
   fitView();
   if (Math.abs(factor - 1) > 0.2) {
     toast(tr('toast.scaleWarn'), 'warn', 4600);
@@ -1215,14 +1316,17 @@ function scaleDesign(factor) {
 
 // Como scaleDesign, mas recalcula a densidade das corridas de ponto cheio
 // (issue #4, v1) em vez de só escalar as coordenadas. Substitui o array de
-// agulhadas por inteiro (o tamanho muda), por isso não usa applyToStitches.
+// agulhadas por inteiro (o tamanho muda): não tem inversa analítica barata,
+// por isso usa o fallback 'snapshot' (cópia completa antes/depois) em vez
+// de applyTransform.
 function scaleDesignWithDensity(factor) {
   if (!state.design) return;
   const { detectSatinRuns, rescaleWithDensity } = window.DensityScale;
   const [cx, cy] = designCenter();
-  snapshotUndo();
+  const before = cloneDesignData();
   const runs = detectSatinRuns(state.design.stitches);
   state.design.stitches = rescaleWithDensity(state.design.stitches, factor, { center: [cx, cy] });
+  pushHistory({ type: 'snapshot', before, after: cloneDesignData() });
   bumpArt(); // invalida o cache do modo realista (integração dos PRs #9 e #10)
   deriveBlocks();
   deriveStats();
@@ -2932,7 +3036,9 @@ async function insertTextDesign() {
     setDesign(textDesign);
     toast(tr('toast.textCreated'));
   } else {
-    snapshotUndo();
+    // Operação composta (agulhadas + threads mudam juntas, tamanho do
+    // array cresce): sem inversa analítica barata, usa o fallback 'snapshot'.
+    const before = cloneDesignData();
     let stitches = state.design.stitches;
     if (stitches.length && (stitches[stitches.length - 1][2] & COMMAND_MASK) === END) {
       stitches = stitches.slice(0, -1); // um único END sobrevive, no fim de tudo
@@ -2944,6 +3050,7 @@ async function insertTextDesign() {
     for (const st of textDesign.stitches) stitches.push([st[0], st[1], st[2]]);
     state.design.stitches = stitches;
     state.design.threads.push(...textDesign.threads);
+    pushHistory({ type: 'snapshot', before, after: cloneDesignData() });
     bumpArt();
     deriveBlocks();
     deriveStats();
@@ -2984,6 +3091,7 @@ function bindCanvas() {
   let lastY = 0;
   let dragIndex = -1; // ponto sendo arrastado no modo de edição (-1 = nenhum)
   let dragMoved = false;
+  let dragFrom = null; // posição do ponto ao iniciar o arraste, p/ montar o op movePoint completo no fim
   canvas.addEventListener('pointerdown', (e) => {
     if (state.edit.active) {
       const rect = canvas.getBoundingClientRect();
@@ -3013,11 +3121,11 @@ function bindCanvas() {
     $('st-pos').textContent =
       `x ${(dx / 10).toLocaleString(locale(), opts)}  y ${(dy / 10).toLocaleString(locale(), opts)} mm`;
     if (dragIndex !== -1) {
+      const st = state.design.stitches[dragIndex];
       if (!dragMoved) {
-        snapshotUndo(); // só antes do primeiro movimento do arraste, não a cada pixel
+        dragFrom = [st[0], st[1]]; // captura ANTES de mutar: vira o "from" do movePoint no fim do arraste
         dragMoved = true;
       }
-      const st = state.design.stitches[dragIndex];
       st[0] = Math.round(dx);
       st[1] = Math.round(dy);
       afterPointMutation();
@@ -3032,8 +3140,16 @@ function bindCanvas() {
   });
   const stopPan = (e) => {
     panning = false;
+    // Um único movePoint pro arraste inteiro (não por pixel), igual ao
+    // snapshotUndo() único de antes — só que agora o "to" só existe no
+    // fim do gesto, então o push acontece aqui em vez de no 1º pointermove.
+    if (dragIndex !== -1 && dragMoved) {
+      const st = state.design.stitches[dragIndex];
+      pushHistory({ type: 'movePoint', index: dragIndex, from: dragFrom, to: [st[0], st[1]] });
+    }
     dragIndex = -1;
     dragMoved = false;
+    dragFrom = null;
     canvas.classList.remove('panning');
     if (state.interacting) {
       state.interacting = false;
@@ -3143,6 +3259,7 @@ function bindToolbar() {
   $('t-flip-h').addEventListener('click', () => flip(true));
   $('t-flip-v').addEventListener('click', () => flip(false));
   $('t-undo').addEventListener('click', undo);
+  $('t-redo').addEventListener('click', redo);
   $('t-scale').addEventListener('click', openScaleDialog);
 }
 
@@ -3413,6 +3530,7 @@ function bindMenuAndKeys() {
       'export-png': exportPng,
       settings: openSettings,
       undo,
+      redo,
       center: centerToOrigin,
       scale: openScaleDialog,
       'rotate-cw': () => rotate90(true),

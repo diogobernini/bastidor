@@ -407,6 +407,10 @@ textarea:focus-visible,
   gap: 6px;
 }
 
+.undo-redo-grid {
+  margin-top: 6px;
+}
+
 .warnings {
   list-style: none;
   display: flex;
