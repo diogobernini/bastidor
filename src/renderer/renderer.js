@@ -93,63 +93,7 @@ function bumpArt() {
   state.artVersion++;
 }
 
-// --------------------------------------------------------------- i18n
-
-function tr(key, vars) {
-  const table = state.strings[state.lang] || {};
-  const en = state.strings.en || {};
-  let s = table[key] !== undefined ? table[key] : en[key] !== undefined ? en[key] : key;
-  if (vars) {
-    for (const [k, v] of Object.entries(vars)) s = s.replaceAll('{' + k + '}', String(v));
-  }
-  return s;
-}
-
-function locale() {
-  return state.lang === 'pt-BR' ? 'pt-BR' : 'en-US';
-}
-
-// Aplica as strings estáticas marcadas com data-i18n / data-i18n-title / data-i18n-placeholder.
-function applyI18n() {
-  document.documentElement.lang = state.lang;
-  document.querySelectorAll('[data-i18n]').forEach((el) => {
-    el.textContent = tr(el.dataset.i18n);
-  });
-  document.querySelectorAll('[data-i18n-title]').forEach((el) => {
-    el.title = tr(el.dataset.i18nTitle);
-    el.setAttribute('aria-label', el.title); // issue #38: tooltip dobra de rótulo p/ leitor de tela nos botões só-ícone
-  });
-  document.querySelectorAll('[data-i18n-placeholder]').forEach((el) => {
-    el.placeholder = tr(el.dataset.i18nPlaceholder);
-  });
-  const speedSel = $('sim-speed');
-  const current = speedSel.value;
-  speedSel.innerHTML = '';
-  for (const v of [150, 300, 600, 1200, 2500]) {
-    const opt = document.createElement('option');
-    opt.value = String(v);
-    opt.textContent = `${v} ${tr('unit.sps')}`;
-    speedSel.appendChild(opt);
-  }
-  if (current) speedSel.value = current;
-  populateHoopPresets();
-}
-
 // --------------------------------------------------------------- utilidades
-
-function fmtMm(units01mm, decimals = 1) {
-  const mm = units01mm / 10;
-  if (state.settings && state.settings.units === 'in') {
-    const v = (mm / 25.4).toLocaleString(locale(), { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-    return `${v} ${tr('unit.in')}`;
-  }
-  const v = mm.toLocaleString(locale(), { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
-  return `${v} ${tr('unit.mm')}`;
-}
-
-function fmtNum(n) {
-  return n.toLocaleString(locale());
-}
 
 function toast(msg, kind = '', ms = 3200) {
   const el = document.createElement('div');
@@ -166,11 +110,11 @@ function threadColor(i) {
 
 function threadLabel(i) {
   const t = state.design.threads[i];
-  const fallback = tr('colors.fallback', { n: i + 1 });
+  const fallback = I18n.tr('colors.fallback', { n: i + 1 });
   if (!t) return fallback;
   const parts = [];
   if (t.description) parts.push(t.description);
-  if (t.catalog) parts.push(tr('colors.catalog', { n: t.catalog }));
+  if (t.catalog) parts.push(I18n.tr('colors.catalog', { n: t.catalog }));
   return parts.length ? parts.join(' · ') : fallback;
 }
 
@@ -185,7 +129,7 @@ const CMD_LABEL_KEYS = {
 
 function cmdLabel(cmd) {
   const key = CMD_LABEL_KEYS[cmd & COMMAND_MASK];
-  return tr(key || 'cmd.other');
+  return I18n.tr(key || 'cmd.other');
 }
 
 // --------------------------------------------------------------- design
@@ -303,10 +247,10 @@ function setDesign(design, opts = {}) {
   if (!opts.silent) {
     const w = [];
     if (state.stats.longCount > 0) {
-      w.push(tr('warn.longShort', { n: fmtNum(state.stats.longCount), len: fmtMm(state.settings.warnings.longStitchMm * 10) }));
+      w.push(I18n.tr('warn.longShort', { n: I18n.fmtNum(state.stats.longCount), len: I18n.fmtMm(state.settings.warnings.longStitchMm * 10) }));
     }
-    if (hoopExceeded()) w.push(tr('warn.hoopShort'));
-    if (w.length) toast(tr('warn.prefix') + w.join(tr('warn.and')), 'warn', 4200);
+    if (hoopExceeded()) w.push(I18n.tr('warn.hoopShort'));
+    if (w.length) toast(I18n.tr('warn.prefix') + w.join(I18n.tr('warn.and')), 'warn', 4200);
   }
 }
 
@@ -445,18 +389,18 @@ function updateSidebar() {
   const s = state.stats;
   const info = $('info-list');
   const rows = [
-    [tr('info.dimensions'), `${fmtMm(s.width)} × ${fmtMm(s.height)}`],
-    [tr('info.stitches'), fmtNum(s.stitches)],
-    [tr('info.colorChanges'), fmtNum(s.colorChanges)],
-    [tr('info.jumps'), fmtNum(s.jumps)],
-    [tr('info.trims'), fmtNum(s.trims)],
+    [I18n.tr('info.dimensions'), `${I18n.fmtMm(s.width)} × ${I18n.fmtMm(s.height)}`],
+    [I18n.tr('info.stitches'), I18n.fmtNum(s.stitches)],
+    [I18n.tr('info.colorChanges'), I18n.fmtNum(s.colorChanges)],
+    [I18n.tr('info.jumps'), I18n.fmtNum(s.jumps)],
+    [I18n.tr('info.trims'), I18n.fmtNum(s.trims)],
   ];
-  if (s.stops > 0) rows.push([tr('info.stops'), fmtNum(s.stops)]);
-  rows.push([tr('info.avgStitch'), fmtMm(s.avgLen)]);
-  rows.push([tr('info.maxStitch'), fmtMm(s.maxLen)]);
-  if (s.density > 0) rows.push([tr('info.density'), `${Math.round(s.density)} ${tr('unit.density')}`]);
+  if (s.stops > 0) rows.push([I18n.tr('info.stops'), I18n.fmtNum(s.stops)]);
+  rows.push([I18n.tr('info.avgStitch'), I18n.fmtMm(s.avgLen)]);
+  rows.push([I18n.tr('info.maxStitch'), I18n.fmtMm(s.maxLen)]);
+  if (s.density > 0) rows.push([I18n.tr('info.density'), `${Math.round(s.density)} ${I18n.tr('unit.density')}`]);
   const fmt = state.design.format ? state.design.format.toUpperCase() : null;
-  if (fmt) rows.push([tr('info.format'), fmt]);
+  if (fmt) rows.push([I18n.tr('info.format'), fmt]);
   info.innerHTML = '';
   for (const [k, v] of rows) {
     const dt = document.createElement('dt');
@@ -475,7 +419,7 @@ function updateSidebar() {
     sw.type = 'color';
     sw.className = 'swatch';
     sw.value = threadColor(block.threadIndex);
-    sw.title = tr('colors.tip');
+    sw.title = I18n.tr('colors.tip');
     sw.addEventListener('change', () => {
       const from = threadColor(block.threadIndex);
       const to = sw.value;
@@ -492,18 +436,18 @@ function updateSidebar() {
     name.textContent = `${bi + 1}. ${threadLabel(block.threadIndex)}`;
     const count = document.createElement('span');
     count.className = 'count';
-    count.textContent = fmtNum(block.stitchCount);
+    count.textContent = I18n.fmtNum(block.stitchCount);
     li.append(sw, name, count);
     list.appendChild(li);
   });
 
   const warnings = [];
   if (state.stats.longCount > 0) {
-    warnings.push(tr('warn.long', { n: fmtNum(state.stats.longCount), len: fmtMm(state.settings.warnings.longStitchMm * 10) }));
+    warnings.push(I18n.tr('warn.long', { n: I18n.fmtNum(state.stats.longCount), len: I18n.fmtMm(state.settings.warnings.longStitchMm * 10) }));
   }
   if (hoopExceeded()) {
     const h = state.settings.hoop;
-    warnings.push(tr('warn.hoop', { w: h.width, h: h.height }));
+    warnings.push(I18n.tr('warn.hoop', { w: h.width, h: h.height }));
   }
   if (window.ObjectCanvas && ObjectCanvas.sidebarWarning()) warnings.push(ObjectCanvas.sidebarWarning()); // issue #29
   $('warnings-section').hidden = warnings.length === 0;
@@ -518,7 +462,7 @@ function updateSidebar() {
 
 function updateStatusbar() {
   if (!state.design) {
-    $('st-file').textContent = tr('status.noFile');
+    $('st-file').textContent = I18n.tr('status.noFile');
     $('st-size').textContent = '';
     $('st-stitches').textContent = '';
     $('st-edit').textContent = '';
@@ -526,19 +470,19 @@ function updateStatusbar() {
   }
   const name = state.design.name || '·';
   $('st-file').textContent = (state.dirty ? '● ' : '') + name + (state.design.path ? ' · ' + state.design.path : '');
-  $('st-size').textContent = `${fmtMm(state.stats.width)} × ${fmtMm(state.stats.height)}`;
-  $('st-stitches').textContent = tr('status.stitches', { n: fmtNum(state.stats.stitches) });
+  $('st-size').textContent = `${I18n.fmtMm(state.stats.width)} × ${I18n.fmtMm(state.stats.height)}`;
+  $('st-stitches').textContent = I18n.tr('status.stitches', { n: I18n.fmtNum(state.stats.stitches) });
 
   const sel = state.edit.active && state.edit.selected >= 0 && state.edit.selected < state.design.stitches.length
     ? state.edit.selected
     : -1;
   if (sel >= 0) {
     const st = state.design.stitches[sel];
-    $('st-edit').textContent = tr('status.editPoint', {
-      n: fmtNum(sel),
+    $('st-edit').textContent = I18n.tr('status.editPoint', {
+      n: I18n.fmtNum(sel),
       cmd: cmdLabel(st[2]),
-      x: fmtMm(st[0]),
-      y: fmtMm(st[1]),
+      x: I18n.fmtMm(st[0]),
+      y: I18n.fmtMm(st[1]),
     });
   } else {
     $('st-edit').textContent = '';
@@ -1089,7 +1033,7 @@ function drawTimeline() {
     c.fillRect(x - 1, 0, 2.5, rect.height);
   }
   const pos = simming ? Math.floor(state.sim.pos) : total;
-  $('timeline-count').textContent = `${fmtNum(pos)} / ${fmtNum(total)}`;
+  $('timeline-count').textContent = `${I18n.fmtNum(pos)} / ${I18n.fmtNum(total)}`;
 }
 
 function render() {
@@ -1306,7 +1250,7 @@ function centerToOrigin() {
   // Math.round(x - cx) === x + Math.round(-cx) para todo x inteiro.
   applyTransform('translate', { dx: Math.round(-cx), dy: Math.round(-cy) });
   fitView();
-  toast(tr('toast.centered'));
+  toast(I18n.tr('toast.centered'));
 }
 
 function rotate90(clockwise) {
@@ -1325,7 +1269,7 @@ function scaleDesign(factor) {
   applyTransform('scale', { cx, cy, factor });
   fitView();
   if (Math.abs(factor - 1) > 0.2) {
-    toast(tr('toast.scaleWarn'), 'warn', 4600);
+    toast(I18n.tr('toast.scaleWarn'), 'warn', 4600);
   }
 }
 
@@ -1349,7 +1293,7 @@ function scaleDesignWithDensity(factor) {
   updateStatusbar();
   fitView();
   requestRender();
-  toast(tr('toast.densityRescaled', { n: fmtNum(runs.length) }));
+  toast(I18n.tr('toast.densityRescaled', { n: I18n.fmtNum(runs.length) }));
 }
 
 // --------------------------------------------------------------- salvar/exportar
@@ -1382,11 +1326,11 @@ async function saveAsExternal() {
     const upper = result.format.toUpperCase();
     let extra = '';
     if (result.format === 'dst' || result.format === 'exp') {
-      extra = tr('toast.noColors', { fmt: upper });
+      extra = I18n.tr('toast.noColors', { fmt: upper });
     }
-    toast(tr('toast.saved', { fmt: upper, name: state.design.name }) + extra);
+    toast(I18n.tr('toast.saved', { fmt: upper, name: state.design.name }) + extra);
   } catch (err) {
-    toast(tr('toast.saveError') + err.message, 'error', 5000);
+    toast(I18n.tr('toast.saveError') + err.message, 'error', 5000);
   }
 }
 
@@ -1414,9 +1358,9 @@ async function exportPng() {
       realistic: !!state.settings.view.realistic,
     });
     await window.api.writePng(filePath, off.toDataURL('image/png'));
-    toast(tr('toast.exported') + filePath.split('/').pop());
+    toast(I18n.tr('toast.exported') + filePath.split('/').pop());
   } catch (err) {
-    toast(tr('toast.exportError') + err.message, 'error', 5000);
+    toast(I18n.tr('toast.exportError') + err.message, 'error', 5000);
   }
 }
 
@@ -1441,7 +1385,7 @@ async function openPath(p) {
     const design = await window.api.readDesign(p);
     setDesign(design);
   } catch (err) {
-    toast(tr('toast.openError') + err.message, 'error', 5000);
+    toast(I18n.tr('toast.openError') + err.message, 'error', 5000);
   }
   refreshEmptyRecents();
 }
@@ -1455,7 +1399,7 @@ function populateHoopPresets() {
   for (const [key, preset] of Object.entries(state.hoopPresets)) {
     const opt = document.createElement('option');
     opt.value = key;
-    opt.textContent = preset.labelKey ? tr(preset.labelKey) : preset.label;
+    opt.textContent = preset.labelKey ? I18n.tr(preset.labelKey) : preset.label;
     sel.appendChild(opt);
   }
   if (current) sel.value = current;
@@ -1562,7 +1506,7 @@ async function applySettingsFromForm() {
   bumpArt(); // espessura do fio, saltos ou modo realista podem ter mudado
   const langChanged = result.lang !== state.lang;
   state.lang = result.lang;
-  if (langChanged) applyI18n();
+  if (langChanged) I18n.applyI18n();
   $('sim-speed').value = String(nearestSimOption(state.settings.sim.stitchesPerSecond));
   if (state.design) {
     deriveStats();
@@ -1583,20 +1527,6 @@ function nearestSimOption(v) {
 // é só metadado (io principal manda path/nome/tamanho/mtime); a miniatura e a
 // contagem de pontos vêm de uma leitura preguiçosa (drives:peek-design), tolerante
 // a erro, cacheada por caminho+mtime para não reparsear ao reabrir o modal.
-
-function fmtBytesLocal(bytes) {
-  if (typeof bytes !== 'number' || !Number.isFinite(bytes) || bytes < 0) return '—';
-  if (bytes < 1024) return `${Math.round(bytes)} B`;
-  const units = ['KB', 'MB', 'GB', 'TB'];
-  let value = bytes / 1024;
-  let i = 0;
-  while (value >= 1024 && i < units.length - 1) {
-    value /= 1024;
-    i++;
-  }
-  const decimals = value < 10 ? 2 : value < 100 ? 1 : 0;
-  return `${value.toFixed(decimals)} ${units[i]}`;
-}
 
 function designThreadColor(design, i) {
   const t = design.threads && design.threads[i];
@@ -1779,7 +1709,7 @@ function buildDriveItemRow(item, side) {
   name.textContent = item.name;
   const meta = document.createElement('div');
   meta.className = 'meta muted';
-  meta.textContent = fmtBytesLocal(item.sizeBytes);
+  meta.textContent = I18n.fmtBytesLocal(item.sizeBytes);
   info.append(name, meta);
 
   li.append(checkbox, thumb, info);
@@ -1788,9 +1718,9 @@ function buildDriveItemRow(item, side) {
   Promise.resolve(peekDriveDesign(item)).then((entry) => {
     if (entry.ok) {
       drawDesignThumbnail(thumb, entry.design);
-      meta.textContent = `${fmtBytesLocal(item.sizeBytes)} · ${tr('status.stitches', { n: fmtNum(countStitches(entry.design)) })}`;
+      meta.textContent = `${I18n.fmtBytesLocal(item.sizeBytes)} · ${I18n.tr('status.stitches', { n: I18n.fmtNum(countStitches(entry.design)) })}`;
     } else {
-      meta.textContent = `${fmtBytesLocal(item.sizeBytes)} · ${tr('drv.parseError')}`;
+      meta.textContent = `${I18n.fmtBytesLocal(item.sizeBytes)} · ${I18n.tr('drv.parseError')}`;
     }
   });
 
@@ -1802,7 +1732,7 @@ function renderDriveList(listEl, items, side) {
   if (!items.length) {
     const li = document.createElement('li');
     li.className = 'drive-empty';
-    li.textContent = tr(side === 'library' ? 'drv.emptyLibrary' : 'drv.emptyDrive');
+    li.textContent = I18n.tr(side === 'library' ? 'drv.emptyLibrary' : 'drv.emptyDrive');
     listEl.appendChild(li);
     return;
   }
@@ -1835,8 +1765,8 @@ async function refreshDrivePane() {
   }
   $('drive-space').textContent =
     drive.capacityBytes != null
-      ? tr('drv.freeOf', { free: fmtBytesLocal(drive.freeBytes), total: fmtBytesLocal(drive.capacityBytes) })
-      : tr('drv.unknownSpace');
+      ? I18n.tr('drv.freeOf', { free: I18n.fmtBytesLocal(drive.freeBytes), total: I18n.fmtBytesLocal(drive.capacityBytes) })
+      : I18n.tr('drv.unknownSpace');
   $('drive-fswarn').hidden = /fat/i.test(drive.filesystem || '');
   const items = await window.api.scanDesigns(mount);
   state.drives.driveItems = items;
@@ -1856,7 +1786,7 @@ async function refreshDriveSelectList() {
   if (!list.length) {
     const opt = document.createElement('option');
     opt.value = '';
-    opt.textContent = tr('drv.noDrive');
+    opt.textContent = I18n.tr('drv.noDrive');
     sel.appendChild(opt);
     sel.disabled = true;
     state.drives.selectedMount = null;
@@ -1902,27 +1832,27 @@ async function copySelectedDesigns(fromSide) {
   if (!sources.length) return;
   const destDir = drivesSideRoot(toSide);
   if (!destDir) {
-    toast(tr('drv.noDriveSelected'), 'warn');
+    toast(I18n.tr('drv.noDriveSelected'), 'warn');
     return;
   }
   let results = await window.api.copyDesigns(sources, destDir, false);
   const conflicts = results.filter((r) => r.status === 'conflict');
   if (conflicts.length) {
     const ok = await confirmDialog({
-      title: tr('drv.confirmOverwriteTitle'),
-      message: tr('drv.confirmOverwriteMsg', { n: conflicts.length, names: conflicts.map((c) => c.name).join(', ') }),
-      okLabel: tr('drv.confirmOverwriteOk'),
+      title: I18n.tr('drv.confirmOverwriteTitle'),
+      message: I18n.tr('drv.confirmOverwriteMsg', { n: conflicts.length, names: conflicts.map((c) => c.name).join(', ') }),
+      okLabel: I18n.tr('drv.confirmOverwriteOk'),
     });
     if (!ok) {
       const copiedCount = results.filter((r) => r.status === 'copied').length;
-      toast(tr('drv.copyPartial', { n: copiedCount }));
+      toast(I18n.tr('drv.copyPartial', { n: copiedCount }));
       await refreshDriveSide(toSide);
       return;
     }
     results = await window.api.copyDesigns(sources, destDir, true);
   }
   const copiedCount = results.filter((r) => r.status === 'copied').length;
-  toast(tr('drv.copyDone', { n: copiedCount }));
+  toast(I18n.tr('drv.copyDone', { n: copiedCount }));
   await refreshDriveSide(toSide);
 }
 
@@ -1930,14 +1860,14 @@ async function deleteSelectedFromDrive() {
   const sources = [...state.drives.selection.drive];
   if (!sources.length) return;
   const ok = await confirmDialog({
-    title: tr('drv.confirmDeleteTitle'),
-    message: tr('drv.confirmDeleteMsg', { n: sources.length }),
-    okLabel: tr('drv.confirmDeleteOk'),
+    title: I18n.tr('drv.confirmDeleteTitle'),
+    message: I18n.tr('drv.confirmDeleteMsg', { n: sources.length }),
+    okLabel: I18n.tr('drv.confirmDeleteOk'),
   });
   if (!ok) return;
   const results = await window.api.deleteFromDrive(sources, state.drives.selectedMount);
   const okCount = results.filter((r) => r.ok).length;
-  toast(tr('drv.deleteDone', { n: okCount }));
+  toast(I18n.tr('drv.deleteDone', { n: okCount }));
   await refreshDrivePane();
 }
 
@@ -1946,10 +1876,10 @@ async function ejectSelectedDrive() {
   if (!mount) return;
   try {
     await window.api.ejectDrive(mount);
-    toast(tr('drv.ejected'));
+    toast(I18n.tr('drv.ejected'));
     await refreshDriveSelectList();
   } catch (err) {
-    toast(tr('drv.ejectError') + err.message, 'error', 5000);
+    toast(I18n.tr('drv.ejectError') + err.message, 'error', 5000);
   }
 }
 
@@ -1957,7 +1887,7 @@ async function cleanHiddenOnDrive() {
   const mount = state.drives.selectedMount;
   if (!mount) return;
   const count = await window.api.cleanHiddenFiles(mount);
-  toast(tr('drv.cleanDone', { n: count }));
+  toast(I18n.tr('drv.cleanDone', { n: count }));
   await refreshDrivePane();
 }
 
@@ -2158,11 +2088,11 @@ function showLibHover(item, cardEl) {
     const n = countStitches(design);
     $('lib-hover-line').textContent =
       `${wMm.toFixed(1)} × ${hMm.toFixed(1)} mm · ` +
-      tr('status.stitches', { n: fmtNum(n) }) +
+      I18n.tr('status.stitches', { n: I18n.fmtNum(n) }) +
       ' · ' +
-      tr('lib.hoverColors', { c: design.threads.length }) +
+      I18n.tr('lib.hoverColors', { c: design.threads.length }) +
       ' · ' +
-      tr('lib.hoverTime', { t: SewTime.fmtSewTime(n, changes, state.settings.machine.speedSpm) });
+      I18n.tr('lib.hoverTime', { t: SewTime.fmtSewTime(n, changes, state.settings.machine.speedSpm) });
     const colors = $('lib-hover-colors');
     colors.innerHTML = '';
     design.threads.slice(0, 16).forEach((t, i) => {
@@ -2199,7 +2129,7 @@ function libRelDirParent(relPath) {
 // opts: { expanded: Set, childrenCache: Map, selectedRelDir, onSelect(relDir), rerender() }
 async function renderLibraryTree(containerEl, opts) {
   containerEl.innerHTML = '';
-  containerEl.appendChild(buildLibTreeRow('', tr('lib.root'), 0, opts));
+  containerEl.appendChild(buildLibTreeRow('', I18n.tr('lib.root'), 0, opts));
   if (opts.expanded.has('')) {
     const wrap = document.createElement('div');
     wrap.className = 'lib-tree-children';
@@ -2211,7 +2141,7 @@ async function renderLibraryTree(containerEl, opts) {
 async function renderLibTreeChildrenInto(containerEl, relDir, depth, opts) {
   let subs = opts.childrenCache.get(relDir);
   if (subs === undefined) {
-    containerEl.innerHTML = `<div class="lib-tree-empty">${tr('lib.loadingFolders')}</div>`;
+    containerEl.innerHTML = `<div class="lib-tree-empty">${I18n.tr('lib.loadingFolders')}</div>`;
     subs = await window.api.libraryListSubfolders(relDir);
     opts.childrenCache.set(relDir, subs);
   }
@@ -2354,7 +2284,7 @@ function updateIndexingUI() {
   }
   el.hidden = false;
   $('lib-indexing-fill').style.width = (p.total ? Math.round((p.done / p.total) * 100) : 100) + '%';
-  $('lib-indexing-label').textContent = tr('lib.indexing', { n: fmtNum(p.done), m: fmtNum(p.total) });
+  $('lib-indexing-label').textContent = I18n.tr('lib.indexing', { n: I18n.fmtNum(p.done), m: I18n.fmtNum(p.total) });
 }
 
 // Quem espera a varredura ficar ociosa (usado só pelo benchmark de rolagem,
@@ -2504,7 +2434,7 @@ function applyLibraryFilters() {
 function updateLibraryEmptyState() {
   const empty = state.library.items.length === 0;
   $('lib-empty').hidden = !empty;
-  $('lib-empty').textContent = state.library.searching ? tr('lib.emptySearch') : tr('lib.empty');
+  $('lib-empty').textContent = state.library.searching ? I18n.tr('lib.emptySearch') : I18n.tr('lib.empty');
   $('lib-truncated').hidden = !state.library.truncated;
 }
 
@@ -2645,7 +2575,7 @@ function buildLibraryGridItem(item) {
   favBtn.type = 'button';
   favBtn.className = 'lib-fav-btn' + (isFav ? ' active' : '');
   favBtn.textContent = isFav ? '★' : '☆';
-  favBtn.title = tr('lib.actionFavorite');
+  favBtn.title = I18n.tr('lib.actionFavorite');
   favBtn.setAttribute('aria-label', favBtn.title); // issue #38: botão só-ícone (★/☆), sem texto visível
   favBtn.addEventListener('click', (e) => {
     e.stopPropagation();
@@ -2660,7 +2590,7 @@ function buildLibraryGridItem(item) {
 
   const meta = document.createElement('div');
   meta.className = 'lib-item-meta';
-  meta.textContent = state.library.searching ? libRelDirParent(item.relPath) || tr('lib.root') : fmtBytesLocal(item.sizeBytes);
+  meta.textContent = state.library.searching ? libRelDirParent(item.relPath) || I18n.tr('lib.root') : I18n.fmtBytesLocal(item.sizeBytes);
   meta.title = meta.textContent;
 
   el.append(thumbWrap, name, meta);
@@ -2676,8 +2606,8 @@ function buildLibraryGridItem(item) {
     Promise.resolve(peekDriveDesign(item)).then((entry) => {
       if (!el.isConnected) return;
       meta.textContent = entry.ok
-        ? `${fmtBytesLocal(item.sizeBytes)} · ${tr('status.stitches', { n: fmtNum(countStitches(entry.design)) })}`
-        : `${fmtBytesLocal(item.sizeBytes)} · ${tr('drv.parseError')}`;
+        ? `${I18n.fmtBytesLocal(item.sizeBytes)} · ${I18n.tr('status.stitches', { n: I18n.fmtNum(countStitches(entry.design)) })}`
+        : `${I18n.fmtBytesLocal(item.sizeBytes)} · ${I18n.tr('drv.parseError')}`;
       meta.title = meta.textContent;
     });
   }
@@ -2686,12 +2616,12 @@ function buildLibraryGridItem(item) {
     const actions = document.createElement('div');
     actions.className = 'lib-item-actions';
     actions.append(
-      buildLibAct('▶', tr('lib.actionOpen'), () => openLibraryItem(item)),
-      buildLibAct('⌂', tr('lib.actionReveal'), () => window.api.showItemInFolder(item.path)),
-      buildLibAct('→', tr('lib.actionDrive'), () => copyLibraryItemToDrive(item)),
-      buildLibAct('✎', tr('lib.actionRename'), () => openLibraryRename(item)),
-      buildLibAct('⇒', tr('lib.actionMove'), () => openLibraryMove(item)),
-      buildLibAct('✕', tr('lib.actionDelete'), () => deleteLibraryItem(item), true)
+      buildLibAct('▶', I18n.tr('lib.actionOpen'), () => openLibraryItem(item)),
+      buildLibAct('⌂', I18n.tr('lib.actionReveal'), () => window.api.showItemInFolder(item.path)),
+      buildLibAct('→', I18n.tr('lib.actionDrive'), () => copyLibraryItemToDrive(item)),
+      buildLibAct('✎', I18n.tr('lib.actionRename'), () => openLibraryRename(item)),
+      buildLibAct('⇒', I18n.tr('lib.actionMove'), () => openLibraryMove(item)),
+      buildLibAct('✕', I18n.tr('lib.actionDelete'), () => deleteLibraryItem(item), true)
     );
     el.appendChild(actions);
     el.addEventListener('dblclick', () => openLibraryItem(item));
@@ -2725,36 +2655,36 @@ async function toggleLibraryFavorite(item) {
 async function copyLibraryItemToDrive(item) {
   const mount = state.library.selectedDriveMount;
   if (!mount) {
-    toast(tr('lib.toastNoDrive'), 'warn');
+    toast(I18n.tr('lib.toastNoDrive'), 'warn');
     return;
   }
   let results = await window.api.copyDesigns([item.path], mount, false);
   if (results[0].status === 'conflict') {
     const ok = await confirmDialog({
-      title: tr('drv.confirmOverwriteTitle'),
-      message: tr('drv.confirmOverwriteMsg', { n: 1, names: item.name }),
-      okLabel: tr('drv.confirmOverwriteOk'),
+      title: I18n.tr('drv.confirmOverwriteTitle'),
+      message: I18n.tr('drv.confirmOverwriteMsg', { n: 1, names: item.name }),
+      okLabel: I18n.tr('drv.confirmOverwriteOk'),
     });
     if (!ok) return;
     results = await window.api.copyDesigns([item.path], mount, true);
   }
-  if (results[0].status === 'copied') toast(tr('lib.toastCopiedToDrive', { name: item.name }));
-  else if (results[0].status === 'error') toast(tr('lib.toastCopyError') + results[0].error, 'error', 5000);
+  if (results[0].status === 'copied') toast(I18n.tr('lib.toastCopiedToDrive', { name: item.name }));
+  else if (results[0].status === 'error') toast(I18n.tr('lib.toastCopyError') + results[0].error, 'error', 5000);
 }
 
 async function deleteLibraryItem(item) {
   const ok = await confirmDialog({
-    title: tr('lib.confirmDeleteTitle'),
-    message: tr('lib.confirmDeleteMsg', { name: item.name }),
-    okLabel: tr('lib.confirmDeleteOk'),
+    title: I18n.tr('lib.confirmDeleteTitle'),
+    message: I18n.tr('lib.confirmDeleteMsg', { name: item.name }),
+    okLabel: I18n.tr('lib.confirmDeleteOk'),
   });
   if (!ok) return;
   try {
     await window.api.libraryTrash(item.path);
-    toast(tr('lib.toastDeleted', { name: item.name }));
+    toast(I18n.tr('lib.toastDeleted', { name: item.name }));
     await reloadLibraryView();
   } catch (err) {
-    toast(tr('lib.toastDeleteError') + err.message, 'error', 5000);
+    toast(I18n.tr('lib.toastDeleteError') + err.message, 'error', 5000);
   }
 }
 
@@ -2774,10 +2704,10 @@ async function confirmLibraryRename() {
   if (!newName || newName === item.name) return;
   try {
     await window.api.libraryRename(item.path, newName);
-    toast(tr('lib.toastRenamed', { name: newName }));
+    toast(I18n.tr('lib.toastRenamed', { name: newName }));
     await reloadLibraryView();
   } catch (err) {
-    toast(tr('lib.toastRenameError') + err.message, 'error', 5000);
+    toast(I18n.tr('lib.toastRenameError') + err.message, 'error', 5000);
   }
 }
 
@@ -2794,11 +2724,11 @@ async function confirmLibraryMove() {
   if (!item) return;
   try {
     await window.api.libraryMove(item.path, state.library.moveChosenRelDir);
-    toast(tr('lib.toastMoved', { name: item.name }));
+    toast(I18n.tr('lib.toastMoved', { name: item.name }));
     $('dlg-lib-move').close();
     await reloadLibraryView();
   } catch (err) {
-    toast(tr('lib.toastMoveError') + err.message, 'error', 5000);
+    toast(I18n.tr('lib.toastMoveError') + err.message, 'error', 5000);
   }
 }
 
@@ -2813,7 +2743,7 @@ async function refreshLibraryDriveSelect() {
   if (!list.length) {
     const opt = document.createElement('option');
     opt.value = '';
-    opt.textContent = tr('lib.noDriveOption');
+    opt.textContent = I18n.tr('lib.noDriveOption');
     sel.appendChild(opt);
     sel.disabled = true;
     state.library.selectedDriveMount = null;
@@ -2838,7 +2768,7 @@ function populateLibraryFormatFilterSelect() {
   sel.innerHTML = '';
   const first = document.createElement('option');
   first.value = '';
-  first.textContent = tr('lib.filterFormatAll');
+  first.textContent = I18n.tr('lib.filterFormatAll');
   sel.appendChild(first);
   // Formatos suportados para leitura (core/io não é acessível no renderer
   // sandboxed; mesma lista usada pelos filtros do diálogo "Abrir" no main).
@@ -2863,7 +2793,7 @@ function populateLibrarySaveFormatSelect() {
 
 function updateLibrarySaveTarget() {
   const relDir = state.library.currentRelDir;
-  $('lib-save-target').textContent = relDir ? relDir : tr('lib.root');
+  $('lib-save-target').textContent = relDir ? relDir : I18n.tr('lib.root');
 }
 
 function closeLibraryDialog() {
@@ -2891,7 +2821,7 @@ async function openLibraryCommon() {
 async function openLibraryDialog() {
   state.library.mode = 'open';
   $('dlg-library').classList.remove('mode-save');
-  $('library-title').textContent = tr('lib.titleOpen');
+  $('library-title').textContent = I18n.tr('lib.titleOpen');
   $('lib-footer-open').hidden = false;
   $('lib-footer-save').hidden = true;
   populateLibraryFormatFilterSelect();
@@ -2901,7 +2831,7 @@ async function openLibraryDialog() {
 async function openLibrarySaveDialog() {
   state.library.mode = 'save';
   $('dlg-library').classList.add('mode-save');
-  $('library-title').textContent = tr('lib.titleSave');
+  $('library-title').textContent = I18n.tr('lib.titleSave');
   $('lib-footer-open').hidden = true;
   $('lib-footer-save').hidden = false;
   populateLibraryFormatFilterSelect();
@@ -2918,7 +2848,7 @@ async function confirmLibrarySave() {
   if (!state.design) return;
   const nameRaw = $('lib-save-name').value.trim();
   if (!nameRaw) {
-    toast(tr('lib.toastNameRequired'), 'warn');
+    toast(I18n.tr('lib.toastNameRequired'), 'warn');
     return;
   }
   const ext = $('lib-save-format').value;
@@ -2935,10 +2865,10 @@ async function confirmLibrarySave() {
     state.design.name = fileName;
     updateStatusbar();
     document.title = state.design.name + ' — Bastidor';
-    toast(tr('lib.toastSaved', { name: fileName }));
+    toast(I18n.tr('lib.toastSaved', { name: fileName }));
     closeLibraryDialog();
   } catch (err) {
-    toast(tr('lib.toastSaveError') + err.message, 'error', 5000);
+    toast(I18n.tr('lib.toastSaveError') + err.message, 'error', 5000);
   }
 }
 
@@ -3007,7 +2937,7 @@ function populateTextFontSelect() {
   for (const f of state.lettering.fonts) {
     const opt = document.createElement('option');
     opt.value = f.id;
-    opt.textContent = f.label + ' · ' + tr(FONT_TYPE_LABEL_KEY[f.type] || 'text.typeStroke');
+    opt.textContent = f.label + ' · ' + I18n.tr(FONT_TYPE_LABEL_KEY[f.type] || 'text.typeStroke');
     sel.appendChild(opt);
   }
   if (previous && state.lettering.fonts.some((f) => f.id === previous)) {
@@ -3067,7 +2997,7 @@ async function addTtfFontFlow() {
   const result = await window.api.letteringAddTtfFont();
   if (!result) return; // usuário cancelou o diálogo de arquivo
   if (!result.ok) {
-    toast(tr('toast.fontAddError') + result.error, 'error', 4200);
+    toast(I18n.tr('toast.fontAddError') + result.error, 'error', 4200);
     return;
   }
   state.lettering.fonts = result.fonts;
@@ -3076,7 +3006,7 @@ async function addTtfFontFlow() {
   syncTextFieldVisibility();
   scheduleTextPreview();
   const added = state.lettering.fonts.find((f) => f.id === result.fontId);
-  toast(tr('toast.fontAdded', { name: added ? added.label : result.fontId }));
+  toast(I18n.tr('toast.fontAdded', { name: added ? added.label : result.fontId }));
 }
 
 function sizeTextPreviewCanvas() {
@@ -3108,7 +3038,7 @@ function drawTextPreview(result) {
   const c = cv.getContext('2d');
   c.clearRect(0, 0, cv.width, cv.height);
   if (!result.polylines.length) {
-    clearTextPreview(tr('text.previewEmpty'));
+    clearTextPreview(I18n.tr('text.previewEmpty'));
     return;
   }
   const d = window.devicePixelRatio || 1;
@@ -3145,7 +3075,7 @@ async function refreshTextPreview() {
   const hasText = $('text-input').value.trim().length > 0;
   if (!hasText) {
     state.lettering.lastResult = null;
-    clearTextPreview(tr('text.previewEmpty'));
+    clearTextPreview(I18n.tr('text.previewEmpty'));
     $('text-stats').textContent = '';
     $('text-missing').hidden = true;
     return;
@@ -3153,21 +3083,21 @@ async function refreshTextPreview() {
   const result = await window.api.letteringBuild(readTextFormOpts());
   if (!result.ok) {
     state.lettering.lastResult = null;
-    clearTextPreview(tr('text.previewEmpty'));
+    clearTextPreview(I18n.tr('text.previewEmpty'));
     $('text-stats').textContent = '';
     $('text-missing').hidden = true;
-    toast(tr('toast.textError') + result.error, 'error', 4200);
+    toast(I18n.tr('toast.textError') + result.error, 'error', 4200);
     return;
   }
   state.lettering.lastResult = result;
   drawTextPreview(result);
   const opt = { minimumFractionDigits: 1, maximumFractionDigits: 1 };
-  const w = ((result.bounds[2] - result.bounds[0]) / 10).toLocaleString(locale(), opt);
-  const h = ((result.bounds[3] - result.bounds[1]) / 10).toLocaleString(locale(), opt);
-  $('text-stats').textContent = tr('text.stats', { n: fmtNum(result.stats.stitches), w, h });
+  const w = ((result.bounds[2] - result.bounds[0]) / 10).toLocaleString(I18n.locale(), opt);
+  const h = ((result.bounds[3] - result.bounds[1]) / 10).toLocaleString(I18n.locale(), opt);
+  $('text-stats').textContent = I18n.tr('text.stats', { n: I18n.fmtNum(result.stats.stitches), w, h });
   if (result.missingChars.length) {
     $('text-missing').hidden = false;
-    $('text-missing').textContent = tr('text.missingChars', { chars: result.missingChars.join(' ') });
+    $('text-missing').textContent = I18n.tr('text.missingChars', { chars: result.missingChars.join(' ') });
   } else {
     $('text-missing').hidden = true;
   }
@@ -3178,7 +3108,7 @@ async function refreshTextPreview() {
 // via .width/.height sempre limpa o conteúdo, mesmo quando o tamanho não mudou).
 function redrawTextPreview() {
   if (state.lettering.lastResult) drawTextPreview(state.lettering.lastResult);
-  else clearTextPreview(tr('text.previewEmpty'));
+  else clearTextPreview(I18n.tr('text.previewEmpty'));
 }
 
 function openTextDialog() {
@@ -3196,23 +3126,23 @@ function openTextDialog() {
 // origem (textToPattern centra por padrão).
 async function insertTextDesign() {
   if (!$('text-input').value.trim()) {
-    toast(tr('toast.textEmpty'), 'warn');
+    toast(I18n.tr('toast.textEmpty'), 'warn');
     return;
   }
   const result = await window.api.letteringBuild(readTextFormOpts());
   if (!result.ok) {
-    toast(tr('toast.textError') + result.error, 'error', 4200);
+    toast(I18n.tr('toast.textError') + result.error, 'error', 4200);
     return;
   }
   const textDesign = result.design;
   if (!textDesign.stitches.length) {
-    toast(tr('toast.textEmpty'), 'warn');
+    toast(I18n.tr('toast.textEmpty'), 'warn');
     return;
   }
 
   if (!state.design) {
     setDesign(textDesign);
-    toast(tr('toast.textCreated'));
+    toast(I18n.tr('toast.textCreated'));
   } else {
     // Operação composta (agulhadas + threads mudam juntas, tamanho do
     // array cresce): sem inversa analítica barata, usa o fallback 'snapshot'.
@@ -3235,7 +3165,7 @@ async function insertTextDesign() {
     updateSidebar();
     updateStatusbar();
     requestRender();
-    toast(tr('toast.textInserted'));
+    toast(I18n.tr('toast.textInserted'));
   }
   $('dlg-text').close();
 }
@@ -3298,7 +3228,7 @@ function bindCanvas() {
     const [dx, dy] = toDesign(e.clientX - rect.left, e.clientY - rect.top);
     const opts = { minimumFractionDigits: 1, maximumFractionDigits: 1 };
     $('st-pos').textContent =
-      `x ${(dx / 10).toLocaleString(locale(), opts)}  y ${(dy / 10).toLocaleString(locale(), opts)} mm`;
+      `x ${(dx / 10).toLocaleString(I18n.locale(), opts)}  y ${(dy / 10).toLocaleString(I18n.locale(), opts)} mm`;
     if (window.ObjectCanvas && ObjectCanvas.isActive() && ObjectCanvas.onPointerMove(e)) return; // issue #29
     if (dragIndex !== -1) {
       const st = state.design.stitches[dragIndex];
@@ -3481,7 +3411,7 @@ function updateScalePreview() {
   const pct = clampNum($('scale-percent').value, 10, 400, 100);
   const s = state.stats;
   $('scale-preview').textContent =
-    `${fmtMm(s.width)} × ${fmtMm(s.height)}  →  ${fmtMm((s.width * pct) / 100)} × ${fmtMm((s.height * pct) / 100)}`;
+    `${I18n.fmtMm(s.width)} × ${I18n.fmtMm(s.height)}  →  ${I18n.fmtMm((s.width * pct) / 100)} × ${I18n.fmtMm((s.height * pct) / 100)}`;
   syncKeepDensityDefault(pct);
 }
 
@@ -3551,7 +3481,7 @@ function bindDialogs() {
 const svgPrev = { timer: null, token: 0, aspect: null };
 
 function handleSvgPicked(payload) {
-  if (state.design && !confirm(tr('svgimport.confirmReplace'))) return;
+  if (state.design && !confirm(I18n.tr('svgimport.confirmReplace'))) return;
   state.svgImport = payload;
   svgPrev.aspect = null; // preenchido pela primeira prévia (tamanho natural)
   $('svgimport-filename').textContent = payload.name;
@@ -3600,7 +3530,7 @@ function runSvgPreview() {
       }
       $('svgimport-stats').textContent =
         res.widthMm.toFixed(0) + ' × ' + res.heightMm.toFixed(0) + ' mm · ' +
-        tr('dig.previewStats', { n: fmtNum(n), c: res.design.threads.length });
+        I18n.tr('dig.previewStats', { n: I18n.fmtNum(n), c: res.design.threads.length });
     })
     .catch(() => {});
 }
@@ -3615,9 +3545,9 @@ async function applySvgImport() {
   if (!picked) return;
   try {
     await window.api.importSvg({ text: picked.text, opts: svgImportOpts(), name: picked.name, path: picked.path });
-    toast(tr('toast.svgImported', { name: picked.name }));
+    toast(I18n.tr('toast.svgImported', { name: picked.name }));
   } catch (err) {
-    toast(tr('toast.svgImportError') + err.message, 'error', 5000);
+    toast(I18n.tr('toast.svgImportError') + err.message, 'error', 5000);
   }
 }
 
@@ -3690,10 +3620,10 @@ function renderShortcutsTable() {
     tdKeys.className = 'mono';
     tdKeys.textContent = row.keys;
     const tdDesc = document.createElement('td');
-    tdDesc.textContent = tr(row.i18n);
+    tdDesc.textContent = I18n.tr(row.i18n);
     const tdCtx = document.createElement('td');
     tdCtx.className = 'muted';
-    tdCtx.textContent = tr(SHORTCUT_CONTEXT_I18N[row.context]);
+    tdCtx.textContent = I18n.tr(SHORTCUT_CONTEXT_I18N[row.context]);
     rowEl.append(tdKeys, tdDesc, tdCtx);
     tbody.appendChild(rowEl);
   }
@@ -3733,11 +3663,11 @@ function bindMenuAndKeys() {
       'digitize-image': openDigitizeDialog,
       // Auto-update (issue #31): electron-updater in the main process reports
       // through this same 'menu' channel; no design needs to be open to see them.
-      'update-checking': () => toast(tr('update.checking')),
-      'update-available': () => toast(tr('update.available')),
-      'update-not-available': () => toast(tr('update.notAvailable')),
-      'update-downloaded': () => toast(tr('update.downloaded')),
-      'update-error': () => toast(tr('update.error'), 'error', 5000),
+      'update-checking': () => toast(I18n.tr('update.checking')),
+      'update-available': () => toast(I18n.tr('update.available')),
+      'update-not-available': () => toast(I18n.tr('update.notAvailable')),
+      'update-downloaded': () => toast(I18n.tr('update.downloaded')),
+      'update-error': () => toast(I18n.tr('update.error'), 'error', 5000),
     };
     const alwaysAvailable = [
       'open', 'settings', 'formats', 'shortcuts', 'digitize-image',
@@ -3864,7 +3794,7 @@ function updateDigitizeSummary(previewDesign) {
     for (const st of previewDesign.stitches) {
       if ((st[2] & COMMAND_MASK) === STITCH) n++;
     }
-    txt += ' · ' + tr('dig.previewStats', { n: fmtNum(n), c: previewDesign.threads.length });
+    txt += ' · ' + I18n.tr('dig.previewStats', { n: I18n.fmtNum(n), c: previewDesign.threads.length });
   }
   $('dig-summary').textContent = txt;
 }
@@ -3934,7 +3864,7 @@ async function openDigitizeDialog() {
   try {
     picked = await window.api.openImageDialog();
   } catch (err) {
-    toast(tr('dig.openError') + err.message, 'error', 5000);
+    toast(I18n.tr('dig.openError') + err.message, 'error', 5000);
     return;
   }
   if (!picked) return;
@@ -3965,7 +3895,7 @@ async function openDigitizeWith(picked) {
     $('dlg-digitize').showModal();
     queueDigitizeStitchPreview(); // depois do showModal: o canvas precisa de layout
   } catch (err) {
-    toast(tr('dig.openError') + err.message, 'error', 5000);
+    toast(I18n.tr('dig.openError') + err.message, 'error', 5000);
   }
 }
 
@@ -3974,14 +3904,14 @@ async function openDigitizeWith(picked) {
 // a geração falhou — nesses casos o modal continua aberto com os ajustes.
 async function confirmDigitize() {
   if (!digitize.full) return false;
-  if (state.design && !window.confirm(tr('dig.confirmReplace'))) return false;
+  if (state.design && !window.confirm(I18n.tr('dig.confirmReplace'))) return false;
   try {
     const design = await window.api.digitizeGenerate(digitize.full, digitizeOptsFor(digitize.full));
     setDesign(design);
-    toast(tr('toast.digitized', { n: fmtNum(state.stats.stitches), c: fmtNum(state.blocks.length) }));
+    toast(I18n.tr('toast.digitized', { n: I18n.fmtNum(state.stats.stitches), c: I18n.fmtNum(state.blocks.length) }));
     return true;
   } catch (err) {
-    toast(tr('dig.openError') + err.message, 'error', 5000);
+    toast(I18n.tr('dig.openError') + err.message, 'error', 5000);
     return false;
   }
 }
@@ -4032,7 +3962,7 @@ function bindDigitizeDialog() {
 // um handler mata os listeners e a UI "para de responder" sem explicação.
 window.addEventListener('error', (e) => {
   try {
-    toast(tr('toast.internalError') + e.message, 'error', 7000);
+    toast(I18n.tr('toast.internalError') + e.message, 'error', 7000);
   } catch {
     /* toast indisponível durante o boot */
   }
@@ -4040,7 +3970,7 @@ window.addEventListener('error', (e) => {
 window.addEventListener('unhandledrejection', (e) => {
   const msg = e.reason && e.reason.message ? e.reason.message : String(e.reason);
   try {
-    toast(tr('toast.internalError') + msg, 'error', 7000);
+    toast(I18n.tr('toast.internalError') + msg, 'error', 7000);
   } catch {
     /* idem */
   }
@@ -4061,7 +3991,7 @@ async function boot() {
   state.platform = launch.platform;
   state.lettering.fonts = await window.api.letteringListFonts();
 
-  applyI18n();
+  I18n.applyI18n();
   populateTextFontSelect();
   syncToggleButtons();
   $('sim-speed').value = String(nearestSimOption(state.settings.sim.stitchesPerSecond));
@@ -4092,7 +4022,7 @@ async function boot() {
       },
       setEditMode,
       simReset,
-      tr,
+      tr: I18n.tr,
       updateToolbarEnabled,
       requestRender,
     });
