@@ -414,6 +414,32 @@
     return currentUnits().length;
   }
 
+  // Só leitura: ponto de TELA (coords do canvas) da alça de rotação da
+  // seleção atual, ou null se não há seleção única (ver nota de escopo no
+  // cabeçalho). Usado só pelo harness de UI (issue #29 fase 3), para
+  // arrastar a alça sem duplicar a constante de offset (ROTATE_HANDLE_
+  // OFFSET_PX) no teste.
+  function rotateHandlePoint() {
+    if (oc.selection.length !== 1) return null;
+    const unit = currentUnit();
+    const state = host.state;
+    const bbox = unit && state.design && computeBBox(state.design.stitches, unit.start, unit.end);
+    if (!bbox) return null;
+    const [x, y] = rotateHandleScreenPoint(bbox, host.toScreen);
+    return { x, y };
+  }
+
+  // Só leitura: ângulo acumulado (graus) do objeto paramétrico da unidade
+  // selecionada (ver object.transform.rotation), ou null se a seleção não
+  // é única ou a unidade não tem objeto associado (bloco solto). Usado só
+  // pelo harness de UI para confirmar que uma rotação foi aplicada de
+  // verdade, sem expor o objeto inteiro.
+  function selectedObjectRotation() {
+    const unit = currentUnit();
+    if (!unit || !unit.object) return null;
+    return (unit.object.transform && unit.object.transform.rotation) || 0;
+  }
+
   // Só leitura: bbox (coords de desenho) CONJUNTA da seleção atual — a
   // união das faixas inteiras de cada unidade selecionada (uma unidade só,
   // como nas fases 1/2, ou várias). null se não há seleção válida. Usado
@@ -1321,6 +1347,8 @@
     selectedIndex,
     selectedBBox,
     selectionCount,
+    rotateHandlePoint,
+    selectedObjectRotation,
     onPointerDown,
     onPointerMove,
     onPointerUp,
