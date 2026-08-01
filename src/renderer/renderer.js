@@ -3493,6 +3493,7 @@ const SHORTCUTS = [
   { keys: 'Cmd/Ctrl+E', i18n: 'shortcuts.desc.exportPng', context: 'global' },
   { keys: 'Cmd/Ctrl+R', i18n: 'shortcuts.desc.resize', context: 'global' },
   { keys: 'Cmd/Ctrl+Z', i18n: 'shortcuts.desc.undo', context: 'global' },
+  { keys: 'Cmd/Ctrl+Shift+Z', i18n: 'shortcuts.desc.redo', context: 'global' },
   { keys: 'Cmd/Ctrl+,', i18n: 'shortcuts.desc.settings', context: 'global' },
 ];
 

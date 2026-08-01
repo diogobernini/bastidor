@@ -427,6 +427,7 @@ const STRINGS = {
     'shortcuts.desc.exportPng': 'Export PNG',
     'shortcuts.desc.resize': 'Resize',
     'shortcuts.desc.undo': 'Undo',
+    'shortcuts.desc.redo': 'Redo',
     'shortcuts.desc.settings': 'Settings',
     'shortcuts.desc.help': 'Show this shortcuts dialog',
 
@@ -861,6 +862,7 @@ const STRINGS = {
     'shortcuts.desc.exportPng': 'Exportar PNG',
     'shortcuts.desc.resize': 'Redimensionar',
     'shortcuts.desc.undo': 'Desfazer',
+    'shortcuts.desc.redo': 'Refazer',
     'shortcuts.desc.settings': 'Configurações',
     'shortcuts.desc.help': 'Mostrar este diálogo de atalhos',
 
