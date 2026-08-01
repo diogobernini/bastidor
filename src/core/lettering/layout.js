@@ -25,6 +25,12 @@ const svgfont = require('./svgfont');
 const DEFAULT_HEIGHT_MM = 10;
 
 function layoutText(font, text, opts = {}) {
+  // Fontes com carregamento sob demanda (TTF/OTF — issue #28 item 5) expõem
+  // esse hook opcional para garantir os glifos/kerning do texto ANTES de
+  // percorrê-lo abaixo; fontes que já carregam tudo de uma vez (SVG Font,
+  // Ink/Stitch) simplesmente não o implementam.
+  if (typeof font.ensureGlyphsForText === 'function') font.ensureGlyphsForText(text);
+
   const heightMm = opts.heightMm > 0 ? opts.heightMm : DEFAULT_HEIGHT_MM;
   const letterSpacingPct = Number.isFinite(opts.letterSpacing) ? opts.letterSpacing : 0;
   const lineSpacingPct = Number.isFinite(opts.lineSpacing) ? opts.lineSpacing : 0;
