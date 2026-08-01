@@ -116,7 +116,7 @@ dependency, so the parsers can be reused in a CLI or server.
 6. ✅ Realistic thread rendering (thread texture)
 7. VP3, HUS, SEW and PCS support
 8. ✅ USB drive manager: library-style load and unload of designs, with safe eject and macOS hidden-file cleanup
-9. Library manager: browse the design catalog by folder, with search, thumbnails and open/save-as integration ([issue #17](https://github.com/diogobernini/bastidor/issues/17))
+9. ✅ Library manager: browse the design catalog by folder, with search, thumbnails and open/save-as integration ([issue #17](https://github.com/diogobernini/bastidor/issues/17))
 
 ## Credits and thanks
 

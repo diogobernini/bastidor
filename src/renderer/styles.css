@@ -919,6 +919,10 @@ textarea {
 }
 
 .dig-stitches span {
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+
 /* ---------------------------------------------------------- gestão de biblioteca (issue #17) */
 
 #dlg-library {
@@ -1065,6 +1069,8 @@ textarea {
   background: var(--bg-inset);
   border: 1px solid var(--line);
   border-radius: 6px;
+}
+
 .lib-main {
   flex: 1;
   min-width: 0;
