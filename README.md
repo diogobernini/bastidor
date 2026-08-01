@@ -110,11 +110,11 @@ dependency, so the parsers can be reused in a CLI or server.
 
 1. ✅ Digitizing: import SVG vector files as stitches
 2. ✅ Digitizing: PNG to vector tool (posterize by color count, with preview)
-3. ✅ Lettering tool: type text as embroidery (phase 1: single-line fonts; satin and TTF fill later)
+3. ✅ Lettering tool: type text as embroidery (single-line fonts, satin, TTF and Ink/Stitch fonts)
 4. ✅ Individual stitch editing (move, delete, insert)
 5. ✅ Density recalculation when resizing
 6. ✅ Realistic thread rendering (thread texture)
-7. VP3, HUS, SEW and PCS support
+7. ✅ VP3, HUS, SEW and PCS support
 8. ✅ USB drive manager: library-style load and unload of designs, with safe eject and macOS hidden-file cleanup
 9. ✅ Library manager: browse the design catalog by folder, with search, thumbnails and open/save-as integration ([issue #17](https://github.com/diogobernini/bastidor/issues/17))
 
