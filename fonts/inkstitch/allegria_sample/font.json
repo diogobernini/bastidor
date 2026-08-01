@@ -1,0 +1,874 @@
+{
+  "family": "Bastidor Allegria Sample",
+  "description": "Exemplo de fonte Ink/Stitch (formato próprio do Bastidor): subconjunto de glifos derivado da fonte \"Allegria 20\" do catálogo OFL do Ink/Stitch (github.com/inkstitch/embroidery-fonts), por sua vez derivada de \"Euphoria Script\" (Typesenses, OFL). Ponto corrido pelo traço do glifo (mesmo pipeline das fontes de traço único).",
+  "license": "SIL Open Font License v1.1",
+  "licenseFile": "LICENSE-OFL.txt",
+  "unitsPerEm": 102.48,
+  "ascent": 81.99,
+  "descent": -20.5,
+  "defaultAdvance": 21.89,
+  "glyphs": [
+    {
+      "char": "0",
+      "file": "glyphs/d0.svg",
+      "advance": 40.25
+    },
+    {
+      "char": "1",
+      "file": "glyphs/d1.svg",
+      "advance": 32.38
+    },
+    {
+      "char": "2",
+      "file": "glyphs/d2.svg",
+      "advance": 40.25
+    },
+    {
+      "char": "3",
+      "file": "glyphs/d3.svg",
+      "advance": 38.37
+    },
+    {
+      "char": "4",
+      "file": "glyphs/d4.svg",
+      "advance": 44.85
+    },
+    {
+      "char": "5",
+      "file": "glyphs/d5.svg",
+      "advance": 36.89
+    },
+    {
+      "char": "6",
+      "file": "glyphs/d6.svg",
+      "advance": 38.29
+    },
+    {
+      "char": "7",
+      "file": "glyphs/d7.svg",
+      "advance": 31.24
+    },
+    {
+      "char": "8",
+      "file": "glyphs/d8.svg",
+      "advance": 38.12
+    },
+    {
+      "char": "9",
+      "file": "glyphs/d9.svg",
+      "advance": 39.11
+    },
+    {
+      "char": "A",
+      "file": "glyphs/uA.svg",
+      "advance": 86.66
+    },
+    {
+      "char": "B",
+      "file": "glyphs/uB.svg",
+      "advance": 62.47
+    },
+    {
+      "char": "C",
+      "file": "glyphs/uC.svg",
+      "advance": 49.6
+    },
+    {
+      "char": "D",
+      "file": "glyphs/uD.svg",
+      "advance": 61.49
+    },
+    {
+      "char": "E",
+      "file": "glyphs/uE.svg",
+      "advance": 51.81
+    },
+    {
+      "char": "F",
+      "file": "glyphs/uF.svg",
+      "advance": 55.75
+    },
+    {
+      "char": "G",
+      "file": "glyphs/uG.svg",
+      "advance": 61.9
+    },
+    {
+      "char": "H",
+      "file": "glyphs/uH.svg",
+      "advance": 73.95
+    },
+    {
+      "char": "I",
+      "file": "glyphs/uI.svg",
+      "advance": 48.13
+    },
+    {
+      "char": "J",
+      "file": "glyphs/uJ.svg",
+      "advance": 60.01
+    },
+    {
+      "char": "K",
+      "file": "glyphs/uK.svg",
+      "advance": 54.11
+    },
+    {
+      "char": "L",
+      "file": "glyphs/uL.svg",
+      "advance": 47.88
+    },
+    {
+      "char": "M",
+      "file": "glyphs/uM.svg",
+      "advance": 79.36
+    },
+    {
+      "char": "N",
+      "file": "glyphs/uN.svg",
+      "advance": 56.82
+    },
+    {
+      "char": "O",
+      "file": "glyphs/uO.svg",
+      "advance": 56.08
+    },
+    {
+      "char": "P",
+      "file": "glyphs/uP.svg",
+      "advance": 53.37
+    },
+    {
+      "char": "Q",
+      "file": "glyphs/uQ.svg",
+      "advance": 55.91
+    },
+    {
+      "char": "R",
+      "file": "glyphs/uR.svg",
+      "advance": 60.01
+    },
+    {
+      "char": "S",
+      "file": "glyphs/uS.svg",
+      "advance": 49.44
+    },
+    {
+      "char": "T",
+      "file": "glyphs/uT.svg",
+      "advance": 48.45
+    },
+    {
+      "char": "U",
+      "file": "glyphs/uU.svg",
+      "advance": 62.88
+    },
+    {
+      "char": "V",
+      "file": "glyphs/uV.svg",
+      "advance": 51.49
+    },
+    {
+      "char": "W",
+      "file": "glyphs/uW.svg",
+      "advance": 76.41
+    },
+    {
+      "char": "X",
+      "file": "glyphs/uX.svg",
+      "advance": 53.21
+    },
+    {
+      "char": "Y",
+      "file": "glyphs/uY.svg",
+      "advance": 61.24
+    },
+    {
+      "char": "Z",
+      "file": "glyphs/uZ.svg",
+      "advance": 54.77
+    },
+    {
+      "char": "a",
+      "file": "glyphs/la.svg",
+      "advance": 39.19
+    },
+    {
+      "char": "b",
+      "file": "glyphs/lb.svg",
+      "advance": 41.07
+    },
+    {
+      "char": "c",
+      "file": "glyphs/lc.svg",
+      "advance": 31.81
+    },
+    {
+      "char": "d",
+      "file": "glyphs/ld.svg",
+      "advance": 39.93
+    },
+    {
+      "char": "e",
+      "file": "glyphs/le.svg",
+      "advance": 31.89
+    },
+    {
+      "char": "f",
+      "file": "glyphs/lf.svg",
+      "advance": 25.42
+    },
+    {
+      "char": "g",
+      "file": "glyphs/lg.svg",
+      "advance": 37.88
+    },
+    {
+      "char": "h",
+      "file": "glyphs/lh.svg",
+      "advance": 37.39
+    },
+    {
+      "char": "i",
+      "file": "glyphs/li.svg",
+      "advance": 17.87
+    },
+    {
+      "char": "j",
+      "file": "glyphs/lj.svg",
+      "advance": 20.58
+    },
+    {
+      "char": "k",
+      "file": "glyphs/lk.svg",
+      "advance": 37.39
+    },
+    {
+      "char": "l",
+      "file": "glyphs/ll.svg",
+      "advance": 21.56
+    },
+    {
+      "char": "m",
+      "file": "glyphs/lm.svg",
+      "advance": 54.52
+    },
+    {
+      "char": "n",
+      "file": "glyphs/ln.svg",
+      "advance": 36.73
+    },
+    {
+      "char": "o",
+      "file": "glyphs/lo.svg",
+      "advance": 33.86
+    },
+    {
+      "char": "p",
+      "file": "glyphs/lp.svg",
+      "advance": 39.68
+    },
+    {
+      "char": "q",
+      "file": "glyphs/lq.svg",
+      "advance": 39.35
+    },
+    {
+      "char": "r",
+      "file": "glyphs/lr.svg",
+      "advance": 31.4
+    },
+    {
+      "char": "s",
+      "file": "glyphs/ls.svg",
+      "advance": 31.07
+    },
+    {
+      "char": "t",
+      "file": "glyphs/lt.svg",
+      "advance": 23.69
+    },
+    {
+      "char": "u",
+      "file": "glyphs/lu.svg",
+      "advance": 38.94
+    },
+    {
+      "char": "v",
+      "file": "glyphs/lv.svg",
+      "advance": 31.89
+    },
+    {
+      "char": "w",
+      "file": "glyphs/lw.svg",
+      "advance": 51.57
+    },
+    {
+      "char": "x",
+      "file": "glyphs/lx.svg",
+      "advance": 32.88
+    },
+    {
+      "char": "y",
+      "file": "glyphs/ly.svg",
+      "advance": 38.12
+    },
+    {
+      "char": "z",
+      "file": "glyphs/lz.svg",
+      "advance": 34.19
+    },
+    {
+      "char": ".",
+      "file": "glyphs/_2e.svg",
+      "advance": 19.18
+    },
+    {
+      "char": ",",
+      "file": "glyphs/_2c.svg",
+      "advance": 16.73
+    },
+    {
+      "char": "!",
+      "file": "glyphs/_21.svg",
+      "advance": 19.35
+    },
+    {
+      "char": "?",
+      "file": "glyphs/_3f.svg",
+      "advance": 40.34
+    }
+  ],
+  "kerning": [
+    {
+      "first": "K",
+      "second": "L",
+      "amount": -3.64
+    },
+    {
+      "first": "R",
+      "second": "S",
+      "amount": -7.27
+    },
+    {
+      "first": "V",
+      "second": "W",
+      "amount": -2.91
+    },
+    {
+      "first": "V",
+      "second": "V",
+      "amount": -2.91
+    },
+    {
+      "first": "V",
+      "second": "M",
+      "amount": -1.82
+    },
+    {
+      "first": "V",
+      "second": "L",
+      "amount": 5.45
+    },
+    {
+      "first": "V",
+      "second": "K",
+      "amount": -1.82
+    },
+    {
+      "first": "V",
+      "second": "J",
+      "amount": 5.45
+    },
+    {
+      "first": "V",
+      "second": "X",
+      "amount": -3.64
+    },
+    {
+      "first": "X",
+      "second": "G",
+      "amount": -3.64
+    },
+    {
+      "first": "X",
+      "second": "L",
+      "amount": -6.55
+    },
+    {
+      "first": "X",
+      "second": "M",
+      "amount": -7.27
+    },
+    {
+      "first": "X",
+      "second": "N",
+      "amount": -7.27
+    },
+    {
+      "first": "X",
+      "second": "Q",
+      "amount": -5.45
+    },
+    {
+      "first": "X",
+      "second": "S",
+      "amount": -1.82
+    },
+    {
+      "first": "X",
+      "second": "U",
+      "amount": -2.91
+    },
+    {
+      "first": "X",
+      "second": "V",
+      "amount": -2.91
+    },
+    {
+      "first": "X",
+      "second": "W",
+      "amount": -2.91
+    },
+    {
+      "first": "X",
+      "second": "X",
+      "amount": -5.45
+    },
+    {
+      "first": "X",
+      "second": "Y",
+      "amount": -2.91
+    },
+    {
+      "first": "K",
+      "second": "M",
+      "amount": -3.64
+    },
+    {
+      "first": "K",
+      "second": "N",
+      "amount": -3.64
+    },
+    {
+      "first": "K",
+      "second": "S",
+      "amount": -3.64
+    },
+    {
+      "first": "K",
+      "second": "U",
+      "amount": -3.64
+    },
+    {
+      "first": "K",
+      "second": "V",
+      "amount": -3.64
+    },
+    {
+      "first": "K",
+      "second": "X",
+      "amount": -3.64
+    },
+    {
+      "first": "K",
+      "second": "Y",
+      "amount": -14.55
+    },
+    {
+      "first": "L",
+      "second": "B",
+      "amount": -3.64
+    },
+    {
+      "first": "L",
+      "second": "D",
+      "amount": -3.64
+    },
+    {
+      "first": "L",
+      "second": "F",
+      "amount": -3.64
+    },
+    {
+      "first": "L",
+      "second": "E",
+      "amount": -6.55
+    },
+    {
+      "first": "L",
+      "second": "G",
+      "amount": -18.18
+    },
+    {
+      "first": "L",
+      "second": "J",
+      "amount": -10.91
+    },
+    {
+      "first": "L",
+      "second": "K",
+      "amount": -3.64
+    },
+    {
+      "first": "L",
+      "second": "M",
+      "amount": -7.27
+    },
+    {
+      "first": "L",
+      "second": "N",
+      "amount": -7.27
+    },
+    {
+      "first": "L",
+      "second": "P",
+      "amount": -7.27
+    },
+    {
+      "first": "L",
+      "second": "Q",
+      "amount": -6.55
+    },
+    {
+      "first": "L",
+      "second": "R",
+      "amount": -5.45
+    },
+    {
+      "first": "L",
+      "second": "S",
+      "amount": -10.18
+    },
+    {
+      "first": "L",
+      "second": "T",
+      "amount": -7.27
+    },
+    {
+      "first": "L",
+      "second": "U",
+      "amount": -3.64
+    },
+    {
+      "first": "L",
+      "second": "V",
+      "amount": -7.27
+    },
+    {
+      "first": "L",
+      "second": "W",
+      "amount": -7.27
+    },
+    {
+      "first": "L",
+      "second": "X",
+      "amount": -7.27
+    },
+    {
+      "first": "L",
+      "second": "Y",
+      "amount": -14.55
+    },
+    {
+      "first": "M",
+      "second": "G",
+      "amount": -3.64
+    },
+    {
+      "first": "M",
+      "second": "L",
+      "amount": -5.45
+    },
+    {
+      "first": "N",
+      "second": "L",
+      "amount": -9.09
+    },
+    {
+      "first": "N",
+      "second": "Q",
+      "amount": -3.64
+    },
+    {
+      "first": "N",
+      "second": "S",
+      "amount": -3.64
+    },
+    {
+      "first": "N",
+      "second": "Y",
+      "amount": -3.64
+    },
+    {
+      "first": "P",
+      "second": "L",
+      "amount": 7.27
+    },
+    {
+      "first": "Q",
+      "second": "L",
+      "amount": -7.27
+    },
+    {
+      "first": "R",
+      "second": "L",
+      "amount": -10.91
+    },
+    {
+      "first": "U",
+      "second": "L",
+      "amount": -5.45
+    },
+    {
+      "first": "P",
+      "second": "B",
+      "amount": -7.27
+    },
+    {
+      "first": "P",
+      "second": "D",
+      "amount": -7.27
+    },
+    {
+      "first": "P",
+      "second": "J",
+      "amount": 7.27
+    },
+    {
+      "first": "P",
+      "second": "K",
+      "amount": -9.09
+    },
+    {
+      "first": "P",
+      "second": "M",
+      "amount": -9.09
+    },
+    {
+      "first": "P",
+      "second": "N",
+      "amount": -9.09
+    },
+    {
+      "first": "P",
+      "second": "P",
+      "amount": -9.09
+    },
+    {
+      "first": "P",
+      "second": "R",
+      "amount": -9.09
+    },
+    {
+      "first": "P",
+      "second": "U",
+      "amount": -3.64
+    },
+    {
+      "first": "P",
+      "second": "V",
+      "amount": -9.09
+    },
+    {
+      "first": "P",
+      "second": "W",
+      "amount": -7.27
+    },
+    {
+      "first": "P",
+      "second": "X",
+      "amount": -9.09
+    },
+    {
+      "first": "P",
+      "second": "Y",
+      "amount": -3.64
+    },
+    {
+      "first": "Q",
+      "second": "E",
+      "amount": -1.82
+    },
+    {
+      "first": "Q",
+      "second": "F",
+      "amount": -1.82
+    },
+    {
+      "first": "Q",
+      "second": "G",
+      "amount": -10.91
+    },
+    {
+      "first": "Q",
+      "second": "J",
+      "amount": -7.27
+    },
+    {
+      "first": "Q",
+      "second": "Q",
+      "amount": -5.45
+    },
+    {
+      "first": "Q",
+      "second": "S",
+      "amount": -5.45
+    },
+    {
+      "first": "R",
+      "second": "E",
+      "amount": -3.64
+    },
+    {
+      "first": "R",
+      "second": "F",
+      "amount": -3.64
+    },
+    {
+      "first": "R",
+      "second": "G",
+      "amount": -7.27
+    },
+    {
+      "first": "R",
+      "second": "J",
+      "amount": -7.27
+    },
+    {
+      "first": "R",
+      "second": "Q",
+      "amount": -7.27
+    },
+    {
+      "first": "R",
+      "second": "Y",
+      "amount": -7.27
+    },
+    {
+      "first": "U",
+      "second": "Q",
+      "amount": -3.64
+    },
+    {
+      "first": "U",
+      "second": "Y",
+      "amount": -3.64
+    },
+    {
+      "first": "V",
+      "second": "B",
+      "amount": -3.64
+    },
+    {
+      "first": "V",
+      "second": "N",
+      "amount": -3.64
+    },
+    {
+      "first": "V",
+      "second": "P",
+      "amount": -2.91
+    },
+    {
+      "first": "V",
+      "second": "R",
+      "amount": -1.82
+    },
+    {
+      "first": "W",
+      "second": "B",
+      "amount": -5.45
+    },
+    {
+      "first": "W",
+      "second": "D",
+      "amount": -5.45
+    },
+    {
+      "first": "W",
+      "second": "K",
+      "amount": -7.27
+    },
+    {
+      "first": "W",
+      "second": "P",
+      "amount": -7.27
+    },
+    {
+      "first": "W",
+      "second": "R",
+      "amount": -5.45
+    },
+    {
+      "first": "W",
+      "second": "U",
+      "amount": -3.64
+    },
+    {
+      "first": "W",
+      "second": "Y",
+      "amount": -3.64
+    },
+    {
+      "first": "Z",
+      "second": "G",
+      "amount": -10.91
+    },
+    {
+      "first": "Z",
+      "second": "H",
+      "amount": -5.45
+    },
+    {
+      "first": "Z",
+      "second": "J",
+      "amount": -7.27
+    },
+    {
+      "first": "Z",
+      "second": "L",
+      "amount": -10.91
+    },
+    {
+      "first": "Z",
+      "second": "M",
+      "amount": -3.64
+    },
+    {
+      "first": "Z",
+      "second": "N",
+      "amount": -3.64
+    },
+    {
+      "first": "Z",
+      "second": "Q",
+      "amount": -9.09
+    },
+    {
+      "first": "Z",
+      "second": "S",
+      "amount": -9.09
+    },
+    {
+      "first": "Z",
+      "second": "T",
+      "amount": -5.45
+    },
+    {
+      "first": "Z",
+      "second": "V",
+      "amount": -3.64
+    },
+    {
+      "first": "Z",
+      "second": "X",
+      "amount": -3.64
+    },
+    {
+      "first": "Z",
+      "second": "Y",
+      "amount": -12.73
+    }
+  ]
+}

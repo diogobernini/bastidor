@@ -595,7 +595,8 @@ dialog.wide {
   max-height: 88vh;
 }
 
-.row.pathpick input[type='text'] {
+.row.pathpick input[type='text'],
+.row.pathpick select {
   flex: 1;
   min-width: 0;
 }

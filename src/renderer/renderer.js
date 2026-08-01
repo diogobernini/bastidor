@@ -2714,17 +2714,32 @@ function bindLibraryDialog() {
 // inserir, emendamos o Pattern resultante no design atual (ou criamos um
 // design novo, se não houver nenhum aberto).
 
+// Rótulo do tipo de fonte no seletor (issue #20): "Nome · tipo", sem
+// travessão, separador "·" (convenção do app).
+const FONT_TYPE_LABEL_KEY = { stroke: 'text.typeStroke', inkstitch: 'text.typeInkstitch', ttf: 'text.typeTtf' };
+
 function populateTextFontSelect() {
   const sel = $('text-font');
+  const previous = sel.value;
   sel.innerHTML = '';
   for (const f of state.lettering.fonts) {
     const opt = document.createElement('option');
     opt.value = f.id;
-    opt.textContent = f.label;
+    opt.textContent = f.label + ' · ' + tr(FONT_TYPE_LABEL_KEY[f.type] || 'text.typeStroke');
     sel.appendChild(opt);
   }
-  const hershey = state.lettering.fonts.find((f) => f.id.includes('Hershey'));
-  if (hershey) sel.value = hershey.id;
+  if (previous && state.lettering.fonts.some((f) => f.id === previous)) {
+    sel.value = previous; // preserva a seleção ao repopular (ex.: depois de "adicionar fonte…")
+  } else {
+    const hershey = state.lettering.fonts.find((f) => f.id.includes('Hershey'));
+    if (hershey) sel.value = hershey.id;
+  }
+}
+
+function currentFontType() {
+  const id = $('text-font').value;
+  const font = state.lettering.fonts.find((f) => f.id === id);
+  return font ? font.type : 'stroke';
 }
 
 function readTextFormOpts() {
@@ -2735,8 +2750,51 @@ function readTextFormOpts() {
     letterSpacing: clampNum($('text-letterspacing').value, -20, 300, 0),
     lineSpacing: clampNum($('text-linespacing').value, -20, 300, 0),
     stitchLengthMm: clampNum($('text-stitchlen').value, 0.5, 6, 2),
-    bean: $('text-bean').checked,
+    finish: $('text-finish').value,
+    satinWidthMm: clampNum($('text-satinwidth').value, 0.8, 5, 2),
+    satinDensityMm: clampNum($('text-satindensity').value, 0.2, 1.5, 0.4),
+    underlay: $('text-underlay').checked,
+    fillSpacingMm: clampNum($('text-fillspacing').value, 0.2, 2, 0.4),
+    fillAngleDeg: clampNum($('text-fillangle').value, -90, 90, 0),
+    fillStitchMm: clampNum($('text-fillstitch').value, 1, 6, 3),
+    outline: $('text-outline').checked,
+    outlineStitchMm: clampNum($('text-outlinestitch').value, 0.5, 6, 2.5),
   };
+}
+
+// Os parâmetros mostrados se adaptam ao TIPO de fonte selecionada (issue
+// #20: traço único/Ink/Stitch mostram ponto corrido/bean/satin; TTF mostra
+// preenchimento) e, dentro do primeiro grupo, ao acabamento escolhido (os
+// campos de largura/densidade/underlay só valem para satin).
+function syncTextFieldVisibility() {
+  const isFill = currentFontType() === 'ttf';
+  $('text-stroke-fields').hidden = isFill;
+  $('text-fill-fields').hidden = !isFill;
+  if (isFill) {
+    $('text-outline-fields').hidden = !$('text-outline').checked;
+  } else {
+    const isSatin = $('text-finish').value === 'satin';
+    $('text-satin-fields').hidden = !isSatin;
+    $('text-underlay-row').hidden = !isSatin;
+  }
+}
+
+// "Adicionar fonte…" (issue #20): o processo principal escolhe o .ttf/.otf
+// e copia pra fonts/ttf/ (preload sandboxed não tem 'fs' — I/O só via IPC).
+async function addTtfFontFlow() {
+  const result = await window.api.letteringAddTtfFont();
+  if (!result) return; // usuário cancelou o diálogo de arquivo
+  if (!result.ok) {
+    toast(tr('toast.fontAddError') + result.error, 'error', 4200);
+    return;
+  }
+  state.lettering.fonts = result.fonts;
+  populateTextFontSelect();
+  $('text-font').value = result.fontId;
+  syncTextFieldVisibility();
+  scheduleTextPreview();
+  const added = state.lettering.fonts.find((f) => f.id === result.fontId);
+  toast(tr('toast.fontAdded', { name: added ? added.label : result.fontId }));
 }
 
 function sizeTextPreviewCanvas() {
@@ -2843,6 +2901,7 @@ function redrawTextPreview() {
 
 function openTextDialog() {
   $('dlg-text').showModal();
+  syncTextFieldVisibility();
   sizeTextPreviewCanvas();
   redrawTextPreview();
   $('text-input').focus();
@@ -3152,11 +3211,26 @@ function bindDialogs() {
       insertTextDesign();
     }
   });
-  for (const id of ['text-input', 'text-height', 'text-letterspacing', 'text-linespacing', 'text-stitchlen']) {
+  for (const id of [
+    'text-input', 'text-height', 'text-letterspacing', 'text-linespacing', 'text-stitchlen',
+    'text-satinwidth', 'text-satindensity', 'text-fillspacing', 'text-fillangle', 'text-fillstitch', 'text-outlinestitch',
+  ]) {
     $(id).addEventListener('input', scheduleTextPreview);
   }
-  $('text-font').addEventListener('change', scheduleTextPreview);
-  $('text-bean').addEventListener('change', scheduleTextPreview);
+  $('text-font').addEventListener('change', () => {
+    syncTextFieldVisibility();
+    scheduleTextPreview();
+  });
+  $('text-finish').addEventListener('change', () => {
+    syncTextFieldVisibility();
+    scheduleTextPreview();
+  });
+  $('text-underlay').addEventListener('change', scheduleTextPreview);
+  $('text-outline').addEventListener('change', () => {
+    syncTextFieldVisibility();
+    scheduleTextPreview();
+  });
+  $('text-addfont-btn').addEventListener('click', addTtfFontFlow);
   new ResizeObserver(() => {
     sizeTextPreviewCanvas();
     redrawTextPreview();
