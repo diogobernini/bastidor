@@ -115,6 +115,7 @@ então os parsers podem ser reaproveitados em CLI ou servidor.
 5. Recalcular densidade ao redimensionar
 6. Modo de visualização realista (textura de fio)
 7. Gravação de PES e JEF; suporte a VP3, HUS, SEW e PCS
+8. Gestão de pendrive: carregar e descarregar matrizes estilo biblioteca, com ejeção segura e limpeza dos arquivos ocultos do macOS
 
 ## Créditos e agradecimentos
 

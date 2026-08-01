@@ -115,6 +115,7 @@ dependency, so the parsers can be reused in a CLI or server.
 5. Density recalculation when resizing
 6. Realistic thread rendering (thread texture)
 7. PES and JEF writing; VP3, HUS, SEW and PCS support
+8. USB drive manager: library-style load and unload of designs, with safe eject and macOS hidden-file cleanup
 
 ## Credits and thanks
 
