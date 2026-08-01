@@ -7,6 +7,7 @@ const path = require('path');
 
 const io = require('../core/io');
 const { patternToDesign, designToPattern } = require('../core/design');
+const digitize = require('../core/digitize');
 const { SettingsStore, HOOP_PRESETS } = require('./settings');
 const { STRINGS, resolveLang, makeT } = require('../i18n');
 const drives = require('./drives');
@@ -255,6 +256,19 @@ function setupIpc() {
   ipcMain.handle('drives:clean-hidden', (e, driveRoot) => drives.cleanHiddenFiles(driveRoot));
   ipcMain.handle('drives:open-design', (e, filePath) => openPathIntoRenderer(filePath));
 
+  // Digitalização: gera o Pattern no núcleo e publica pelo mesmo canal de
+  // "design:opened" usado pela abertura normal de arquivos.
+  ipcMain.handle('svg:import', (e, { text, opts, name, path: svgPath }) => {
+    const pattern = digitize.importSvg(text, opts || {});
+    const design = patternToDesign(pattern, {
+      name: name || 'import.svg',
+      path: svgPath || null,
+      format: 'svg',
+    });
+    sendToRenderer('design:opened', design);
+    return { ok: true, stitches: pattern.countStitches() };
+  });
+
   // Sinal do renderer de que terminou de desenhar (usado no modo screenshot).
   ipcMain.on('render:ready', async () => {
     if (!argScreenshot || !win) return;
@@ -328,6 +342,10 @@ function buildMenuTemplate() {
           click: () => sendToRenderer('menu', 'open'),
         },
         { label: t('menu.openRecent'), submenu: recentItems },
+        {
+          label: t('menu.importSvg'),
+          click: () => importSvgFlow(),
+        },
         { type: 'separator' },
         {
           label: t('menu.saveAs'),
@@ -422,6 +440,28 @@ function openPathIntoRenderer(filePath) {
   try {
     const design = readDesignFromPath(filePath);
     sendToRenderer('design:opened', design);
+  } catch (err) {
+    dialog.showErrorBox(t('dlg.openError'), `${filePath}\n\n${err.message}`);
+  }
+}
+
+// Escolhe o arquivo SVG (diálogo nativo) e manda o texto pro renderer, que
+// mostra o dialog com os parâmetros de digitalização antes de importar.
+async function importSvgFlow() {
+  if (!win) return;
+  const result = await dialog.showOpenDialog(win, {
+    title: t('dlg.importSvgTitle'),
+    properties: ['openFile'],
+    filters: [
+      { name: t('dlg.filterSvg'), extensions: ['svg'] },
+      { name: t('dlg.filterAny'), extensions: ['*'] },
+    ],
+  });
+  if (result.canceled || result.filePaths.length === 0) return;
+  const filePath = result.filePaths[0];
+  try {
+    const text = fs.readFileSync(filePath, 'utf8');
+    sendToRenderer('svg:picked', { path: filePath, text, name: path.basename(filePath) });
   } catch (err) {
     dialog.showErrorBox(t('dlg.openError'), `${filePath}\n\n${err.message}`);
   }

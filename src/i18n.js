@@ -228,6 +228,20 @@ const STRINGS = {
     'drv.deleteDone': '{n} file(s) deleted',
     'drv.freeOf': '{free} free of {total}',
     'drv.unknownSpace': 'Unknown capacity',
+
+    'menu.importSvg': 'Import SVG…',
+    'dlg.importSvgTitle': 'Import SVG design',
+    'dlg.filterSvg': 'SVG files',
+    'svgimport.title': 'Import SVG',
+    'svgimport.confirmReplace': 'Replace the current open design with the SVG import?',
+    'svgimport.fillSpacing': 'Row spacing (mm)',
+    'svgimport.fillAngle': 'Fill angle (°)',
+    'svgimport.fillStitch': 'Fill stitch length (mm)',
+    'svgimport.outlineStitch': 'Outline stitch length (mm)',
+    'svgimport.outline': 'Generate outlines (stroke)',
+    'svgimport.apply': 'Import',
+    'toast.svgImported': 'SVG imported: {name}',
+    'toast.svgImportError': 'Error importing SVG: ',
   },
 
   'pt-BR': {
@@ -456,6 +470,20 @@ const STRINGS = {
     'drv.deleteDone': '{n} arquivo(s) apagado(s)',
     'drv.freeOf': '{free} livres de {total}',
     'drv.unknownSpace': 'Capacidade desconhecida',
+
+    'menu.importSvg': 'Importar SVG…',
+    'dlg.importSvgTitle': 'Importar matriz SVG',
+    'dlg.filterSvg': 'Arquivos SVG',
+    'svgimport.title': 'Importar SVG',
+    'svgimport.confirmReplace': 'Substituir a matriz aberta pela importação do SVG?',
+    'svgimport.fillSpacing': 'Espaçamento entre fileiras (mm)',
+    'svgimport.fillAngle': 'Ângulo do preenchimento (°)',
+    'svgimport.fillStitch': 'Comprimento da agulhada do preenchimento (mm)',
+    'svgimport.outlineStitch': 'Comprimento da agulhada do contorno (mm)',
+    'svgimport.outline': 'Gerar contornos (stroke)',
+    'svgimport.apply': 'Importar',
+    'toast.svgImported': 'SVG importado: {name}',
+    'toast.svgImportError': 'Erro ao importar SVG: ',
   },
 };
 
