@@ -245,6 +245,17 @@
     return oc.selected;
   }
 
+  // Só leitura: bbox (coords de desenho) da unidade selecionada no momento,
+  // ou null se não há seleção — a faixa inteira do objeto quando há um
+  // (várias cores possivelmente), não só o bloco "âncora". Usado pelo
+  // harness de UI (issue #29 fase 2) pra calcular a posição exata das alças
+  // sem duplicar a lógica de hit-test aqui.
+  function selectedBBox() {
+    const unit = currentUnit();
+    if (!unit || !host.state.design) return null;
+    return computeBBox(host.state.design.stitches, unit.start, unit.end);
+  }
+
   // ------------------------------------------------------------------- seleção
 
   function selectBlock(index) {
@@ -655,6 +666,7 @@
     reset,
     sidebarWarning,
     selectedIndex,
+    selectedBBox,
     onPointerDown,
     onPointerMove,
     onPointerUp,

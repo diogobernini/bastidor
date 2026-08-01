@@ -344,6 +344,110 @@ const SCENARIOS = {
     ctx.assert('reabriu com 2253 pontos (roundtrip intacto)', stitches === 2253, stitches);
   },
 
+  // Insere texto, entra no modo de objetos (issue #29 fase 2), seleciona o
+  // objeto de texto recém-criado e redimensiona a alça SE proporcionalmente
+  // (2x). Confirma que foi uma regeneração DE VERDADE (window.api.
+  // letteringBuild rodado de novo com heightMm maior), não uma escala de
+  // coordenadas: a contagem de agulhadas MUDA (um texto maior tem mais
+  // pontos no mesmo comprimento de ponto) mas o comprimento médio do ponto
+  // (info.avgStitch) fica igual dentro de 15%, e o nº de cores não muda.
+  // A posição exata das alças vem de ObjectCanvas.selectedBBox() + toScreen
+  // (ambos já globais no escopo do script clássico do renderer) — não exige
+  // nenhum hook novo além do que a fase 1 já expõe pro harness.
+  async 'text-object-resize'(ctx) {
+    ctx.assert('boot sinalizou pronto', ctx.bootReady);
+    ctx.assert('diálogo de texto abriu (--dialog=text)', await ctx.waitFor("__ui.isOpen('#dlg-text')", 5000));
+
+    await ctx.page("__ui.setValue('#text-input', 'M')");
+    await ctx.page("__ui.setValue('#text-height', '30')");
+    await ctx.page("__ui.setValue('#text-stitchlen', '0.5')"); // pontos bem próximos: mais fácil de acertar no clique de seleção
+    await ctx.page("__ui.click('#text-insert-btn')");
+    ctx.assert('diálogo de texto fechou após inserir', await ctx.waitFor("!__ui.isOpen('#dlg-text')", 5000));
+    ctx.assert('painel lateral visível (design de texto criado)', await ctx.waitFor("!__ui.isHidden('#sidebar')", 5000));
+    ctx.assert('1 cor na lista (texto de uma cor só)', (await ctx.page("__ui.text('#color-count')")) === '(1)');
+
+    const stitchesBefore = parseIntLoose(await ctx.page("__ui.text('#info-list dd:nth-of-type(2)')"));
+    const avgBefore = await ctx.page("__ui.text('#info-list dd:nth-of-type(6)')");
+    ctx.assert('agulhadas > 0 antes de redimensionar', stitchesBefore > 0, stitchesBefore);
+
+    await ctx.page("__ui.click('#btn-objects')");
+    ctx.assert('modo de objetos ativado', await ctx.page("__ui.hasClass('#btn-objects', 'on')"));
+
+    // Varredura de cliques (grade fina sobre o canvas) até achar o "M" — mais
+    // robusto do que adivinhar onde cai a tinta de um glifo específico. O
+    // raio de seleção (OBJECT_PICK_RADIUS_PX em objects.js) é fixo em tela
+    // (10px), então a grade precisa ser mais fina do que isso.
+    const selected = await ctx.page(`
+      (function () {
+        var cv = document.querySelector('#cv');
+        var r = cv.getBoundingClientRect();
+        var common = { pointerId: 1, isPrimary: true, pointerType: 'mouse', button: 0, bubbles: true, cancelable: true };
+        for (var fx = 0.15; fx <= 0.85; fx += 0.02) {
+          for (var fy = 0.15; fy <= 0.85; fy += 0.02) {
+            var x = r.left + r.width * fx, y = r.top + r.height * fy;
+            var opts = Object.assign({ clientX: x, clientY: y }, common);
+            cv.dispatchEvent(new PointerEvent('pointerdown', opts));
+            cv.dispatchEvent(new PointerEvent('pointerup', opts));
+            if (window.ObjectCanvas.selectedIndex() >= 0) return true;
+          }
+        }
+        return false;
+      })()
+    `);
+    const debugInfo = await ctx.page(
+      "JSON.stringify({rect: (function(){var r=document.querySelector('#cv').getBoundingClientRect(); return {w:r.width,h:r.height,l:r.left,t:r.top};})(), origin: window.toScreen(0,0), edge: window.toScreen(150,150)})"
+    );
+    ctx.assert('objeto de texto selecionado (grade de cliques achou a tinta)', selected, debugInfo);
+
+    const bbox = await ctx.page('window.ObjectCanvas.selectedBBox()');
+    ctx.assert('bbox do objeto selecionado disponível', !!bbox, JSON.stringify(bbox));
+
+    // Arrasta a alça "se" (canto inferior direito) 2x mais longe do pivô
+    // "nw" (canto oposto, fixo) — resizeFactors projeta sobre o vetor
+    // original e SEMPRE devolve o MESMO fator nos dois eixos fora do modo
+    // Alt (ver src/renderer/objects.js), então não precisa ser exato: só
+    // precisa estar na mesma direção geral, sem Alt.
+    const seClient = await ctx.page(`__ui.designPointToClient('#cv', ${bbox.maxX}, ${bbox.maxY})`);
+    const nwClient = await ctx.page(`__ui.designPointToClient('#cv', ${bbox.minX}, ${bbox.minY})`);
+    const targetX = nwClient.x + (seClient.x - nwClient.x) * 2;
+    const targetY = nwClient.y + (seClient.y - nwClient.y) * 2;
+    await ctx.page(
+      `__ui.pointerDrag('#cv', [{x: ${seClient.x}, y: ${seClient.y}}, {x: ${targetX}, y: ${targetY}}])`
+    );
+
+    // A regeneração roda por IPC (window.api.letteringBuild) depois do
+    // pointerup: espera a contagem de agulhadas mudar em vez de um timeout
+    // fixo (deriveBlocks/afterPointMutation só rodam quando a Promise volta).
+    const regenerated = await ctx.waitFor(
+      `Number((__ui.text('#info-list dd:nth-of-type(2)') || '').replace(/\\D/g, '')) !== ${stitchesBefore} && Number((__ui.text('#info-list dd:nth-of-type(2)') || '').replace(/\\D/g, '')) > 0`,
+      5000
+    );
+    ctx.assert('contagem de agulhadas mudou (regeneração de verdade, não escala de coordenadas)', regenerated);
+
+    const stitchesAfter = parseIntLoose(await ctx.page("__ui.text('#info-list dd:nth-of-type(2)')"));
+    const avgAfter = await ctx.page("__ui.text('#info-list dd:nth-of-type(6)')");
+    ctx.assert(
+      'agulhadas mudaram de verdade',
+      stitchesAfter !== stitchesBefore,
+      `${stitchesBefore} -> ${stitchesAfter}`
+    );
+    ctx.assert('ainda 1 cor depois de redimensionar (contagem de cores preservada)', (await ctx.page("__ui.text('#color-count')")) === '(1)');
+    ctx.assert(
+      'seleção continua válida depois da regeneração',
+      (await ctx.page('window.ObjectCanvas.selectedIndex()')) >= 0
+    );
+
+    const parseMm = (s) => parseFloat(String(s).replace(',', '.'));
+    const avgBeforeNum = parseMm(avgBefore);
+    const avgAfterNum = parseMm(avgAfter);
+    const relDiff = Math.abs(avgAfterNum - avgBeforeNum) / avgBeforeNum;
+    ctx.assert(
+      'comprimento médio do ponto preservado dentro de 15% (densidade igual, tamanho maior)',
+      relDiff < 0.15,
+      `${avgBefore} -> ${avgAfter} (${(relDiff * 100).toFixed(1)}%)`
+    );
+  },
+
   // Diálogo da biblioteca apontando pra uma pasta fixture (--library=, a
   // mesma flag de autoteste que já existia) com 2 matrizes geradas no setup
   // do run.js (tests/ui/run.js: makeFixtureLibrary).

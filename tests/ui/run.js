@@ -172,6 +172,7 @@ function buildScenarioDefs(fx) {
         `--stub-open-path=${fx.roundtripPath}`,
       ],
     },
+    { name: 'text-object-resize', args: ['--dialog=text', '--lang=pt-BR'] },
     { name: 'library-dialog', args: ['--lang=pt-BR', `--library=${fx.libraryDir}`] },
     { name: 'drives-dialog', args: ['--lang=pt-BR', `--fake-drive=${fx.fakeDriveDir}`] },
   ];
