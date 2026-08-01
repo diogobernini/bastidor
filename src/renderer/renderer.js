@@ -310,6 +310,15 @@ const historyApplyFns = {
       { stitch: op.stitch, thread: op.thread }
     );
   },
+  // Reordenar blocos de cor adjacentes (issue #61): a troca é sua própria
+  // inversa (ver comentário em src/core/history.js), então undo() e redo()
+  // caem exatamente aqui os dois, sempre com o mesmo upperIndex. state.blocks
+  // reflete a posição ATUAL dos blocos (recém derivada após a última
+  // mutação, seja ela o "fazer" original ou o undo/redo anterior), então
+  // recalcular o plano a partir dele a cada chamada é seguro.
+  moveColorBlock(op) {
+    ColorBlocks.swapAdjacentBlocks(state.design.stitches, state.design.threads, state.blocks, op.upperIndex);
+  },
   transform(op) {
     applyTransformToDesign(op.kind, op.params);
   },
@@ -479,6 +488,37 @@ function updateSidebar() {
     count.className = 'count';
     count.textContent = I18n.fmtNum(block.stitchCount);
     li.append(sw, name, count);
+    // Reordenar a sequência de bordado (issue #61): ▲ sobe o bloco (troca
+    // com o de cima), ▼ desce (troca com o de baixo). ▲ escondido no
+    // primeiro bloco (não há pra onde subir), ▼ escondido no último (não
+    // há pra onde descer) — mesmo critério de esconder do botão de
+    // mesclar logo abaixo.
+    if (bi > 0) {
+      const upBtn = document.createElement('button');
+      upBtn.type = 'button';
+      upBtn.className = 'move-btn move-up-btn'; // 2ª classe: seletor único p/ automação (tests/ui)
+      upBtn.textContent = '▲';
+      upBtn.title = I18n.tr('colors.moveUp');
+      upBtn.setAttribute('aria-label', upBtn.title); // issue #38: tooltip dobra de rótulo p/ leitor de tela
+      upBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        moveColorBlock(bi, 'up');
+      });
+      li.append(upBtn);
+    }
+    if (bi < state.blocks.length - 1) {
+      const downBtn = document.createElement('button');
+      downBtn.type = 'button';
+      downBtn.className = 'move-btn move-down-btn'; // 2ª classe: seletor único p/ automação (tests/ui)
+      downBtn.textContent = '▼';
+      downBtn.title = I18n.tr('colors.moveDown');
+      downBtn.setAttribute('aria-label', downBtn.title);
+      downBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        moveColorBlock(bi, 'down');
+      });
+      li.append(downBtn);
+    }
     // Ação de mesclar (issue #50): funde o bloco de BAIXO neste, mantendo a
     // linha/config deste bloco. Escondida no último, que não tem bloco
     // abaixo para mesclar.
@@ -539,6 +579,28 @@ function mergeColorBlockWithNext(bi) {
     stitch: removed.stitch,
     thread: removed.thread,
   });
+  bumpArt();
+  deriveBlocks();
+  deriveStats();
+  updateSidebar();
+  updateStatusbar();
+  RenderCanvas.requestRender();
+}
+
+// Reordenar a sequência de bordado (issue #61): move o bloco `bi` (posição
+// em state.blocks) uma casa para cima ou para baixo, trocando de lugar com
+// o vizinho adjacente — "subir" troca (bi - 1, bi); "descer" troca (bi, bi
+// + 1); em ambos os casos upperIndex é a posição do bloco que fica em CIMA
+// depois da troca. Núcleo puro em ColorBlocks.swapAdjacentBlocks (troca é
+// sua própria inversa: uma entrada de histórico basta, sem precisar
+// guardar mais nada além de upperIndex, ver src/core/history.js). Mesmo
+// fluxo de pós-mutação de mergeColorBlockWithNext.
+function moveColorBlock(bi, direction) {
+  if (!state.design) return;
+  const upperIndex = direction === 'up' ? bi - 1 : bi;
+  const moved = ColorBlocks.swapAdjacentBlocks(state.design.stitches, state.design.threads, state.blocks, upperIndex);
+  if (!moved) return; // posição inválida (topo/fundo da lista, ou bloco vazio escondido entre os dois) — não faz nada
+  pushHistory({ type: 'moveColorBlock', upperIndex });
   bumpArt();
   deriveBlocks();
   deriveStats();

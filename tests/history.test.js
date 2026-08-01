@@ -5,6 +5,29 @@ const test = require('node:test');
 const assert = require('node:assert');
 
 const History = require('../src/core/history');
+const ColorBlocks = require('../src/core/colorblocks');
+const C = require('../src/core/commands');
+
+// Mesma lógica de deriveBlocks() em src/renderer/renderer.js, reproduzida
+// aqui só o suficiente pros testes de moveColorBlock (issue #61): o
+// historyApplyFns real do renderer recalcula state.blocks a partir do
+// design ATUAL antes de aplicar/desfazer/refazer — moveColorBlock (op) só
+// guarda `upperIndex`, então precisa de blocks recém derivados a cada
+// chamada pra montar o plano de troca.
+function deriveBlocksFor(stitches) {
+  const blocks = [];
+  let start = 0;
+  let threadIndex = 0;
+  for (let i = 0; i < stitches.length; i++) {
+    if ((stitches[i][2] & C.COMMAND_MASK) === C.COLOR_CHANGE) {
+      blocks.push({ threadIndex, start, end: i + 1 });
+      threadIndex++;
+      start = i + 1;
+    }
+  }
+  if (start < stitches.length) blocks.push({ threadIndex, start, end: stitches.length });
+  return blocks;
+}
 
 // applyFns "de referência" usado na maioria dos testes: muta um design
 // falso ({ stitches, threads }) exatamente como o renderer faria.
@@ -33,6 +56,15 @@ function makeApply(design) {
     splitColorBlock(op) {
       design.stitches.splice(op.colorChangeIndex, 0, op.stitch.slice());
       design.threads.splice(op.threadIndex, 0, op.thread);
+    },
+    // Reordenar blocos de cor adjacentes (issue #61): mesmo padrão do
+    // historyApplyFns.moveColorBlock real (src/renderer/renderer.js) —
+    // recalcula os blocos a partir do design atual e delega a troca ao
+    // núcleo puro. A troca é sua própria inversa, então undo() e redo()
+    // caem os dois aqui, sempre com o mesmo upperIndex.
+    moveColorBlock(op) {
+      const blocks = deriveBlocksFor(design.stitches);
+      ColorBlocks.swapAdjacentBlocks(design.stitches, design.threads, blocks, op.upperIndex);
     },
     transform(op) {
       const { kind, params } = op;
@@ -331,6 +363,55 @@ test('mergeColorBlock: invert() é a splitColorBlock com os mesmos campos', () =
   const inv = History.invert(op);
   assert.deepEqual(inv, { type: 'splitColorBlock', colorChangeIndex: 5, threadIndex: 2, stitch: [1, 2, 5], thread: { color: '#abc' } });
   // e a inversa da inversa volta pro tipo original (mesmo padrão de deletePoint/insertPoint)
+  assert.deepEqual(History.invert(inv), op);
+});
+
+// --------------------------------------------------------- moveColorBlock (issue #61)
+
+test('moveColorBlock desfaz e refaz a troca de blocos de cor adjacentes', () => {
+  const design = {
+    stitches: [
+      [0, 0, 0],
+      [1, 1, 0],
+      [2, 2, 5], // COLOR_CHANGE: fecha o bloco 0 (thread 0)
+      [3, 3, 0],
+      [4, 4, 0],
+      [5, 5, 0], // bloco 1 (thread 1, último: sem CC de fechamento)
+    ],
+    threads: [{ color: '#ff0000' }, { color: '#00ff00' }],
+  };
+  const h = History.create();
+  const apply = makeApply(design);
+
+  const op = { type: 'moveColorBlock', upperIndex: 0 };
+
+  h.push(op);
+  apply.moveColorBlock(op);
+  assert.deepEqual(
+    design.stitches,
+    [[3, 3, 0], [4, 4, 0], [5, 5, 0], [2, 2, 5], [0, 0, 0], [1, 1, 0]],
+    'bloco 1 (3 pontos) vem primeiro, seguido do CC e do bloco 0 (2 pontos, agora último e sem CC)'
+  );
+  assert.deepEqual(design.threads, [{ color: '#00ff00' }, { color: '#ff0000' }], 'threads acompanham os blocos');
+
+  h.undo(apply);
+  assert.deepEqual(
+    design.stitches,
+    [[0, 0, 0], [1, 1, 0], [2, 2, 5], [3, 3, 0], [4, 4, 0], [5, 5, 0]],
+    'undo (mesma troca, aplicada de novo) restaura a ordem original'
+  );
+  assert.deepEqual(design.threads, [{ color: '#ff0000' }, { color: '#00ff00' }]);
+
+  h.redo(apply);
+  assert.deepEqual(design.stitches, [[3, 3, 0], [4, 4, 0], [5, 5, 0], [2, 2, 5], [0, 0, 0], [1, 1, 0]], 'redo troca de novo');
+  assert.deepEqual(design.threads, [{ color: '#00ff00' }, { color: '#ff0000' }]);
+});
+
+test('moveColorBlock: invert() é ela mesma (troca adjacente, mesmo upperIndex)', () => {
+  const op = { type: 'moveColorBlock', upperIndex: 3 };
+  const inv = History.invert(op);
+  assert.deepEqual(inv, op);
+  assert.notEqual(inv, op, 'invert() devolve um objeto novo, não o mesmo por referência');
   assert.deepEqual(History.invert(inv), op);
 });
 

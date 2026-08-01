@@ -545,6 +545,93 @@ const SCENARIOS = {
     ctx.assert('total de pontos igual ao original após Desfazer', stitchesUndone === stitchesBefore, stitchesUndone);
   },
 
+  // Reordenar a sequência de bordado direto no painel de Cores (issue #61):
+  // sobe o bloco 2 (clica ▲ na 2ª linha), confere que a 1ª e a 2ª linha
+  // trocaram de conteúdo (thread e contagem de pontos), que o total de
+  // pontos e o nº de trocas de cor não mudam (só a ordem), e que dá pra
+  // desfazer (undo) voltando à ordem original. A "linha" é conferida pela
+  // COR do swatch (input[type=color].value), não pelo texto do nome: as
+  // threads de rosacea.xxx não têm description/catalog, então o rótulo cai
+  // no fallback "Cor {n}" — que é baseado na POSIÇÃO (bi+1), não no
+  // conteúdo, e por isso não muda mesmo quando a thread por trás muda de
+  // verdade (ver threadLabel() em renderer.js). A cor do swatch reflete
+  // design.threads[block.threadIndex].color de verdade.
+  async 'move-color-block'(ctx) {
+    ctx.assert('boot sinalizou pronto', ctx.bootReady);
+    ctx.assert('3 cores na lista (original)', (await ctx.page("__ui.count('#color-list li')")) === 3);
+    ctx.assert(
+      '2 botões de subir (todos menos o primeiro bloco)',
+      (await ctx.page("__ui.count('#color-list li button.move-up-btn')")) === 2
+    );
+    ctx.assert(
+      '2 botões de descer (todos menos o último bloco)',
+      (await ctx.page("__ui.count('#color-list li button.move-down-btn')")) === 2
+    );
+    ctx.assert(
+      'primeiro bloco não tem botão de subir',
+      (await ctx.page("__ui.exists('#color-list li:nth-child(1) button.move-up-btn')")) === false
+    );
+    ctx.assert(
+      'último bloco não tem botão de descer',
+      (await ctx.page("__ui.exists('#color-list li:nth-child(3) button.move-down-btn')")) === false
+    );
+
+    const stitchesBefore = parseIntLoose(await ctx.page("__ui.text('#info-list dd:nth-of-type(2)')"));
+    const colorChangesBefore = parseIntLoose(await ctx.page("__ui.text('#info-list dd:nth-of-type(3)')"));
+    const swatch1Before = await ctx.page("__ui.value('#color-list li:nth-child(1) .swatch')");
+    const swatch2Before = await ctx.page("__ui.value('#color-list li:nth-child(2) .swatch')");
+    const count1Before = parseIntLoose(await ctx.page("__ui.text('#color-list li:nth-child(1) .count')"));
+    const count2Before = parseIntLoose(await ctx.page("__ui.text('#color-list li:nth-child(2) .count')"));
+    ctx.assert('blocos 1 e 2 começam diferentes (senão a troca seria indetectável)', count1Before !== count2Before);
+    ctx.assert('cores 1 e 2 começam diferentes', swatch1Before !== swatch2Before, `${swatch1Before} vs ${swatch2Before}`);
+
+    // Sobe o bloco 2 (2ª linha): ele passa a ser o 1º, e o antigo 1º vira o
+    // 2º.
+    await ctx.page("__ui.click('#color-list li:nth-child(2) button.move-up-btn')");
+
+    ctx.assert('ainda 3 cores após mover', await ctx.waitFor("__ui.count('#color-list li') === 3", 3000));
+    const swatch1After = await ctx.page("__ui.value('#color-list li:nth-child(1) .swatch')");
+    const swatch2After = await ctx.page("__ui.value('#color-list li:nth-child(2) .swatch')");
+    const count1After = parseIntLoose(await ctx.page("__ui.text('#color-list li:nth-child(1) .count')"));
+    const count2After = parseIntLoose(await ctx.page("__ui.text('#color-list li:nth-child(2) .count')"));
+
+    ctx.assert(
+      '1ª linha ganhou a contagem que era da 2ª (bloco subiu de verdade)',
+      count1After === count2Before,
+      `${count1Before} <-> ${count2Before}, depois: ${count1After}`
+    );
+    ctx.assert('2ª linha ganhou a contagem que era da 1ª', count2After === count1Before);
+    ctx.assert(
+      'a linha (thread) acompanhou o bloco: 1ª e 2ª trocaram de cor',
+      swatch1After === swatch2Before && swatch2After === swatch1Before,
+      `${swatch1Before}|${swatch2Before} -> ${swatch1After}|${swatch2After}`
+    );
+
+    const stitchesAfter = parseIntLoose(await ctx.page("__ui.text('#info-list dd:nth-of-type(2)')"));
+    ctx.assert('total de pontos não muda (só a ordem)', stitchesAfter === stitchesBefore, stitchesAfter);
+    const colorChangesAfter = parseIntLoose(await ctx.page("__ui.text('#info-list dd:nth-of-type(3)')"));
+    ctx.assert(
+      'nº de trocas de cor não muda (só reposicionadas)',
+      colorChangesAfter === colorChangesBefore,
+      `${colorChangesBefore} -> ${colorChangesAfter}`
+    );
+    ctx.assert('Desfazer habilitado após mover', (await ctx.page("__ui.isDisabled('#t-undo')")) === false);
+
+    await ctx.page("__ui.click('#t-undo')");
+    ctx.assert('ainda 3 cores após Desfazer', await ctx.waitFor("__ui.count('#color-list li') === 3", 3000));
+    const swatch1Undone = await ctx.page("__ui.value('#color-list li:nth-child(1) .swatch')");
+    const swatch2Undone = await ctx.page("__ui.value('#color-list li:nth-child(2) .swatch')");
+    const count1Undone = parseIntLoose(await ctx.page("__ui.text('#color-list li:nth-child(1) .count')"));
+    const count2Undone = parseIntLoose(await ctx.page("__ui.text('#color-list li:nth-child(2) .count')"));
+    ctx.assert(
+      'ordem original restaurada (cores e contagens)',
+      swatch1Undone === swatch1Before && swatch2Undone === swatch2Before && count1Undone === count1Before && count2Undone === count2Before,
+      `${swatch1Before}|${swatch2Before} vs ${swatch1Undone}|${swatch2Undone}`
+    );
+    const stitchesUndone = parseIntLoose(await ctx.page("__ui.text('#info-list dd:nth-of-type(2)')"));
+    ctx.assert('total de pontos igual ao original após Desfazer', stitchesUndone === stitchesBefore, stitchesUndone);
+  },
+
   // Diálogo da biblioteca apontando pra uma pasta fixture (--library=, a
   // mesma flag de autoteste que já existia) com 2 matrizes geradas no setup
   // do run.js (tests/ui/run.js: makeFixtureLibrary).

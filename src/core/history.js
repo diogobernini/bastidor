@@ -24,6 +24,15 @@
 //     // (splitColorBlock) reinserir nas mesmas posições.
 //   { type: 'splitColorBlock', colorChangeIndex, threadIndex, stitch, thread }
 //     // inversa de mergeColorBlock: reinsere o stitch e a thread removidos.
+//   { type: 'moveColorBlock', upperIndex }
+//     // reordenar blocos de cor adjacentes (issue #61): troca de lugar o
+//     // bloco em `upperIndex` (posição na lista de blocos) com o seguinte.
+//     // A troca é uma operação adjacente e simétrica (ver
+//     // ColorBlocks.swapAdjacentBlocks em src/core/colorblocks.js): sua
+//     // própria inversa é ela mesma (mesmo upperIndex) — desfazer/refazer
+//     // não precisam guardar mais nada além da posição, diferente de
+//     // mergeColorBlock/splitColorBlock (que guardam o stitch/thread
+//     // removidos porque a mutação não é simétrica).
 //   { type: 'transform',     kind, params }                      // ver invertTransform() abaixo
 //     - kind 'translate': params { dx, dy }
 //     - kind 'rotate90':  params { cx, cy, clockwise }
@@ -84,6 +93,10 @@ const History = (function () {
         return { type: 'splitColorBlock', colorChangeIndex: op.colorChangeIndex, threadIndex: op.threadIndex, stitch: op.stitch, thread: op.thread };
       case 'splitColorBlock':
         return { type: 'mergeColorBlock', colorChangeIndex: op.colorChangeIndex, threadIndex: op.threadIndex, stitch: op.stitch, thread: op.thread };
+      case 'moveColorBlock':
+        // Troca adjacente: aplicar de novo na mesma posição desfaz (ver
+        // comentário da união de tipos acima).
+        return { type: 'moveColorBlock', upperIndex: op.upperIndex };
       case 'transform':
         return { type: 'transform', kind: op.kind, params: invertTransform(op.kind, op.params) };
       case 'snapshot':
