@@ -65,7 +65,20 @@ function listSubfolders(root, relDir) {
   for (const entry of entries) {
     if (entry.name.startsWith('.')) continue;
     if (!entry.isDirectory()) continue; // symlinks (Dirent por lstat) não entram em nenhum ramo
-    out.push({ name: entry.name, relDir: path.join(relDir || '', entry.name) });
+    // Espia se há pelo menos uma subpasta: a árvore só mostra o caret quando
+    // expandir levaria a algum lugar (pasta-folha fica sem caret e sem "vazia").
+    let hasChildren = false;
+    try {
+      for (const sub of fs.readdirSync(path.join(dir, entry.name), { withFileTypes: true })) {
+        if (!sub.name.startsWith('.') && sub.isDirectory()) {
+          hasChildren = true;
+          break;
+        }
+      }
+    } catch {
+      hasChildren = false;
+    }
+    out.push({ name: entry.name, relDir: path.join(relDir || '', entry.name), hasChildren });
   }
   out.sort((a, b) => a.name.localeCompare(b.name));
   return out;

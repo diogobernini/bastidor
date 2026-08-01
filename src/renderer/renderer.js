@@ -1944,29 +1944,121 @@ async function loadOrBuildLibraryThumb(item) {
   return dataURL;
 }
 
-function paintLibraryThumb(canvasEl, dataURL) {
-  const img = new Image();
-  img.onload = () => {
-    if (!canvasEl.isConnected) return; // item já saiu da janela virtualizada
-    const dpr = window.devicePixelRatio || 1;
-    canvasEl.width = 84 * dpr;
-    canvasEl.height = 84 * dpr;
-    const c = canvasEl.getContext('2d');
-    c.clearRect(0, 0, canvasEl.width, canvasEl.height);
-    c.drawImage(img, 0, 0, canvasEl.width, canvasEl.height);
-  };
-  img.src = dataURL;
+// Cache de Image já decodificada: repintar um card que voltou à janela
+// virtualizada é síncrono (sem o pisca de esperar decode/IPC a cada scroll).
+const libThumbImages = new Map();
+const LIB_THUMB_IMG_CAP = 4000;
+
+function paintThumbFromImg(canvasEl, img) {
+  const dpr = window.devicePixelRatio || 1;
+  canvasEl.width = 84 * dpr;
+  canvasEl.height = 84 * dpr;
+  const c = canvasEl.getContext('2d');
+  c.clearRect(0, 0, canvasEl.width, canvasEl.height);
+  c.drawImage(img, 0, 0, canvasEl.width, canvasEl.height);
+}
+
+function paintLibraryThumb(canvasEl, dataURL, key) {
+  let img = libThumbImages.get(key);
+  if (!img) {
+    img = new Image();
+    img.src = dataURL;
+    libThumbImages.set(key, img);
+    if (libThumbImages.size > LIB_THUMB_IMG_CAP) {
+      libThumbImages.delete(libThumbImages.keys().next().value); // descarta o mais antigo
+    }
+  }
+  if (img.complete) {
+    paintThumbFromImg(canvasEl, img);
+  } else {
+    img.addEventListener(
+      'load',
+      () => {
+        if (canvasEl.isConnected) paintThumbFromImg(canvasEl, img);
+      },
+      { once: true }
+    );
+  }
 }
 
 function ensureLibraryThumb(canvasEl, item) {
   const key = libraryThumbCacheKey(item);
+  const cachedImg = libThumbImages.get(key);
+  if (cachedImg && cachedImg.complete) {
+    paintThumbFromImg(canvasEl, cachedImg); // caminho síncrono: sem pisca no scroll
+    return;
+  }
   let entry = state.library.thumbCache.get(key);
   if (!entry) {
     entry = scheduleThumbJob(() => loadOrBuildLibraryThumb(item));
     state.library.thumbCache.set(key, entry);
   }
   entry.then((dataURL) => {
-    if (dataURL) paintLibraryThumb(canvasEl, dataURL);
+    if (dataURL) paintLibraryThumb(canvasEl, dataURL, key);
+  });
+}
+
+// ---- prévia grande no hover (arte + pontos + cores + tempo estimado) ----
+
+const libHover = { timer: null, item: null };
+const LIB_HOVER_DELAY = 260;
+const MACHINE_SPM = 600; // agulhadas/min típicas de máquina doméstica (estimativa)
+
+function hideLibHover() {
+  clearTimeout(libHover.timer);
+  libHover.item = null;
+  const pop = document.getElementById('lib-hover');
+  if (pop) pop.hidden = true;
+}
+
+function fmtSewTime(stitches, colorChanges) {
+  const min = stitches / MACHINE_SPM + colorChanges * 0.5; // ~30s por troca de linha
+  if (min < 1) return '< 1 min';
+  const h = Math.floor(min / 60);
+  const m = Math.round(min % 60);
+  return h ? `${h} h ${String(m).padStart(2, '0')} min` : `${m} min`;
+}
+
+function showLibHover(item, cardEl) {
+  Promise.resolve(peekDriveDesign(item)).then((entry) => {
+    if (libHover.item !== item || !entry.ok || !cardEl.isConnected) return;
+    const design = entry.design;
+    const pop = $('lib-hover');
+    pop.hidden = false;
+    drawDesignInto($('lib-hover-cv'), design, 310, 280, 12, { autoBg: true });
+    $('lib-hover-name').textContent = item.name;
+    const b = designBounds(design);
+    const wMm = isFinite(b.minX) ? (b.maxX - b.minX) / 10 : 0;
+    const hMm = isFinite(b.minY) ? (b.maxY - b.minY) / 10 : 0;
+    let changes = 0;
+    for (const st of design.stitches) {
+      if ((st[2] & COMMAND_MASK) === COLOR_CHANGE) changes++;
+    }
+    const n = countStitches(design);
+    $('lib-hover-line').textContent =
+      `${wMm.toFixed(1)} × ${hMm.toFixed(1)} mm · ` +
+      tr('status.stitches', { n: fmtNum(n) }) +
+      ' · ' +
+      tr('lib.hoverColors', { c: design.threads.length }) +
+      ' · ' +
+      tr('lib.hoverTime', { t: fmtSewTime(n, changes) });
+    const colors = $('lib-hover-colors');
+    colors.innerHTML = '';
+    design.threads.slice(0, 16).forEach((t, i) => {
+      const sw = document.createElement('span');
+      sw.style.background = designThreadColor(design, i);
+      colors.appendChild(sw);
+    });
+    // À direita do card; sem espaço, vai para a esquerda; sempre dentro da janela.
+    const r = cardEl.getBoundingClientRect();
+    const pw = 334;
+    const ph = pop.offsetHeight || 380;
+    let x = r.right + 10;
+    if (x + pw > window.innerWidth - 8) x = r.left - pw - 10;
+    if (x < 8) x = 8;
+    let y = Math.min(Math.max(r.top - 20, 8), window.innerHeight - ph - 8);
+    pop.style.left = x + 'px';
+    pop.style.top = y + 'px';
   });
 }
 
@@ -2001,15 +2093,9 @@ async function renderLibTreeChildrenInto(containerEl, relDir, depth, opts) {
     opts.childrenCache.set(relDir, subs);
   }
   containerEl.innerHTML = '';
-  if (!subs.length) {
-    const empty = document.createElement('div');
-    empty.className = 'lib-tree-empty';
-    empty.textContent = tr('lib.emptyFolder');
-    containerEl.appendChild(empty);
-    return;
-  }
+  if (!subs.length) return; // pasta-folha: nada a listar (o caret nem aparece)
   for (const sub of subs) {
-    containerEl.appendChild(buildLibTreeRow(sub.relDir, sub.name, depth, opts));
+    containerEl.appendChild(buildLibTreeRow(sub.relDir, sub.name, depth, opts, sub.hasChildren !== false));
     if (opts.expanded.has(sub.relDir)) {
       const wrap = document.createElement('div');
       wrap.className = 'lib-tree-children';
@@ -2019,20 +2105,25 @@ async function renderLibTreeChildrenInto(containerEl, relDir, depth, opts) {
   }
 }
 
-function buildLibTreeRow(relDir, label, depth, opts) {
+function buildLibTreeRow(relDir, label, depth, opts, hasChildren = true) {
   const btn = document.createElement('button');
   btn.type = 'button';
   btn.className = 'lib-tree-node' + (relDir === opts.selectedRelDir ? ' selected' : '');
   btn.style.paddingLeft = 8 + depth * 14 + 'px';
   const twisty = document.createElement('span');
   twisty.className = 'twisty';
-  twisty.textContent = opts.expanded.has(relDir) ? '▾' : '▸';
-  twisty.addEventListener('click', async (e) => {
-    e.stopPropagation();
-    if (opts.expanded.has(relDir)) opts.expanded.delete(relDir);
-    else opts.expanded.add(relDir);
-    await opts.rerender();
-  });
+  if (!hasChildren) {
+    twisty.classList.add('leaf'); // mantém o alinhamento, sem caret nem clique
+    twisty.textContent = '';
+  } else {
+    twisty.textContent = opts.expanded.has(relDir) ? '▾' : '▸';
+    twisty.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      if (opts.expanded.has(relDir)) opts.expanded.delete(relDir);
+      else opts.expanded.add(relDir);
+      await opts.rerender();
+    });
+  }
   const name = document.createElement('span');
   name.className = 'name';
   name.textContent = label;
@@ -2298,6 +2389,13 @@ function buildLibraryGridItem(item) {
   meta.title = meta.textContent;
 
   el.append(thumbWrap, name, meta);
+
+  el.addEventListener('mouseenter', () => {
+    clearTimeout(libHover.timer);
+    libHover.item = item;
+    libHover.timer = setTimeout(() => showLibHover(item, el), LIB_HOVER_DELAY);
+  });
+  el.addEventListener('mouseleave', hideLibHover);
 
   if (!state.library.searching) {
     Promise.resolve(peekDriveDesign(item)).then((entry) => {
@@ -2572,6 +2670,7 @@ async function confirmLibrarySave() {
 function bindLibraryDialog() {
   $('library-close').addEventListener('click', closeLibraryDialog);
   $('dlg-library').addEventListener('close', () => {
+    hideLibHover();
     if (state.library.driveRefreshTimer) {
       clearInterval(state.library.driveRefreshTimer);
       state.library.driveRefreshTimer = null;
@@ -2590,6 +2689,7 @@ function bindLibraryDialog() {
   });
 
   $('lib-grid-viewport').addEventListener('scroll', requestLibraryGridRender);
+  $('lib-grid-viewport').addEventListener('scroll', hideLibHover);
   new ResizeObserver(requestLibraryGridRender).observe($('lib-grid-viewport'));
 
   $('lib-open-external').addEventListener('click', openViaDialogExternal);
@@ -3475,6 +3575,24 @@ function bindDigitizeDialog() {
 }
 
 // --------------------------------------------------------------- boot
+
+// Qualquer exceção não tratada vira um toast: um erro silencioso no meio de
+// um handler mata os listeners e a UI "para de responder" sem explicação.
+window.addEventListener('error', (e) => {
+  try {
+    toast(tr('toast.internalError') + e.message, 'error', 7000);
+  } catch {
+    /* toast indisponível durante o boot */
+  }
+});
+window.addEventListener('unhandledrejection', (e) => {
+  const msg = e.reason && e.reason.message ? e.reason.message : String(e.reason);
+  try {
+    toast(tr('toast.internalError') + msg, 'error', 7000);
+  } catch {
+    /* idem */
+  }
+});
 
 async function boot() {
   if (!window.api) {
