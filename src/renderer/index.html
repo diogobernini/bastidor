@@ -1,0 +1,254 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:" />
+  <title>Bastidor</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div id="app">
+    <header id="toolbar">
+      <div class="brand" title="Bastidor">
+        <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+          <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2.2"/>
+          <circle cx="12" cy="12" r="5.2" fill="none" stroke="currentColor" stroke-width="1.4" opacity="0.55"/>
+          <circle cx="19.4" cy="16.6" r="2.1" fill="currentColor"/>
+        </svg>
+        <span>Bastidor</span>
+      </div>
+
+      <div class="tb-group">
+        <button id="btn-open" class="tb-btn" title="Abrir matriz (Cmd/Ctrl+O)">Abrir</button>
+        <button id="btn-save" class="tb-btn" title="Salvar como (Cmd/Ctrl+Shift+S)" disabled>Salvar como</button>
+        <button id="btn-export" class="tb-btn" title="Exportar PNG (Cmd/Ctrl+E)" disabled>PNG</button>
+      </div>
+
+      <div class="tb-sep"></div>
+
+      <div class="tb-group">
+        <button id="btn-fit" class="tb-btn icon" title="Ajustar à tela (0)">⤢</button>
+        <button id="btn-zoom-out" class="tb-btn icon" title="Afastar (-)">−</button>
+        <span id="zoom-label" class="tb-label">100%</span>
+        <button id="btn-zoom-in" class="tb-btn icon" title="Aproximar (+)">+</button>
+      </div>
+
+      <div class="tb-sep"></div>
+
+      <div class="tb-group">
+        <button id="btn-grid" class="tb-btn toggle" title="Grade (G)">Grade</button>
+        <button id="btn-hoop" class="tb-btn toggle" title="Bastidor (B)">Bastidor</button>
+        <button id="btn-jumps" class="tb-btn toggle" title="Mostrar saltos (J)">Saltos</button>
+      </div>
+
+      <div class="tb-sep"></div>
+
+      <div class="tb-group sim-group">
+        <button id="btn-sim" class="tb-btn icon accent" title="Simular bordado (Espaço)" disabled>▶</button>
+        <input id="sim-progress" type="range" min="0" max="1000" value="1000" title="Progresso da simulação" disabled />
+        <select id="sim-speed" title="Velocidade da simulação">
+          <option value="150">150 pts/s</option>
+          <option value="300">300 pts/s</option>
+          <option value="600" selected>600 pts/s</option>
+          <option value="1200">1200 pts/s</option>
+          <option value="2500">2500 pts/s</option>
+        </select>
+      </div>
+
+      <div class="tb-spacer"></div>
+
+      <button id="btn-settings" class="tb-btn icon" title="Configurações (Cmd/Ctrl+,)">⚙</button>
+    </header>
+
+    <main id="workspace">
+      <div id="canvas-wrap">
+        <canvas id="cv"></canvas>
+        <div id="empty-state">
+          <svg viewBox="0 0 24 24" width="72" height="72" aria-hidden="true">
+            <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <circle cx="12" cy="12" r="5.2" fill="none" stroke="currentColor" stroke-width="1" opacity="0.55"/>
+            <circle cx="19.4" cy="16.6" r="2.1" fill="currentColor"/>
+          </svg>
+          <h1>Arraste uma matriz para cá</h1>
+          <p>Singer XXX · Tajima DST · Brother PES/PEC · Janome JEF · Melco EXP</p>
+          <button id="btn-open-empty" class="tb-btn big">Abrir arquivo…</button>
+          <div id="empty-recents"></div>
+        </div>
+      </div>
+
+      <aside id="sidebar" hidden>
+        <section>
+          <h2>Informações</h2>
+          <dl id="info-list" class="info"></dl>
+        </section>
+        <section>
+          <h2>Cores <span id="color-count" class="muted"></span></h2>
+          <ul id="color-list" class="colors"></ul>
+        </section>
+        <section>
+          <h2>Transformar</h2>
+          <div class="transform-grid">
+            <button id="t-center" class="tb-btn small" title="Centralizar na origem">Centralizar</button>
+            <button id="t-scale" class="tb-btn small" title="Redimensionar em % (Cmd/Ctrl+R)">Redimensionar…</button>
+            <button id="t-rot-ccw" class="tb-btn small" title="Girar 90° anti-horário">⟲ 90°</button>
+            <button id="t-rot-cw" class="tb-btn small" title="Girar 90° horário">⟳ 90°</button>
+            <button id="t-flip-h" class="tb-btn small" title="Espelhar horizontal">⇋ Horizontal</button>
+            <button id="t-flip-v" class="tb-btn small" title="Espelhar vertical">⇵ Vertical</button>
+          </div>
+          <button id="t-undo" class="tb-btn small wide" disabled title="Desfazer (Cmd/Ctrl+Z)">Desfazer</button>
+        </section>
+        <section id="warnings-section" hidden>
+          <h2>Avisos</h2>
+          <ul id="warning-list" class="warnings"></ul>
+        </section>
+      </aside>
+    </main>
+
+    <footer id="statusbar">
+      <span id="st-file" class="muted">Nenhum arquivo aberto</span>
+      <span class="st-spacer"></span>
+      <span id="st-pos" class="mono"></span>
+      <span id="st-size" class="mono"></span>
+      <span id="st-stitches" class="mono"></span>
+    </footer>
+  </div>
+
+  <dialog id="dlg-settings">
+    <form method="dialog" id="settings-form">
+      <h2>Configurações</h2>
+
+      <div class="tabs">
+        <label><input type="radio" name="tab" value="view" checked /><span>Visualização</span></label>
+        <label><input type="radio" name="tab" value="hoop" /><span>Bastidor e grade</span></label>
+        <label><input type="radio" name="tab" value="write" /><span>Gravação</span></label>
+      </div>
+
+      <div class="tab-pane" data-tab="view">
+        <label class="row">
+          <span>Unidades</span>
+          <select id="set-units">
+            <option value="mm">milímetros</option>
+            <option value="in">polegadas</option>
+          </select>
+        </label>
+        <label class="row">
+          <span>Cor de fundo</span>
+          <input type="color" id="set-background" />
+        </label>
+        <label class="row">
+          <span>Espessura do fio (mm)</span>
+          <input type="number" id="set-threadwidth" min="0.1" max="1.5" step="0.05" />
+        </label>
+        <label class="row check">
+          <input type="checkbox" id="set-showjumps" />
+          <span>Mostrar linhas de salto</span>
+        </label>
+        <label class="row">
+          <span>Velocidade padrão da simulação (pts/s)</span>
+          <input type="number" id="set-simspeed" min="50" max="5000" step="50" />
+        </label>
+      </div>
+
+      <div class="tab-pane" data-tab="hoop" hidden>
+        <label class="row check">
+          <input type="checkbox" id="set-hoopshow" />
+          <span>Mostrar bastidor</span>
+        </label>
+        <label class="row">
+          <span>Tamanho do bastidor</span>
+          <select id="set-hooppreset"></select>
+        </label>
+        <div class="row pair" id="hoop-custom">
+          <label><span>Largura (mm)</span><input type="number" id="set-hoopw" min="20" max="600" /></label>
+          <label><span>Altura (mm)</span><input type="number" id="set-hooph" min="20" max="600" /></label>
+        </div>
+        <hr />
+        <label class="row check">
+          <input type="checkbox" id="set-gridshow" />
+          <span>Mostrar grade</span>
+        </label>
+        <label class="row">
+          <span>Espaçamento da grade (mm)</span>
+          <input type="number" id="set-gridspacing" min="1" max="100" step="1" />
+        </label>
+      </div>
+
+      <div class="tab-pane" data-tab="write" hidden>
+        <p class="hint">Regulagens aplicadas ao gravar a matriz. Os limites de cada formato
+          (XXX 12,4 mm · DST 12,1 mm · EXP 12,7 mm) são sempre respeitados; aqui dá para apertar ainda mais.</p>
+        <label class="row check">
+          <input type="checkbox" id="set-limitstitch" />
+          <span>Limitar comprimento de ponto ao gravar</span>
+        </label>
+        <label class="row">
+          <span>Comprimento máximo de ponto (mm)</span>
+          <input type="number" id="set-maxstitch" min="1" max="12.7" step="0.1" />
+        </label>
+        <label class="row check">
+          <input type="checkbox" id="set-tieon" />
+          <span>Arremate de entrada (tie-on) a cada retomada</span>
+        </label>
+        <label class="row check">
+          <input type="checkbox" id="set-tieoff" />
+          <span>Arremate de saída (tie-off) antes de cortes e trocas</span>
+        </label>
+        <label class="row">
+          <span>Corte após N saltos seguidos (DST)</span>
+          <input type="number" id="set-trimat" min="2" max="8" step="1" />
+        </label>
+        <hr />
+        <label class="row">
+          <span>Avisar pontos acima de (mm)</span>
+          <input type="number" id="set-warnlong" min="1" max="30" step="0.1" />
+        </label>
+      </div>
+
+      <div class="dlg-actions">
+        <button value="cancel" class="tb-btn">Cancelar</button>
+        <button value="save" class="tb-btn accent" id="settings-save">Salvar</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="dlg-scale">
+    <form method="dialog" id="scale-form">
+      <h2>Redimensionar</h2>
+      <p class="hint">A escala altera o tamanho dos pontos, não a densidade.
+        Acima de ±20% o resultado costurado pode ficar ralo ou pesado demais.</p>
+      <label class="row">
+        <span>Escala (%)</span>
+        <input type="number" id="scale-percent" min="10" max="400" step="1" value="100" />
+      </label>
+      <p id="scale-preview" class="hint mono"></p>
+      <div class="dlg-actions">
+        <button value="cancel" class="tb-btn">Cancelar</button>
+        <button value="apply" class="tb-btn accent">Aplicar</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="dlg-formats">
+    <div class="formats-body">
+      <h2>Formatos suportados</h2>
+      <table class="formats">
+        <thead><tr><th>Formato</th><th>Máquinas</th><th>Leitura</th><th>Gravação</th></tr></thead>
+        <tbody>
+          <tr><td>XXX</td><td>Singer Futura / Compucon</td><td>✓</td><td>✓</td></tr>
+          <tr><td>DST</td><td>Tajima e a maioria das industriais</td><td>✓</td><td>✓</td></tr>
+          <tr><td>EXP</td><td>Melco / Bernina</td><td>✓</td><td>✓</td></tr>
+          <tr><td>PES / PEC</td><td>Brother / Babylock</td><td>✓</td><td>—</td></tr>
+          <tr><td>JEF</td><td>Janome / Elna</td><td>✓</td><td>—</td></tr>
+          <tr><td>SVG · PNG</td><td>Vetor e imagem (aprovação de cliente)</td><td>—</td><td>✓</td></tr>
+        </tbody>
+      </table>
+      <div class="dlg-actions">
+        <form method="dialog"><button class="tb-btn accent">Fechar</button></form>
+      </div>
+    </div>
+  </dialog>
+
+  <div id="toasts"></div>
+
+  <script src="renderer.js"></script>
+</body>
+</html>

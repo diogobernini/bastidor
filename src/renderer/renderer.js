@@ -1,0 +1,1112 @@
+'use strict';
+// Renderer do Bastidor: canvas, simulação, transformações e preferências.
+// O design chega do processo principal como objeto simples:
+// { stitches: [[x, y, cmd]...], threads: [{color, description, catalog}...], metadata, path, format, name }
+// Unidades do design: 0,1 mm. Y cresce para baixo.
+
+/* eslint-env browser */
+
+// Comandos (mesmos valores de src/core/commands.js).
+const STITCH = 0;
+const JUMP = 1;
+const TRIM = 2;
+const STOP = 3;
+const END = 4;
+const COLOR_CHANGE = 5;
+const SEQUIN_EJECT = 7;
+const COMMAND_MASK = 0xff;
+
+const FILLER_COLORS = [
+  '#c94f4f', '#4f7dc9', '#4fc98a', '#c9b44f', '#9a4fc9', '#c9784f',
+  '#4fc4c9', '#c94f9e', '#7dc94f', '#5e5ec9', '#8a6f52', '#4f9ac9',
+];
+
+const $ = (id) => document.getElementById(id);
+
+const state = {
+  design: null,
+  blocks: [], // { threadIndex, start, end (exclusivo), stitchCount }
+  stats: null,
+  settings: null,
+  hoopPresets: {},
+  view: { scale: 1, tx: 0, ty: 0 },
+  sim: { playing: false, pos: Infinity, lastT: 0 },
+  undoStack: [],
+  dirty: false,
+  screenshotMode: false,
+  renderQueued: false,
+};
+
+// --------------------------------------------------------------- utilidades
+
+function fmtMm(units01mm, decimals = 1) {
+  const mm = units01mm / 10;
+  if (state.settings && state.settings.units === 'in') {
+    return (mm / 25.4).toFixed(Math.max(decimals, 2)).replace('.', ',') + ' pol';
+  }
+  return mm.toFixed(decimals).replace('.', ',') + ' mm';
+}
+
+function fmtNum(n) {
+  return n.toLocaleString('pt-BR');
+}
+
+function toast(msg, kind = '', ms = 3200) {
+  const el = document.createElement('div');
+  el.className = 'toast' + (kind ? ' ' + kind : '');
+  el.textContent = msg;
+  $('toasts').appendChild(el);
+  setTimeout(() => el.remove(), ms);
+}
+
+function threadColor(i) {
+  const t = state.design.threads[i];
+  return t && t.color ? t.color : FILLER_COLORS[i % FILLER_COLORS.length];
+}
+
+function threadLabel(i) {
+  const t = state.design.threads[i];
+  if (!t) return 'Cor ' + (i + 1);
+  const parts = [];
+  if (t.description) parts.push(t.description);
+  if (t.catalog) parts.push('nº ' + t.catalog);
+  return parts.length ? parts.join(' · ') : 'Cor ' + (i + 1);
+}
+
+// --------------------------------------------------------------- design
+
+function deriveBlocks() {
+  const blocks = [];
+  const stitches = state.design.stitches;
+  let start = 0;
+  let threadIndex = 0;
+  for (let i = 0; i < stitches.length; i++) {
+    const cmd = stitches[i][2] & COMMAND_MASK;
+    if (cmd === COLOR_CHANGE) {
+      blocks.push({ threadIndex, start, end: i + 1 });
+      threadIndex++;
+      start = i + 1;
+    }
+  }
+  if (start < stitches.length) blocks.push({ threadIndex, start, end: stitches.length });
+  for (const b of blocks) {
+    b.stitchCount = 0;
+    for (let i = b.start; i < b.end; i++) {
+      if ((stitches[i][2] & COMMAND_MASK) === STITCH) b.stitchCount++;
+    }
+  }
+  state.blocks = blocks.filter((b) => b.stitchCount > 0 || blocks.length === 1);
+  // Garante um fio editável para cada bloco.
+  while (state.design.threads.length < blocks.length) {
+    const i = state.design.threads.length;
+    state.design.threads.push({ color: FILLER_COLORS[i % FILLER_COLORS.length], description: null, catalog: null });
+  }
+}
+
+function deriveStats() {
+  const stitches = state.design.stitches;
+  const s = {
+    stitches: 0,
+    jumps: 0,
+    trims: 0,
+    colorChanges: 0,
+    stops: 0,
+    minX: Infinity,
+    minY: Infinity,
+    maxX: -Infinity,
+    maxY: -Infinity,
+    maxLen: 0,
+    sumLen: 0,
+    longCount: 0,
+  };
+  const warnLimit = (state.settings ? state.settings.warnings.longStitchMm : 12.1) * 10;
+  let px = 0;
+  let py = 0;
+  let hasPos = false;
+  for (const st of stitches) {
+    const cmd = st[2] & COMMAND_MASK;
+    if (cmd === STITCH || cmd === JUMP || cmd === SEQUIN_EJECT) {
+      if (st[0] < s.minX) s.minX = st[0];
+      if (st[0] > s.maxX) s.maxX = st[0];
+      if (st[1] < s.minY) s.minY = st[1];
+      if (st[1] > s.maxY) s.maxY = st[1];
+    }
+    if (cmd === STITCH) {
+      if (hasPos) {
+        const len = Math.hypot(st[0] - px, st[1] - py);
+        if (len > s.maxLen) s.maxLen = len;
+        if (len > warnLimit) s.longCount++;
+        s.sumLen += len;
+      }
+      s.stitches++;
+      px = st[0];
+      py = st[1];
+      hasPos = true;
+    } else if (cmd === JUMP) {
+      s.jumps++;
+      px = st[0];
+      py = st[1];
+      hasPos = true;
+    } else if (cmd === TRIM) s.trims++;
+    else if (cmd === COLOR_CHANGE) s.colorChanges++;
+    else if (cmd === STOP) s.stops++;
+  }
+  s.width = s.maxX - s.minX;
+  s.height = s.maxY - s.minY;
+  s.avgLen = s.stitches > 1 ? s.sumLen / (s.stitches - 1) : 0;
+  const areaCm2 = (s.width / 100) * (s.height / 100);
+  s.density = areaCm2 > 0 ? s.stitches / areaCm2 : 0;
+  state.stats = s;
+}
+
+function setDesign(design, opts = {}) {
+  state.design = design;
+  state.sim.playing = false;
+  state.sim.pos = Infinity;
+  if (!opts.keepUndo) {
+    state.undoStack = [];
+    state.dirty = false;
+  }
+  deriveBlocks();
+  deriveStats();
+  updateSidebar();
+  updateStatusbar();
+  updateToolbarEnabled();
+  $('empty-state').style.display = 'none';
+  $('sidebar').hidden = false;
+  if (!opts.keepView) fitView();
+  requestRender();
+  document.title = (design.name ? design.name + ' — ' : '') + 'Bastidor';
+
+  if (!opts.silent) {
+    const w = [];
+    if (state.stats.longCount > 0) {
+      w.push(`${fmtNum(state.stats.longCount)} pontos acima de ${fmtMm(state.settings.warnings.longStitchMm * 10)}`);
+    }
+    if (hoopExceeded()) w.push('a matriz excede o bastidor configurado');
+    if (w.length) toast('Atenção: ' + w.join(' e '), 'warn', 4200);
+  }
+}
+
+function hoopExceeded() {
+  if (!state.stats || !state.settings) return false;
+  const h = state.settings.hoop;
+  return state.stats.width > h.width * 10 || state.stats.height > h.height * 10;
+}
+
+function snapshotUndo() {
+  state.undoStack.push({
+    stitches: state.design.stitches.map((s) => [s[0], s[1], s[2]]),
+    threads: JSON.parse(JSON.stringify(state.design.threads)),
+  });
+  if (state.undoStack.length > 20) state.undoStack.shift();
+  state.dirty = true;
+  $('t-undo').disabled = false;
+  updateStatusbar();
+}
+
+function undo() {
+  const snap = state.undoStack.pop();
+  if (!snap) return;
+  state.design.stitches = snap.stitches;
+  state.design.threads = snap.threads;
+  if (state.undoStack.length === 0) $('t-undo').disabled = true;
+  deriveBlocks();
+  deriveStats();
+  updateSidebar();
+  updateStatusbar();
+  requestRender();
+}
+
+// --------------------------------------------------------------- sidebar
+
+function updateSidebar() {
+  const s = state.stats;
+  const info = $('info-list');
+  const rows = [
+    ['Dimensões', `${fmtMm(s.width)} × ${fmtMm(s.height)}`],
+    ['Pontos', fmtNum(s.stitches)],
+    ['Trocas de cor', fmtNum(s.colorChanges)],
+    ['Saltos', fmtNum(s.jumps)],
+    ['Cortes', fmtNum(s.trims)],
+  ];
+  if (s.stops > 0) rows.push(['Paradas', fmtNum(s.stops)]);
+  rows.push(['Ponto médio', fmtMm(s.avgLen)]);
+  rows.push(['Ponto máximo', fmtMm(s.maxLen)]);
+  if (s.density > 0) rows.push(['Densidade', `${Math.round(s.density)} pts/cm²`]);
+  const fmt = state.design.format ? state.design.format.toUpperCase() : null;
+  if (fmt) rows.push(['Formato', fmt]);
+  info.innerHTML = '';
+  for (const [k, v] of rows) {
+    const dt = document.createElement('dt');
+    dt.textContent = k;
+    const dd = document.createElement('dd');
+    dd.textContent = v;
+    info.append(dt, dd);
+  }
+
+  const list = $('color-list');
+  list.innerHTML = '';
+  $('color-count').textContent = state.blocks.length ? `(${state.blocks.length})` : '';
+  state.blocks.forEach((block, bi) => {
+    const li = document.createElement('li');
+    const sw = document.createElement('input');
+    sw.type = 'color';
+    sw.className = 'swatch';
+    sw.value = threadColor(block.threadIndex);
+    sw.title = 'Trocar a cor deste bloco';
+    sw.addEventListener('change', () => {
+      snapshotUndo();
+      const t = state.design.threads[block.threadIndex];
+      if (t) t.color = sw.value;
+      else state.design.threads[block.threadIndex] = { color: sw.value };
+      updateSidebar();
+      requestRender();
+    });
+    const name = document.createElement('span');
+    name.className = 'name';
+    name.textContent = `${bi + 1}. ${threadLabel(block.threadIndex)}`;
+    const count = document.createElement('span');
+    count.className = 'count';
+    count.textContent = fmtNum(block.stitchCount);
+    li.append(sw, name, count);
+    list.appendChild(li);
+  });
+
+  const warnings = [];
+  if (state.stats.longCount > 0) {
+    warnings.push(`${fmtNum(state.stats.longCount)} pontos acima de ${fmtMm(state.settings.warnings.longStitchMm * 10)} (serão divididos ao gravar)`);
+  }
+  if (hoopExceeded()) {
+    const h = state.settings.hoop;
+    warnings.push(`Excede o bastidor de ${h.width} × ${h.height} mm`);
+  }
+  $('warnings-section').hidden = warnings.length === 0;
+  const wl = $('warning-list');
+  wl.innerHTML = '';
+  for (const w of warnings) {
+    const li = document.createElement('li');
+    li.textContent = w;
+    wl.appendChild(li);
+  }
+}
+
+function updateStatusbar() {
+  if (!state.design) {
+    $('st-file').textContent = 'Nenhum arquivo aberto';
+    $('st-size').textContent = '';
+    $('st-stitches').textContent = '';
+    return;
+  }
+  const name = state.design.name || 'sem nome';
+  $('st-file').textContent = (state.dirty ? '● ' : '') + name + (state.design.path ? ' · ' + state.design.path : '');
+  $('st-size').textContent = `${fmtMm(state.stats.width)} × ${fmtMm(state.stats.height)}`;
+  $('st-stitches').textContent = `${fmtNum(state.stats.stitches)} pontos`;
+}
+
+function updateToolbarEnabled() {
+  const has = !!state.design;
+  for (const id of ['btn-save', 'btn-export', 'btn-sim']) $(id).disabled = !has;
+  $('sim-progress').disabled = !has;
+}
+
+// --------------------------------------------------------------- canvas
+
+const canvas = $('cv');
+const ctx = canvas.getContext('2d');
+let dpr = window.devicePixelRatio || 1;
+
+function resizeCanvas() {
+  dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = Math.max(1, Math.round(rect.width * dpr));
+  canvas.height = Math.max(1, Math.round(rect.height * dpr));
+  requestRender();
+}
+
+function requestRender() {
+  if (state.renderQueued) return;
+  state.renderQueued = true;
+  requestAnimationFrame(() => {
+    state.renderQueued = false;
+    render();
+  });
+}
+
+function toScreen(x, y) {
+  return [x * state.view.scale + state.view.tx, y * state.view.scale + state.view.ty];
+}
+
+function toDesign(sx, sy) {
+  return [(sx - state.view.tx) / state.view.scale, (sy - state.view.ty) / state.view.scale];
+}
+
+function fitView() {
+  const rect = canvas.getBoundingClientRect();
+  let minX;
+  let minY;
+  let maxX;
+  let maxY;
+  if (state.design && isFinite(state.stats.minX)) {
+    minX = state.stats.minX;
+    minY = state.stats.minY;
+    maxX = state.stats.maxX;
+    maxY = state.stats.maxY;
+  } else {
+    const h = state.settings.hoop;
+    minX = (-h.width * 10) / 2;
+    maxX = (h.width * 10) / 2;
+    minY = (-h.height * 10) / 2;
+    maxY = (h.height * 10) / 2;
+  }
+  const w = Math.max(maxX - minX, 10);
+  const h = Math.max(maxY - minY, 10);
+  const scale = Math.min((rect.width * 0.86) / w, (rect.height * 0.86) / h);
+  state.view.scale = scale;
+  state.view.tx = rect.width / 2 - ((minX + maxX) / 2) * scale;
+  state.view.ty = rect.height / 2 - ((minY + maxY) / 2) * scale;
+  updateZoomLabel();
+  requestRender();
+}
+
+function updateZoomLabel() {
+  // 100% = 10 px por mm (escala 1 no espaço de 0,1 mm).
+  $('zoom-label').textContent = Math.round(state.view.scale * 100) + '%';
+}
+
+function zoomAt(cx, cy, factor) {
+  const before = toDesign(cx, cy);
+  state.view.scale = Math.min(80, Math.max(0.02, state.view.scale * factor));
+  const after = toScreen(before[0], before[1]);
+  state.view.tx += cx - after[0];
+  state.view.ty += cy - after[1];
+  updateZoomLabel();
+  requestRender();
+}
+
+function drawGrid(rect) {
+  const g = state.settings.grid;
+  if (!g.show) return;
+  const spacing = g.spacingMm * 10 * state.view.scale;
+  if (spacing < 7) return; // grade densa demais nesse zoom
+  const [dx0, dy0] = toDesign(0, 0);
+  const [dx1, dy1] = toDesign(rect.width, rect.height);
+  const step = g.spacingMm * 10;
+  ctx.lineWidth = 1;
+  const startX = Math.floor(dx0 / step) * step;
+  const startY = Math.floor(dy0 / step) * step;
+  for (let x = startX; x <= dx1; x += step) {
+    const major = Math.round(x / step) % 5 === 0;
+    ctx.strokeStyle = major ? 'rgba(232,230,225,0.10)' : 'rgba(232,230,225,0.045)';
+    ctx.beginPath();
+    const sx = Math.round(toScreen(x, 0)[0]) + 0.5;
+    ctx.moveTo(sx, 0);
+    ctx.lineTo(sx, rect.height);
+    ctx.stroke();
+  }
+  for (let y = startY; y <= dy1; y += step) {
+    const major = Math.round(y / step) % 5 === 0;
+    ctx.strokeStyle = major ? 'rgba(232,230,225,0.10)' : 'rgba(232,230,225,0.045)';
+    ctx.beginPath();
+    const sy = Math.round(toScreen(0, y)[1]) + 0.5;
+    ctx.moveTo(0, sy);
+    ctx.lineTo(rect.width, sy);
+    ctx.stroke();
+  }
+  // Eixos na origem.
+  ctx.strokeStyle = 'rgba(232,161,61,0.22)';
+  const [ox, oy] = toScreen(0, 0);
+  ctx.beginPath();
+  ctx.moveTo(Math.round(ox) + 0.5, 0);
+  ctx.lineTo(Math.round(ox) + 0.5, rect.height);
+  ctx.moveTo(0, Math.round(oy) + 0.5);
+  ctx.lineTo(rect.width, Math.round(oy) + 0.5);
+  ctx.stroke();
+}
+
+function drawHoop() {
+  const h = state.settings.hoop;
+  if (!h.show) return;
+  const w = h.width * 10;
+  const ht = h.height * 10;
+  const [x0, y0] = toScreen(-w / 2, -ht / 2);
+  const [x1, y1] = toScreen(w / 2, ht / 2);
+  const r = Math.min(60 * state.view.scale, (x1 - x0) / 6);
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = 'rgba(155,152,143,0.55)';
+  roundRect(ctx, x0, y0, x1 - x0, y1 - y0, r);
+  ctx.stroke();
+  ctx.lineWidth = 1;
+  ctx.strokeStyle = 'rgba(155,152,143,0.28)';
+  roundRect(ctx, x0 - 7, y0 - 7, x1 - x0 + 14, y1 - y0 + 14, r + 5);
+  ctx.stroke();
+  // Marcas centrais nas bordas.
+  ctx.strokeStyle = 'rgba(155,152,143,0.5)';
+  const [cx, cy] = toScreen(0, 0);
+  const tick = 7;
+  ctx.beginPath();
+  ctx.moveTo(cx, y0);
+  ctx.lineTo(cx, y0 + tick);
+  ctx.moveTo(cx, y1);
+  ctx.lineTo(cx, y1 - tick);
+  ctx.moveTo(x0, cy);
+  ctx.lineTo(x0 + tick, cy);
+  ctx.moveTo(x1, cy);
+  ctx.lineTo(x1 - tick, cy);
+  ctx.stroke();
+}
+
+function roundRect(c, x, y, w, h, r) {
+  r = Math.max(0, Math.min(r, w / 2, h / 2));
+  c.beginPath();
+  c.moveTo(x + r, y);
+  c.arcTo(x + w, y, x + w, y + h, r);
+  c.arcTo(x + w, y + h, x, y + h, r);
+  c.arcTo(x, y + h, x, y, r);
+  c.arcTo(x, y, x + w, y, r);
+  c.closePath();
+}
+
+// Desenha os pontos até "limit" usando a função de projeção dada.
+// Compartilhado entre a tela e a exportação PNG.
+function drawStitches(c, project, scale, limit, opts) {
+  if (!state.design) return null;
+  const stitches = state.design.stitches;
+  const showJumps = opts.showJumps;
+  const lineWidth = Math.max(state.settings.view.threadWidthMm * 10 * scale, opts.minLineWidth);
+  c.lineCap = 'round';
+  c.lineJoin = 'round';
+
+  let color = state.blocks.length ? threadColor(state.blocks[0].threadIndex) : '#cccccc';
+  let colorCount = 0;
+  let penDown = false;
+  let px = null;
+  let py = null;
+  let lastPos = null;
+  const max = Math.min(limit, stitches.length);
+
+  c.strokeStyle = color;
+  c.lineWidth = lineWidth;
+  c.beginPath();
+
+  for (let i = 0; i < max; i++) {
+    const st = stitches[i];
+    const cmd = st[2] & COMMAND_MASK;
+    if (cmd === STITCH || cmd === SEQUIN_EJECT) {
+      const [sx, sy] = project(st[0], st[1]);
+      if (!penDown || px === null) {
+        c.moveTo(px === null ? sx : px, py === null ? sy : py);
+        penDown = true;
+      }
+      c.lineTo(sx, sy);
+      px = sx;
+      py = sy;
+      lastPos = [sx, sy];
+    } else if (cmd === JUMP) {
+      const [sx, sy] = project(st[0], st[1]);
+      if (showJumps && px !== null) {
+        c.stroke();
+        c.save();
+        c.strokeStyle = 'rgba(155,152,143,0.5)';
+        c.lineWidth = Math.max(1, lineWidth * 0.4);
+        c.setLineDash([5, 4]);
+        c.beginPath();
+        c.moveTo(px, py);
+        c.lineTo(sx, sy);
+        c.stroke();
+        c.restore();
+        c.strokeStyle = color;
+        c.lineWidth = lineWidth;
+        c.beginPath();
+      }
+      penDown = false;
+      px = sx;
+      py = sy;
+      lastPos = [sx, sy];
+    } else if (cmd === TRIM || cmd === STOP) {
+      penDown = false;
+    } else if (cmd === COLOR_CHANGE) {
+      c.stroke();
+      colorCount++;
+      color = threadColor(colorCount);
+      c.strokeStyle = color;
+      c.lineWidth = lineWidth;
+      c.beginPath();
+      penDown = false;
+    }
+  }
+  c.stroke();
+  return lastPos;
+}
+
+function render() {
+  const rect = canvas.getBoundingClientRect();
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.fillStyle = state.settings ? state.settings.view.background : '#101014';
+  ctx.fillRect(0, 0, rect.width, rect.height);
+  if (!state.settings) return;
+
+  drawGrid(rect);
+  drawHoop();
+
+  if (state.design) {
+    const limit = state.sim.pos === Infinity ? state.design.stitches.length : Math.floor(state.sim.pos);
+    const needle = drawStitches(ctx, toScreen, state.view.scale, limit, {
+      showJumps: state.settings.view.showJumps,
+      minLineWidth: 1.1,
+    });
+    // Agulha na simulação.
+    if (state.sim.pos !== Infinity && needle) {
+      ctx.strokeStyle = '#e8a13d';
+      ctx.lineWidth = 1.6;
+      ctx.beginPath();
+      ctx.moveTo(needle[0] - 9, needle[1]);
+      ctx.lineTo(needle[0] + 9, needle[1]);
+      ctx.moveTo(needle[0], needle[1] - 9);
+      ctx.lineTo(needle[0], needle[1] + 9);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(needle[0], needle[1], 4.2, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+  }
+}
+
+// --------------------------------------------------------------- simulação
+
+function simSetPlaying(playing) {
+  if (!state.design) return;
+  state.sim.playing = playing;
+  $('btn-sim').textContent = playing ? '⏸' : '▶';
+  if (playing) {
+    if (state.sim.pos === Infinity || state.sim.pos >= state.design.stitches.length) {
+      state.sim.pos = 0;
+    }
+    state.sim.lastT = performance.now();
+    requestAnimationFrame(simTick);
+  }
+}
+
+function simTick(t) {
+  if (!state.sim.playing || !state.design) return;
+  const dt = (t - state.sim.lastT) / 1000;
+  state.sim.lastT = t;
+  const sps = state.settings.sim.stitchesPerSecond;
+  state.sim.pos += sps * dt;
+  const total = state.design.stitches.length;
+  if (state.sim.pos >= total) {
+    state.sim.pos = Infinity;
+    state.sim.playing = false;
+    $('btn-sim').textContent = '▶';
+    $('sim-progress').value = 1000;
+    requestRender();
+    return;
+  }
+  $('sim-progress').value = Math.round((state.sim.pos / total) * 1000);
+  requestRender();
+  requestAnimationFrame(simTick);
+}
+
+function simReset() {
+  state.sim.pos = Infinity;
+  state.sim.playing = false;
+  $('btn-sim').textContent = '▶';
+  $('sim-progress').value = 1000;
+  requestRender();
+}
+
+// --------------------------------------------------------------- transformações
+
+function applyToStitches(fn) {
+  if (!state.design) return;
+  snapshotUndo();
+  for (const st of state.design.stitches) {
+    const [x, y] = fn(st[0], st[1]);
+    st[0] = x;
+    st[1] = y;
+  }
+  deriveStats();
+  updateSidebar();
+  updateStatusbar();
+  requestRender();
+}
+
+function designCenter() {
+  if (!state.stats) return [0, 0];
+  const s = state.stats;
+  return [(s.minX + s.maxX) / 2, (s.minY + s.maxY) / 2];
+}
+
+function centerToOrigin() {
+  const [cx, cy] = designCenter();
+  applyToStitches((x, y) => [Math.round(x - cx), Math.round(y - cy)]);
+  fitView();
+  toast('Matriz centralizada na origem');
+}
+
+function rotate90(clockwise) {
+  const [cx, cy] = designCenter();
+  applyToStitches((x, y) => {
+    const dx = x - cx;
+    const dy = y - cy;
+    return clockwise ? [cx - dy, cy + dx] : [cx + dy, cy - dx];
+  });
+  fitView();
+}
+
+function flip(horizontal) {
+  const [cx, cy] = designCenter();
+  applyToStitches((x, y) => (horizontal ? [2 * cx - x, y] : [x, 2 * cy - y]));
+}
+
+function scaleDesign(factor) {
+  const [cx, cy] = designCenter();
+  applyToStitches((x, y) => [cx + (x - cx) * factor, cy + (y - cy) * factor]);
+  fitView();
+  if (Math.abs(factor - 1) > 0.2) {
+    toast('Escala acima de ±20%: a densidade do bordado não é recalculada', 'warn', 4600);
+  }
+}
+
+// --------------------------------------------------------------- salvar/exportar
+
+async function saveAs() {
+  if (!state.design) return;
+  const base = (state.design.name || 'matriz').replace(/\.[^.]+$/, '');
+  const filePath = await window.api.saveDialog({ defaultName: base + '.xxx' });
+  if (!filePath) return;
+  try {
+    const result = await window.api.writeDesign(filePath, {
+      stitches: state.design.stitches,
+      threads: state.design.threads,
+      metadata: state.design.metadata || {},
+    });
+    state.dirty = false;
+    state.design.path = result.path;
+    state.design.format = result.format;
+    state.design.name = result.path.split('/').pop().split('\\').pop();
+    updateStatusbar();
+    document.title = state.design.name + ' — Bastidor';
+    const upper = result.format.toUpperCase();
+    let extra = '';
+    if (result.format === 'dst') extra = ' (DST não guarda cores)';
+    if (result.format === 'exp') extra = ' (EXP não guarda cores)';
+    toast(`Salvo em ${upper}: ${state.design.name}${extra}`);
+  } catch (err) {
+    toast('Erro ao salvar: ' + err.message, 'error', 5000);
+  }
+}
+
+async function exportPng() {
+  if (!state.design) return;
+  const base = (state.design.name || 'matriz').replace(/\.[^.]+$/, '');
+  const filePath = await window.api.exportPngDialog({ defaultName: base + '.png' });
+  if (!filePath) return;
+  try {
+    const pxPerMm = 8;
+    const marginMm = 5;
+    const s = state.stats;
+    const w = Math.ceil((s.width / 10 + marginMm * 2) * pxPerMm);
+    const h = Math.ceil((s.height / 10 + marginMm * 2) * pxPerMm);
+    const off = document.createElement('canvas');
+    off.width = w;
+    off.height = h;
+    const oc = off.getContext('2d');
+    const scale = pxPerMm / 10;
+    const tx = -s.minX * scale + marginMm * pxPerMm;
+    const ty = -s.minY * scale + marginMm * pxPerMm;
+    drawStitches(oc, (x, y) => [x * scale + tx, y * scale + ty], scale, Infinity, {
+      showJumps: false,
+      minLineWidth: 1,
+    });
+    await window.api.writePng(filePath, off.toDataURL('image/png'));
+    toast('PNG exportado: ' + filePath.split('/').pop());
+  } catch (err) {
+    toast('Erro ao exportar: ' + err.message, 'error', 5000);
+  }
+}
+
+async function openViaDialog() {
+  const design = await window.api.openDialog();
+  if (design) setDesign(design);
+  refreshEmptyRecents();
+}
+
+async function openPath(p) {
+  try {
+    const design = await window.api.readDesign(p);
+    setDesign(design);
+  } catch (err) {
+    toast('Não foi possível abrir: ' + err.message, 'error', 5000);
+  }
+  refreshEmptyRecents();
+}
+
+// --------------------------------------------------------------- configurações
+
+function populateHoopPresets() {
+  const sel = $('set-hooppreset');
+  sel.innerHTML = '';
+  for (const [key, preset] of Object.entries(state.hoopPresets)) {
+    const opt = document.createElement('option');
+    opt.value = key;
+    opt.textContent = preset.label;
+    sel.appendChild(opt);
+  }
+}
+
+function settingsToForm() {
+  const s = state.settings;
+  $('set-units').value = s.units;
+  $('set-background').value = s.view.background;
+  $('set-threadwidth').value = s.view.threadWidthMm;
+  $('set-showjumps').checked = s.view.showJumps;
+  $('set-simspeed').value = s.sim.stitchesPerSecond;
+  $('set-hoopshow').checked = s.hoop.show;
+  $('set-hooppreset').value = s.hoop.preset;
+  $('set-hoopw').value = s.hoop.width;
+  $('set-hooph').value = s.hoop.height;
+  $('set-gridshow').checked = s.grid.show;
+  $('set-gridspacing').value = s.grid.spacingMm;
+  $('set-limitstitch').checked = s.write.limitStitchLength;
+  $('set-maxstitch').value = s.write.maxStitchMm;
+  $('set-tieon').checked = s.write.tieOn;
+  $('set-tieoff').checked = s.write.tieOff;
+  $('set-trimat').value = s.write.trimAtJumps;
+  $('set-warnlong').value = s.warnings.longStitchMm;
+  syncHoopCustomVisibility();
+}
+
+function formToSettings() {
+  const presetKey = $('set-hooppreset').value;
+  const preset = state.hoopPresets[presetKey];
+  let width = parseFloat($('set-hoopw').value) || 130;
+  let height = parseFloat($('set-hooph').value) || 180;
+  if (preset && preset.width) {
+    width = preset.width;
+    height = preset.height;
+  }
+  return {
+    units: $('set-units').value,
+    view: {
+      background: $('set-background').value,
+      threadWidthMm: clampNum($('set-threadwidth').value, 0.1, 1.5, 0.4),
+      showJumps: $('set-showjumps').checked,
+    },
+    sim: { stitchesPerSecond: clampNum($('set-simspeed').value, 50, 5000, 600) },
+    hoop: { show: $('set-hoopshow').checked, preset: presetKey, width, height },
+    grid: { show: $('set-gridshow').checked, spacingMm: clampNum($('set-gridspacing').value, 1, 100, 10) },
+    write: {
+      limitStitchLength: $('set-limitstitch').checked,
+      maxStitchMm: clampNum($('set-maxstitch').value, 1, 12.7, 12.1),
+      tieOn: $('set-tieon').checked,
+      tieOff: $('set-tieoff').checked,
+      trimAtJumps: Math.round(clampNum($('set-trimat').value, 2, 8, 3)),
+    },
+    warnings: { longStitchMm: clampNum($('set-warnlong').value, 1, 30, 12.1) },
+  };
+}
+
+function clampNum(v, min, max, fallback) {
+  const n = parseFloat(v);
+  if (Number.isNaN(n)) return fallback;
+  return Math.min(max, Math.max(min, n));
+}
+
+function syncHoopCustomVisibility() {
+  const isCustom = $('set-hooppreset').value === 'custom';
+  $('hoop-custom').style.opacity = isCustom ? '1' : '0.45';
+  $('set-hoopw').disabled = !isCustom;
+  $('set-hooph').disabled = !isCustom;
+  if (!isCustom) {
+    const preset = state.hoopPresets[$('set-hooppreset').value];
+    if (preset && preset.width) {
+      $('set-hoopw').value = preset.width;
+      $('set-hooph').value = preset.height;
+    }
+  }
+}
+
+function openSettings() {
+  settingsToForm();
+  $('dlg-settings').showModal();
+}
+
+async function applySettingsFromForm() {
+  state.settings = await window.api.setSettings(formToSettings());
+  $('sim-speed').value = String(nearestSimOption(state.settings.sim.stitchesPerSecond));
+  if (state.design) {
+    deriveStats();
+    updateSidebar();
+    updateStatusbar();
+  }
+  requestRender();
+}
+
+function nearestSimOption(v) {
+  const opts = [150, 300, 600, 1200, 2500];
+  return opts.reduce((a, b) => (Math.abs(b - v) < Math.abs(a - v) ? b : a));
+}
+
+// --------------------------------------------------------------- interação
+
+function bindCanvas() {
+  const wrap = $('canvas-wrap');
+  new ResizeObserver(resizeCanvas).observe(wrap);
+
+  canvas.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    const rect = canvas.getBoundingClientRect();
+    const cx = e.clientX - rect.left;
+    const cy = e.clientY - rect.top;
+    const factor = Math.exp(-e.deltaY * (e.ctrlKey ? 0.008 : 0.0016));
+    zoomAt(cx, cy, factor);
+  }, { passive: false });
+
+  let panning = false;
+  let lastX = 0;
+  let lastY = 0;
+  canvas.addEventListener('pointerdown', (e) => {
+    panning = true;
+    lastX = e.clientX;
+    lastY = e.clientY;
+    canvas.classList.add('panning');
+    canvas.setPointerCapture(e.pointerId);
+  });
+  canvas.addEventListener('pointermove', (e) => {
+    const rect = canvas.getBoundingClientRect();
+    const [dx, dy] = toDesign(e.clientX - rect.left, e.clientY - rect.top);
+    $('st-pos').textContent = `x ${(dx / 10).toFixed(1).replace('.', ',')}  y ${(dy / 10).toFixed(1).replace('.', ',')} mm`;
+    if (!panning) return;
+    state.view.tx += e.clientX - lastX;
+    state.view.ty += e.clientY - lastY;
+    lastX = e.clientX;
+    lastY = e.clientY;
+    requestRender();
+  });
+  const stopPan = (e) => {
+    panning = false;
+    canvas.classList.remove('panning');
+  };
+  canvas.addEventListener('pointerup', stopPan);
+  canvas.addEventListener('pointercancel', stopPan);
+  canvas.addEventListener('dblclick', fitView);
+  canvas.addEventListener('pointerleave', () => {
+    $('st-pos').textContent = '';
+  });
+}
+
+function bindDragDrop() {
+  const wrap = $('canvas-wrap');
+  window.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    $('empty-state').classList.add('drop-hover');
+  });
+  window.addEventListener('dragleave', () => $('empty-state').classList.remove('drop-hover'));
+  window.addEventListener('drop', async (e) => {
+    e.preventDefault();
+    $('empty-state').classList.remove('drop-hover');
+    const file = e.dataTransfer.files && e.dataTransfer.files[0];
+    if (!file) return;
+    const p = window.api.pathForFile(file);
+    if (p) openPath(p);
+  });
+}
+
+async function refreshEmptyRecents() {
+  if (!window.api) return;
+  const recents = await window.api.listRecent();
+  const box = $('empty-recents');
+  box.innerHTML = '';
+  for (const p of recents.slice(0, 5)) {
+    const btn = document.createElement('button');
+    btn.textContent = p.split('/').pop().split('\\').pop() + '  ·  ' + p;
+    btn.title = p;
+    btn.addEventListener('click', () => openPath(p));
+    box.appendChild(btn);
+  }
+}
+
+function bindToolbar() {
+  $('btn-open').addEventListener('click', openViaDialog);
+  $('btn-open-empty').addEventListener('click', openViaDialog);
+  $('btn-save').addEventListener('click', saveAs);
+  $('btn-export').addEventListener('click', exportPng);
+  $('btn-fit').addEventListener('click', fitView);
+  $('btn-zoom-in').addEventListener('click', () => zoomCenter(1.3));
+  $('btn-zoom-out').addEventListener('click', () => zoomCenter(1 / 1.3));
+  $('btn-settings').addEventListener('click', openSettings);
+
+  const toggles = [
+    ['btn-grid', () => state.settings.grid.show, (v) => (state.settings.grid.show = v)],
+    ['btn-hoop', () => state.settings.hoop.show, (v) => (state.settings.hoop.show = v)],
+    ['btn-jumps', () => state.settings.view.showJumps, (v) => (state.settings.view.showJumps = v)],
+  ];
+  for (const [id, get, set] of toggles) {
+    $(id).addEventListener('click', async () => {
+      set(!get());
+      syncToggleButtons();
+      requestRender();
+      await window.api.setSettings(state.settings);
+    });
+  }
+
+  $('btn-sim').addEventListener('click', () => simSetPlaying(!state.sim.playing));
+  $('sim-progress').addEventListener('input', () => {
+    if (!state.design) return;
+    state.sim.playing = false;
+    $('btn-sim').textContent = '▶';
+    const v = Number($('sim-progress').value);
+    state.sim.pos = v >= 1000 ? Infinity : (v / 1000) * state.design.stitches.length;
+    requestRender();
+  });
+  $('sim-speed').addEventListener('change', async () => {
+    state.settings.sim.stitchesPerSecond = Number($('sim-speed').value);
+    await window.api.setSettings({ sim: { stitchesPerSecond: state.settings.sim.stitchesPerSecond } });
+  });
+
+  $('t-center').addEventListener('click', centerToOrigin);
+  $('t-rot-cw').addEventListener('click', () => rotate90(true));
+  $('t-rot-ccw').addEventListener('click', () => rotate90(false));
+  $('t-flip-h').addEventListener('click', () => flip(true));
+  $('t-flip-v').addEventListener('click', () => flip(false));
+  $('t-undo').addEventListener('click', undo);
+  $('t-scale').addEventListener('click', openScaleDialog);
+}
+
+function zoomCenter(factor) {
+  const rect = canvas.getBoundingClientRect();
+  zoomAt(rect.width / 2, rect.height / 2, factor);
+}
+
+function syncToggleButtons() {
+  $('btn-grid').classList.toggle('on', state.settings.grid.show);
+  $('btn-hoop').classList.toggle('on', state.settings.hoop.show);
+  $('btn-jumps').classList.toggle('on', state.settings.view.showJumps);
+}
+
+function openScaleDialog() {
+  if (!state.design) return;
+  $('scale-percent').value = 100;
+  updateScalePreview();
+  $('dlg-scale').showModal();
+}
+
+function updateScalePreview() {
+  const pct = clampNum($('scale-percent').value, 10, 400, 100);
+  const s = state.stats;
+  $('scale-preview').textContent =
+    `${fmtMm(s.width)} × ${fmtMm(s.height)}  →  ${fmtMm((s.width * pct) / 100)} × ${fmtMm((s.height * pct) / 100)}`;
+}
+
+function bindDialogs() {
+  $('scale-percent').addEventListener('input', updateScalePreview);
+  $('scale-form').addEventListener('submit', (e) => {
+    if (e.submitter && e.submitter.value === 'apply') {
+      const pct = clampNum($('scale-percent').value, 10, 400, 100);
+      if (pct !== 100) scaleDesign(pct / 100);
+    }
+  });
+
+  $('settings-form').addEventListener('submit', (e) => {
+    if (e.submitter && e.submitter.value === 'save') applySettingsFromForm();
+  });
+
+  document.querySelectorAll('.tabs input[name="tab"]').forEach((radio) => {
+    radio.addEventListener('change', () => {
+      document.querySelectorAll('.tab-pane').forEach((pane) => {
+        pane.hidden = pane.dataset.tab !== radio.value;
+      });
+    });
+  });
+
+  $('set-hooppreset').addEventListener('change', syncHoopCustomVisibility);
+}
+
+function bindMenuAndKeys() {
+  window.api.onMenu((action) => {
+    const actions = {
+      open: openViaDialog,
+      'save-as': saveAs,
+      'export-png': exportPng,
+      settings: openSettings,
+      undo,
+      center: centerToOrigin,
+      scale: openScaleDialog,
+      'rotate-cw': () => rotate90(true),
+      'rotate-ccw': () => rotate90(false),
+      'flip-h': () => flip(true),
+      'flip-v': () => flip(false),
+      fit: fitView,
+      'zoom-in': () => zoomCenter(1.3),
+      'zoom-out': () => zoomCenter(1 / 1.3),
+      'toggle-grid': () => $('btn-grid').click(),
+      'toggle-hoop': () => $('btn-hoop').click(),
+      'toggle-jumps': () => $('btn-jumps').click(),
+      'sim-toggle': () => simSetPlaying(!state.sim.playing),
+      'sim-reset': simReset,
+      formats: () => $('dlg-formats').showModal(),
+    };
+    if (state.design || ['open', 'settings', 'formats'].includes(action)) {
+      const fn = actions[action];
+      if (fn) fn();
+    }
+  });
+
+  window.api.onDesignOpened((design) => setDesign(design));
+
+  window.addEventListener('keydown', (e) => {
+    const tag = e.target.tagName;
+    if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA' || e.target.isContentEditable) return;
+    if (document.querySelector('dialog[open]')) return;
+    const key = e.key.toLowerCase();
+    if (key === ' ') {
+      e.preventDefault();
+      simSetPlaying(!state.sim.playing);
+    } else if (key === 'g') $('btn-grid').click();
+    else if (key === 'b') $('btn-hoop').click();
+    else if (key === 'j') $('btn-jumps').click();
+    else if (key === '0') fitView();
+    else if (key === '+' || key === '=') zoomCenter(1.3);
+    else if (key === '-') zoomCenter(1 / 1.3);
+  });
+}
+
+// --------------------------------------------------------------- boot
+
+async function boot() {
+  if (!window.api) {
+    // Aberto fora do Electron (ex.: prévia de estilo no navegador).
+    document.querySelector('#empty-state p').textContent = 'Execute com npm start para abrir matrizes.';
+    return;
+  }
+  state.settings = await window.api.getSettings();
+  const launch = await window.api.launchOptions();
+  state.hoopPresets = launch.hoopPresets;
+  state.screenshotMode = launch.screenshotMode;
+
+  populateHoopPresets();
+  syncToggleButtons();
+  $('sim-speed').value = String(nearestSimOption(state.settings.sim.stitchesPerSecond));
+
+  bindCanvas();
+  bindToolbar();
+  bindDialogs();
+  bindMenuAndKeys();
+  bindDragDrop();
+  resizeCanvas();
+  refreshEmptyRecents();
+  requestRender();
+
+  if (launch.openPath) {
+    await openPath(launch.openPath);
+  }
+  if (launch.dialog === 'settings') openSettings();
+  if (launch.dialog === 'scale' && state.design) openScaleDialog();
+  if (launch.dialog === 'formats') $('dlg-formats').showModal();
+
+  // Sinaliza para o modo screenshot que a primeira pintura aconteceu.
+  requestAnimationFrame(() => requestAnimationFrame(() => window.api.notifyRenderReady()));
+}
+
+boot();
