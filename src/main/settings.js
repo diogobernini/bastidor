@@ -19,6 +19,8 @@ const DEFAULTS = {
   hoop: { show: true, preset: '130x180', width: 130, height: 180 },
   view: {
     background: '#101014',
+    fabric: true, // textura de trama sobre a cor de fundo
+    showPoints: false, // agulhadas como pontinhos (toggle na toolbar)
     threadWidthMm: 0.4,
     showJumps: false,
     realistic: false,

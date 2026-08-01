@@ -821,12 +821,149 @@ function renderRealisticCached() {
   ctx.restore();
 }
 
+// ------------------------------------------------------------- fundo de tecido
+//
+// Trama simples (tela) desenhada num tile procedural e repetida como pattern
+// com a transformação da vista, para o desenho ficar "pousado" no tecido ao
+// dar pan/zoom. As cores derivam da cor de fundo dos ajustes: escolher a cor
+// do tecido é escolher a cor de fundo.
+const fabric = { pattern: null, color: null };
+const FABRIC_CELL_PX = 24; // px de um fio no tile
+const FABRIC_UNITS_PER_CELL = 5; // um fio da trama a cada 0,5 mm (unidades de 0,1 mm)
+
+function fabricShade(hex, delta) {
+  const n = parseInt(hex.slice(1), 16);
+  const ch = (v) => Math.max(0, Math.min(255, v + delta));
+  return `rgb(${ch(n >> 16)}, ${ch((n >> 8) & 255)}, ${ch(n & 255)})`;
+}
+
+function ensureFabricPattern(color) {
+  if (fabric.pattern && fabric.color === color) return;
+  const cell = FABRIC_CELL_PX;
+  const cells = 4; // 4x4 fios por tile: o jitter não repete de forma óbvia
+  const tile = document.createElement('canvas');
+  tile.width = cell * cells;
+  tile.height = cell * cells;
+  const c = tile.getContext('2d');
+  c.fillStyle = fabricShade(color, -14); // vão entre os fios
+  c.fillRect(0, 0, tile.width, tile.height);
+  for (let j = 0; j < cells; j++) {
+    for (let i = 0; i < cells; i++) {
+      const x = i * cell;
+      const y = j * cell;
+      const jitter = (((i * 7 + j * 13) % 5) - 2) * 3; // variação determinística
+      const horizontal = (i + j) % 2 === 0;
+      const g = horizontal
+        ? c.createLinearGradient(0, y, 0, y + cell)
+        : c.createLinearGradient(x, 0, x + cell, 0);
+      g.addColorStop(0, fabricShade(color, -10 + jitter));
+      g.addColorStop(0.45, fabricShade(color, 22 + jitter));
+      g.addColorStop(1, fabricShade(color, -12 + jitter));
+      c.fillStyle = g;
+      const inset = Math.round(cell * 0.06);
+      if (horizontal) c.fillRect(x, y + inset, cell, cell - inset * 2);
+      else c.fillRect(x + inset, y, cell - inset * 2, cell);
+    }
+  }
+  fabric.pattern = ctx.createPattern(tile, 'repeat');
+  fabric.color = color;
+}
+
+function drawFabric(rect) {
+  const color = state.settings.view.background;
+  const k = (state.view.scale * FABRIC_UNITS_PER_CELL) / FABRIC_CELL_PX;
+  // Muito afastado a trama viraria moiré: some gradualmente.
+  const alpha = Math.max(0, Math.min(1, (FABRIC_CELL_PX * k - 1.2) / 2.4));
+  if (alpha <= 0 || !isFinite(k) || k <= 0) return;
+  ensureFabricPattern(color);
+  fabric.pattern.setTransform(new DOMMatrix([k, 0, 0, k, state.view.tx, state.view.ty]));
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.fillStyle = fabric.pattern;
+  ctx.fillRect(0, 0, rect.width, rect.height);
+  ctx.restore();
+}
+
+// Agulhadas como pontinhos (toggle "Pontos" na toolbar): facilita mirar um
+// ponto específico, principalmente no modo de edição.
+function drawPoints(limit) {
+  const r = Math.max(1.2, Math.min(3, state.view.scale * 0.55));
+  // Contraste com o fundo: tecido claro pede ponto escuro.
+  const n = parseInt(state.settings.view.background.slice(1), 16);
+  const lum = 0.2126 * (n >> 16) + 0.7152 * ((n >> 8) & 255) + 0.0722 * (n & 255);
+  ctx.save();
+  ctx.globalAlpha = 0.75;
+  ctx.fillStyle = lum > 140 ? '#1c1c22' : '#f2f2f5';
+  const sts = state.design.stitches;
+  for (let i = 0; i < limit; i++) {
+    const cmd = sts[i][2] & COMMAND_MASK;
+    if (cmd !== STITCH && cmd !== SEQUIN_EJECT) continue;
+    const [px, py] = toScreen(sts[i][0], sts[i][1]);
+    ctx.fillRect(px - r, py - r, r * 2, r * 2);
+  }
+  ctx.restore();
+}
+
+// --------------------------------------------------------------- linha do tempo
+//
+// Barra embaixo do canvas com um segmento por bloco de cor, proporcional à
+// quantidade de pontos: mostra "que horas" entra cada linha. Clique/arrasto
+// pula a simulação para aquele ponto.
+function simSeekFraction(f) {
+  if (!state.design) return;
+  state.sim.playing = false;
+  $('btn-sim').textContent = '▶';
+  const clamped = Math.max(0, Math.min(1, f));
+  state.sim.pos = clamped >= 1 ? Infinity : clamped * state.design.stitches.length;
+  $('sim-progress').value = Math.round(clamped * 1000);
+  requestRender();
+}
+
+function drawTimeline() {
+  const bar = $('timeline');
+  const shouldShow = !!state.design && state.blocks.length > 0;
+  bar.hidden = !shouldShow;
+  if (!shouldShow) return;
+  const cv = $('timeline-canvas');
+  const rect = cv.getBoundingClientRect();
+  if (rect.width < 1) return;
+  if (cv.width !== Math.round(rect.width * dpr) || cv.height !== Math.round(rect.height * dpr)) {
+    cv.width = Math.round(rect.width * dpr);
+    cv.height = Math.round(rect.height * dpr);
+  }
+  const c = cv.getContext('2d');
+  c.setTransform(dpr, 0, 0, dpr, 0, 0);
+  c.clearRect(0, 0, rect.width, rect.height);
+  const total = state.design.stitches.length;
+  for (const block of state.blocks) {
+    const x = (block.start / total) * rect.width;
+    const w = Math.max(((block.end - block.start) / total) * rect.width, 0.5);
+    c.fillStyle = threadColor(block.threadIndex);
+    c.fillRect(x, 0, w, rect.height);
+  }
+  c.fillStyle = 'rgba(0,0,0,0.35)';
+  for (const block of state.blocks.slice(1)) {
+    c.fillRect((block.start / total) * rect.width - 0.5, 0, 1, rect.height);
+  }
+  const simming = state.sim.pos !== Infinity;
+  if (simming) {
+    const x = (state.sim.pos / total) * rect.width;
+    c.fillStyle = 'rgba(16,16,20,0.45)'; // esmaece o que ainda não foi costurado
+    c.fillRect(x, 0, rect.width - x, rect.height);
+    c.fillStyle = '#e8a13d';
+    c.fillRect(x - 1, 0, 2.5, rect.height);
+  }
+  const pos = simming ? Math.floor(state.sim.pos) : total;
+  $('timeline-count').textContent = `${fmtNum(pos)} / ${fmtNum(total)}`;
+}
+
 function render() {
   const rect = canvas.getBoundingClientRect();
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.fillStyle = state.settings ? state.settings.view.background : '#101014';
   ctx.fillRect(0, 0, rect.width, rect.height);
   if (!state.settings) return;
+  if (state.settings.view.fabric) drawFabric(rect);
 
   drawGrid(rect);
   drawHoop();
@@ -848,6 +985,7 @@ function render() {
         realistic,
       });
     }
+    if (state.settings.view.showPoints) drawPoints(limit);
     // Agulha na simulação.
     if (simming && needle) {
       ctx.strokeStyle = '#e8a13d';
@@ -875,6 +1013,8 @@ function render() {
       ctx.stroke();
     }
   }
+
+  drawTimeline();
 }
 
 // --------------------------------------------------------------- simulação
@@ -1161,6 +1301,7 @@ function settingsToForm() {
   $('set-language').value = s.language || 'auto';
   $('set-units').value = s.units;
   $('set-background').value = s.view.background;
+  $('set-fabric').checked = !!s.view.fabric;
   $('set-threadwidth').value = s.view.threadWidthMm;
   $('set-showjumps').checked = s.view.showJumps;
   $('set-realistic').checked = s.view.realistic;
@@ -1195,6 +1336,8 @@ function formToSettings() {
     units: $('set-units').value,
     view: {
       background: $('set-background').value,
+      fabric: $('set-fabric').checked,
+      showPoints: !!state.settings.view.showPoints,
       threadWidthMm: clampNum($('set-threadwidth').value, 0.1, 1.5, 0.4),
       showJumps: $('set-showjumps').checked,
       realistic: $('set-realistic').checked,
@@ -1996,6 +2139,7 @@ function bindToolbar() {
     ['btn-grid', () => state.settings.grid.show, (v) => (state.settings.grid.show = v)],
     ['btn-hoop', () => state.settings.hoop.show, (v) => (state.settings.hoop.show = v)],
     ['btn-jumps', () => state.settings.view.showJumps, (v) => (state.settings.view.showJumps = v)],
+    ['btn-points', () => state.settings.view.showPoints, (v) => (state.settings.view.showPoints = v)],
   ];
   for (const [id, get, set] of toggles) {
     $(id).addEventListener('click', async () => {
@@ -2018,6 +2162,18 @@ function bindToolbar() {
     state.sim.pos = v >= 1000 ? Infinity : (v / 1000) * state.design.stitches.length;
     requestRender();
   });
+  const tlSeek = (e) => {
+    const r = $('timeline-canvas').getBoundingClientRect();
+    simSeekFraction((e.clientX - r.left) / r.width);
+  };
+  $('timeline-canvas').addEventListener('pointerdown', (e) => {
+    $('timeline-canvas').setPointerCapture(e.pointerId);
+    tlSeek(e);
+  });
+  $('timeline-canvas').addEventListener('pointermove', (e) => {
+    if (e.buttons & 1) tlSeek(e);
+  });
+
   $('sim-speed').addEventListener('change', async () => {
     state.settings.sim.stitchesPerSecond = Number($('sim-speed').value);
     await window.api.setSettings({ sim: { stitchesPerSecond: state.settings.sim.stitchesPerSecond } });
@@ -2041,6 +2197,7 @@ function syncToggleButtons() {
   $('btn-grid').classList.toggle('on', state.settings.grid.show);
   $('btn-hoop').classList.toggle('on', state.settings.hoop.show);
   $('btn-jumps').classList.toggle('on', state.settings.view.showJumps);
+  $('btn-points').classList.toggle('on', !!state.settings.view.showPoints);
 }
 
 // true depois que o usuário toca no checkbox "Manter densidade" à mão;

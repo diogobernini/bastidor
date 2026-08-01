@@ -22,13 +22,17 @@ let win = null;
 let settings = null;
 let pendingOpenPath = null; // arquivo aberto via Finder/associação antes da janela existir
 
-// Flags de automação (autoteste): --open=arquivo --screenshot=saida.png --dialog=settings --lang=en
+// Flags de automação (autoteste): --open=arquivo --screenshot=saida.png --dialog=settings --lang=en --user-data=pasta
 const argOpen = getArgValue('--open');
 const argScreenshot = getArgValue('--screenshot');
 const argDialog = getArgValue('--dialog');
 const argLang = getArgValue('--lang');
 // --fake-drive=pasta: apresenta uma pasta comum como pendrive "FAKE" (telas/testes sem hardware).
 const argFakeDrive = getArgValue('--fake-drive');
+// --user-data=pasta: isola o perfil (settings.json etc.) nos autotestes, sem
+// disputar o userData com uma instância aberta do app.
+const argUserData = getArgValue('--user-data');
+if (argUserData) app.setPath('userData', path.resolve(argUserData));
 
 function currentLang() {
   if (argLang) return resolveLang(argLang, 'en');

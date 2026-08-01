@@ -45,6 +45,7 @@
         <button id="btn-grid" class="tb-btn toggle" data-i18n="tb.grid" data-i18n-title="tb.gridTip">Grade</button>
         <button id="btn-hoop" class="tb-btn toggle" data-i18n="tb.hoop" data-i18n-title="tb.hoopTip">Bastidor</button>
         <button id="btn-jumps" class="tb-btn toggle" data-i18n="tb.jumps" data-i18n-title="tb.jumpsTip">Saltos</button>
+        <button id="btn-points" class="tb-btn toggle" data-i18n="tb.points" data-i18n-title="tb.pointsTip">Pontos</button>
       </div>
 
       <div class="tb-sep"></div>
@@ -116,6 +117,11 @@
       </aside>
     </main>
 
+    <div id="timeline" hidden>
+      <canvas id="timeline-canvas" data-i18n-title="tl.tip"></canvas>
+      <span id="timeline-count" class="mono muted"></span>
+    </div>
+
     <footer id="statusbar">
       <span id="st-file" class="muted" data-i18n="status.noFile">Nenhum arquivo aberto</span>
       <span id="st-edit" class="mono"></span>
@@ -156,6 +162,10 @@
         <label class="row">
           <span data-i18n="set.background">Cor de fundo</span>
           <input type="color" id="set-background" />
+        </label>
+        <label class="row check">
+          <input type="checkbox" id="set-fabric" />
+          <span data-i18n="set.fabric">Fundo de tecido (textura de trama)</span>
         </label>
         <label class="row">
           <span data-i18n="set.threadWidth">Espessura do fio (mm)</span>

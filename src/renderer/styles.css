@@ -726,6 +726,8 @@ dialog.wide {
 .tb-btn.danger:hover:not(:disabled) {
   background: #2a1616;
   border-color: var(--danger);
+}
+
 /* ---------------------------------------------------------- lettering (texto) */
 
 #dlg-text {
@@ -852,4 +854,32 @@ textarea {
 .dig-pane span {
   font-size: 11.5px;
   color: var(--text-dim);
+}
+
+/* ------------------------------------------------------------- linha do tempo */
+
+#timeline {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 12px;
+  background: #17171c;
+  border-top: 1px solid #26262e;
+}
+
+#timeline[hidden] {
+  display: none;
+}
+
+#timeline-canvas {
+  flex: 1;
+  height: 16px;
+  min-width: 0;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+#timeline-count {
+  font-size: 11px;
+  white-space: nowrap;
 }
