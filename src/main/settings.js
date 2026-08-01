@@ -13,6 +13,7 @@ const DEFAULTS = {
     background: '#101014',
     threadWidthMm: 0.4,
     showJumps: false,
+    realistic: false,
   },
   sim: { stitchesPerSecond: 600 },
   write: {
