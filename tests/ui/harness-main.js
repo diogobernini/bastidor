@@ -242,18 +242,13 @@ async function saveCurrentDesignExternally(ctx) {
   ctx.assert('toast confirmando gravação apareceu', saved);
 }
 
-// Ativa o modo de objetos, seleciona o único objeto do design (varredura de
-// cliques numa grade fina — o raio de seleção é um tamanho FIXO em tela,
-// 10px, então precisa de uma grade mais fina do que isso pra não pular por
-// cima da tinta de um glifo específico) e arrasta a alça "se" proporcionalmente
-// por `factor` a partir do pivô "nw". Devolve a contagem de agulhadas
-// antes/depois (uma regeneração DE VERDADE muda a contagem; uma escala de
-// coordenadas manteria o mesmo nº de pontos) — usado tanto por
-// text-object-resize quanto por project-roundtrip (issue #29 fase 2).
-async function selectAndResizeOnlyObject(ctx, factor) {
-  const stitchesBefore = parseIntLoose(await ctx.page("__ui.text('#info-list dd:nth-of-type(2)')"));
-  const avgBefore = await ctx.page("__ui.text('#info-list dd:nth-of-type(6)')");
-
+// Ativa o modo de objetos (se ainda não estiver) e seleciona o único objeto
+// do design por varredura de cliques numa grade fina — o raio de seleção é
+// um tamanho FIXO em tela, 10px, então precisa de uma grade mais fina do
+// que isso pra não pular por cima da tinta de um glifo específico. Usado
+// por qualquer cenário que precise de UM objeto selecionado antes de agir
+// nele (redimensionar, girar — issue #29 fases 2 e 3).
+async function activateObjectsAndSelectSole(ctx) {
   const alreadyOn = await ctx.page("__ui.hasClass('#btn-objects', 'on')");
   if (!alreadyOn) await ctx.page("__ui.click('#btn-objects')");
   ctx.assert('modo de objetos ativado', await ctx.page("__ui.hasClass('#btn-objects', 'on')"));
@@ -276,6 +271,20 @@ async function selectAndResizeOnlyObject(ctx, factor) {
     })()
   `);
   ctx.assert('objeto selecionado (grade de cliques achou a tinta)', selected);
+  return selected;
+}
+
+// Redimensiona o objeto já selecionado (ver activateObjectsAndSelectSole)
+// arrastando a alça "se" proporcionalmente por `factor` a partir do pivô
+// "nw". Devolve a contagem de agulhadas antes/depois (uma regeneração DE
+// VERDADE muda a contagem; uma escala de coordenadas manteria o mesmo nº de
+// pontos) — usado tanto por text-object-resize quanto por
+// project-roundtrip (issue #29 fase 2).
+async function selectAndResizeOnlyObject(ctx, factor) {
+  const stitchesBefore = parseIntLoose(await ctx.page("__ui.text('#info-list dd:nth-of-type(2)')"));
+  const avgBefore = await ctx.page("__ui.text('#info-list dd:nth-of-type(6)')");
+
+  await activateObjectsAndSelectSole(ctx);
 
   const bbox = await ctx.page('window.ObjectCanvas.selectedBBox()');
   ctx.assert('bbox do objeto selecionado disponível', !!bbox, JSON.stringify(bbox));
@@ -600,6 +609,148 @@ const SCENARIOS = {
     ctx.assert(
       '1 item listado no pendrive falso',
       await ctx.waitFor("__ui.count('#drive-list .drive-item') === 1", 5000)
+    );
+  },
+
+  // Rotação (issue #29 fase 3): insere um texto, seleciona o objeto,
+  // arrasta a alça de rotação (acima da alça "n") por +90° ao redor do
+  // centro do bbox e confirma pelo ângulo ACUMULADO do objeto
+  // (object.transform.rotation, exposto só para o harness via
+  // ObjectCanvas.selectedObjectRotation) — mais robusto que inferir pela
+  // forma do bbox, que não necessariamente "vira" de um jeito óbvio para
+  // um glifo qualquer. O alvo de +90° é calculado em cima da posição REAL
+  // da alça (via RenderCanvas.toDesign/toScreen), não de uma constante de
+  // offset duplicada aqui. Confirma também que o total de agulhadas não
+  // muda (rotação é uma transformação rígida) e que Desfazer restaura as
+  // dimensões originais do design.
+  async 'object-rotate'(ctx) {
+    ctx.assert('boot sinalizou pronto', ctx.bootReady);
+    ctx.assert('diálogo de texto abriu (--dialog=text)', await ctx.waitFor("__ui.isOpen('#dlg-text')", 5000));
+    await ctx.page("__ui.setValue('#text-input', 'M')");
+    await ctx.page("__ui.setValue('#text-height', '30')");
+    await ctx.page("__ui.setValue('#text-stitchlen', '0.5')");
+    await ctx.page("__ui.click('#text-insert-btn')");
+    ctx.assert('design de texto criado', await ctx.waitFor("!__ui.isHidden('#sidebar')", 5000));
+
+    const dimsBefore = await ctx.page("__ui.text('#info-list dd:nth-of-type(1)')");
+    const stitchesBefore = parseIntLoose(await ctx.page("__ui.text('#info-list dd:nth-of-type(2)')"));
+
+    await activateObjectsAndSelectSole(ctx);
+
+    const rotationBefore = await ctx.page('window.ObjectCanvas.selectedObjectRotation()');
+    ctx.assert('ângulo inicial é 0', rotationBefore === 0, rotationBefore);
+
+    const drag = await ctx.page(`
+      (function () {
+        var cv = document.querySelector('#cv');
+        var r = cv.getBoundingClientRect();
+        var bbox = window.ObjectCanvas.selectedBBox();
+        var cx = (bbox.minX + bbox.maxX) / 2, cy = (bbox.minY + bbox.maxY) / 2;
+        var handle = window.ObjectCanvas.rotateHandlePoint();
+        var d = window.RenderCanvas.toDesign(handle.x, handle.y);
+        var startAngle = Math.atan2(d[1] - cy, d[0] - cx);
+        var radius = Math.hypot(d[0] - cx, d[1] - cy);
+        var targetAngle = startAngle + Math.PI / 2;
+        var tx = cx + radius * Math.cos(targetAngle), ty = cy + radius * Math.sin(targetAngle);
+        var targetScreen = window.RenderCanvas.toScreen(tx, ty);
+        return {
+          start: { x: r.left + handle.x, y: r.top + handle.y },
+          target: { x: r.left + targetScreen[0], y: r.top + targetScreen[1] },
+        };
+      })()
+    `);
+    ctx.assert('alça de rotação encontrada', !!drag, JSON.stringify(drag));
+
+    await ctx.page(`__ui.pointerDrag('#cv', [{x: ${drag.start.x}, y: ${drag.start.y}}, {x: ${drag.target.x}, y: ${drag.target.y}}])`);
+    await ctx.waitFor('window.ObjectCanvas.selectedObjectRotation() !== 0', 3000);
+
+    const rotationAfter = await ctx.page('window.ObjectCanvas.selectedObjectRotation()');
+    ctx.assert('ângulo acumulado ficou perto de 90°', rotationAfter !== null && Math.abs(rotationAfter - 90) < 2, rotationAfter);
+
+    // Rotação é uma transformação RÍGIDA (preserva toda distância entre
+    // pontos), então a contagem não deveria mudar quase nada — só a guarda
+    // de espaçamento mínimo (issue #29 fase 1) pode fundir 1-2 agulhadas
+    // que, por causa do arredondamento pro inteiro mais próximo, ficaram
+    // por um triz mais perto do que a distância mínima configurada.
+    const stitchesAfter = parseIntLoose(await ctx.page("__ui.text('#info-list dd:nth-of-type(2)')"));
+    ctx.assert(
+      'total de agulhadas praticamente não muda (rotação é uma transformação rígida)',
+      Math.abs(stitchesAfter - stitchesBefore) <= 5,
+      `${stitchesBefore} -> ${stitchesAfter}`
+    );
+    ctx.assert('seleção continua válida depois de girar', (await ctx.page('window.ObjectCanvas.selectedIndex()')) >= 0);
+
+    await ctx.page("__ui.click('#t-undo')");
+    ctx.assert(
+      'Desfazer restaura as dimensões originais',
+      await ctx.waitFor(`__ui.text('#info-list dd:nth-of-type(1)') === ${JSON.stringify(dimsBefore)}`, 3000)
+    );
+  },
+
+  // Painel de ordem de costura (issue #29 fase 3): abre a amostra (3 blocos
+  // soltos, nenhum objeto paramétrico — prova que o painel também funciona
+  // sem nenhum design.objects[]), ativa o modo de objetos, confirma 3
+  // linhas no painel (uma por bloco solto) e desce o 1º bloco (troca com o
+  // 2º). A prova de que os TRECHOS de agulhadas de verdade trocaram de
+  // posição (não só o rótulo do painel) é o próprio #color-list, já
+  // existente desde a fase 1 — mas o NOME de cada linha (".name") é apenas
+  // "N. Cor {posição}" quando a amostra não tem descrição/catálogo (ver
+  // threadLabel em renderer.js: usa o índice do fio, não a identidade), a
+  // mesma razão pela qual merge-color-blocks confere pela COR
+  // (swatch.value), não pelo nome — aqui é igual: a cor de cada bloco (só
+  // ela é distinta por fio) prova que os trechos trocaram de posição de
+  // verdade. Confirma também que o total de agulhadas não muda e que
+  // Desfazer restaura a ordem original.
+  async 'stitch-order-panel'(ctx) {
+    ctx.assert('boot sinalizou pronto', ctx.bootReady);
+    ctx.assert('3 cores na lista', (await ctx.page("__ui.count('#color-list li')")) === 3);
+
+    await ctx.page("__ui.click('#btn-objects')");
+    ctx.assert('modo de objetos ativado', await ctx.page("__ui.hasClass('#btn-objects', 'on')"));
+    ctx.assert('painel de objetos visível', await ctx.waitFor("!__ui.isHidden('#obj-panel')", 3000));
+    ctx.assert('3 linhas na ordem de costura (3 blocos soltos)', await ctx.waitFor("__ui.count('#stitch-order-list li') === 3", 3000));
+
+    const stitchesBefore = parseIntLoose(await ctx.page("__ui.text('#info-list dd:nth-of-type(2)')"));
+    const color1Before = await ctx.page("__ui.value('#color-list li:nth-child(1) .swatch')");
+    const color2Before = await ctx.page("__ui.value('#color-list li:nth-child(2) .swatch')");
+    const count1Before = parseIntLoose(await ctx.page("__ui.text('#color-list li:nth-child(1) .count')"));
+    const count2Before = parseIntLoose(await ctx.page("__ui.text('#color-list li:nth-child(2) .count')"));
+    ctx.assert('as duas primeiras cores da amostra são diferentes', color1Before !== color2Before, `${color1Before} / ${color2Before}`);
+
+    ctx.assert(
+      'botão subir da 1ª linha está desabilitado (já é a primeira)',
+      await ctx.page("__ui.isDisabled('#stitch-order-list li:nth-child(1) button.order-btn:nth-of-type(1)')")
+    );
+    ctx.assert(
+      'botão descer da última linha está desabilitado',
+      await ctx.page("__ui.isDisabled('#stitch-order-list li:nth-child(3) button.order-btn:nth-of-type(2)')")
+    );
+
+    await ctx.page("__ui.click('#stitch-order-list li:nth-child(1) button.order-btn:nth-of-type(2)')"); // desce o 1º bloco
+
+    ctx.assert(
+      '1º e 2º blocos trocaram de posição na lista de cores (cor)',
+      await ctx.waitFor(`__ui.value('#color-list li:nth-child(2) .swatch') === ${JSON.stringify(color1Before)}`, 3000)
+    );
+    const color1After = await ctx.page("__ui.value('#color-list li:nth-child(1) .swatch')");
+    ctx.assert('1ª posição agora tem a cor que era da 2ª', color1After === color2Before, `${color2Before} -> ${color1After}`);
+
+    const count1After = parseIntLoose(await ctx.page("__ui.text('#color-list li:nth-child(1) .count')"));
+    const count2After = parseIntLoose(await ctx.page("__ui.text('#color-list li:nth-child(2) .count')"));
+    ctx.assert(
+      'contagens de ponto acompanham a troca',
+      count1After === count2Before && count2After === count1Before,
+      `${count1Before},${count2Before} -> ${count1After},${count2After}`
+    );
+
+    const stitchesAfter = parseIntLoose(await ctx.page("__ui.text('#info-list dd:nth-of-type(2)')"));
+    ctx.assert('total de agulhadas não muda ao reordenar', stitchesAfter === stitchesBefore, `${stitchesBefore} -> ${stitchesAfter}`);
+
+    ctx.assert('Desfazer habilitado após reordenar', (await ctx.page("__ui.isDisabled('#t-undo')")) === false);
+    await ctx.page("__ui.click('#t-undo')");
+    ctx.assert(
+      'ordem original restaurada após Desfazer',
+      await ctx.waitFor(`__ui.value('#color-list li:nth-child(1) .swatch') === ${JSON.stringify(color1Before)}`, 3000)
     );
   },
 };

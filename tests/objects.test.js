@@ -7,7 +7,18 @@
 const test = require('node:test');
 const assert = require('node:assert');
 
-const { computeBBox, handlePoint, resizeFactors, hitHandle, HANDLES, OPPOSITE } = require('../src/renderer/objects');
+const {
+  computeBBox,
+  handlePoint,
+  resizeFactors,
+  hitHandle,
+  HANDLES,
+  OPPOSITE,
+  rotateHandleScreenPoint,
+  hitRotateHandle,
+  bboxIntersects,
+  stripTrailingEnd,
+} = require('../src/renderer/objects');
 const C = require('../src/core/commands');
 
 // ------------------------------------------------------------------ computeBBox
@@ -115,4 +126,60 @@ test('hitHandle: acerta a alça dentro da tolerância e erra fora dela', () => {
   assert.equal(hitHandle(bbox, 103, 100, identityToScreen), 'se', 'deveria tolerar alguns pixels de erro');
   assert.equal(hitHandle(bbox, 50, 100, identityToScreen), 's');
   assert.equal(hitHandle(bbox, 50, 50, identityToScreen), null, 'centro do bbox não é nenhuma alça');
+});
+
+// ============================================================= issue #29 fase 3
+
+// ------------------------------------------------------- rotateHandleScreenPoint/hitRotateHandle
+
+test('rotateHandleScreenPoint: fica acima da alça "n", mesma coordenada x', () => {
+  const bbox = { minX: 0, minY: 0, maxX: 100, maxY: 40 };
+  const identityToScreen = (x, y) => [x, y];
+  const [rx, ry] = rotateHandleScreenPoint(bbox, identityToScreen);
+  assert.equal(rx, 50); // meio de x, igual à alça "n"
+  assert.ok(ry < 0, `ry=${ry} deveria estar acima de y=0 (a alça "n")`);
+});
+
+test('hitRotateHandle: acerta perto do ponto da alça de rotação e erra longe', () => {
+  const bbox = { minX: 0, minY: 0, maxX: 100, maxY: 100 };
+  const identityToScreen = (x, y) => [x, y];
+  const [rx, ry] = rotateHandleScreenPoint(bbox, identityToScreen);
+  assert.equal(hitRotateHandle(bbox, rx, ry, identityToScreen), true);
+  assert.equal(hitRotateHandle(bbox, rx + 2, ry, identityToScreen), true, 'tolerância de alguns pixels');
+  assert.equal(hitRotateHandle(bbox, rx, ry - 40, identityToScreen), false);
+  assert.equal(hitRotateHandle(bbox, 50, 50, identityToScreen), false, 'centro do bbox não é a alça de rotação');
+});
+
+// -------------------------------------------------------------------- bboxIntersects
+
+test('bboxIntersects: bboxes que se sobrepõem, que só se tocam na borda, e que não se tocam', () => {
+  const a = { minX: 0, minY: 0, maxX: 10, maxY: 10 };
+  assert.equal(bboxIntersects(a, { minX: 5, minY: 5, maxX: 15, maxY: 15 }), true, 'sobreposição parcial');
+  assert.equal(bboxIntersects(a, { minX: 10, minY: 10, maxX: 20, maxY: 20 }), true, 'só tocam na borda/canto');
+  assert.equal(bboxIntersects(a, { minX: 11, minY: 0, maxX: 20, maxY: 10 }), false, 'separados no eixo x');
+  assert.equal(bboxIntersects(a, { minX: 0, minY: 11, maxX: 10, maxY: 20 }), false, 'separados no eixo y');
+});
+
+// -------------------------------------------------------------------- stripTrailingEnd
+
+test('stripTrailingEnd: remove um C.END no fim do trecho (valor correto: 4, não 5/COLOR_CHANGE)', () => {
+  const stitches = [[0, 0, C.STITCH], [10, 10, C.STITCH], [10, 10, C.END]];
+  const out = stripTrailingEnd(stitches);
+  assert.equal(out.length, 2);
+  assert.deepStrictEqual(out, [[0, 0, C.STITCH], [10, 10, C.STITCH]]);
+});
+
+test('stripTrailingEnd: não mexe em COLOR_CHANGE no fim (é um comando diferente de END)', () => {
+  const stitches = [[0, 0, C.STITCH], [10, 10, C.COLOR_CHANGE]];
+  const out = stripTrailingEnd(stitches);
+  assert.equal(out.length, 2, 'COLOR_CHANGE no fim não deveria ser removido por stripTrailingEnd');
+});
+
+test('stripTrailingEnd: sem END no fim, devolve o array intacto', () => {
+  const stitches = [[0, 0, C.STITCH], [10, 10, C.STITCH]];
+  assert.equal(stripTrailingEnd(stitches), stitches);
+});
+
+test('stripTrailingEnd: array vazio não quebra', () => {
+  assert.deepStrictEqual(stripTrailingEnd([]), []);
 });

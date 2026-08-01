@@ -169,6 +169,226 @@ function resizedRasterParams(stitchParams, factor) {
   return Object.assign({}, stitchParams, { widthMm: Math.max(1, base * factor) });
 }
 
+// ------------------------------------------------------ rotação (issue #29 fase 3)
+//
+// Alça de rotação na seleção: para objetos paramétricos o ângulo acumulado
+// mora em object.transform.rotation (graus) e é reaplicado APÓS cada
+// regeneração (ver regenerateParametric em src/renderer/objects.js, os
+// geradores não recebem ângulo); para blocos soltos gira-se só as
+// coordenadas, sem persistir nada (não há onde persistir sem um objeto).
+// Rotação é uma transformação RÍGIDA (preserva toda distância entre
+// pontos), então nunca precisa de MinSpacing nem de recalcular densidade.
+
+// Gira o ponto (x,y) por `angleRad` radianos ao redor do pivô (cx,cy).
+function rotatePoint(cx, cy, x, y, angleRad) {
+  const dx = x - cx;
+  const dy = y - cy;
+  const cos = Math.cos(angleRad);
+  const sin = Math.sin(angleRad);
+  return [cx + dx * cos - dy * sin, cy + dx * sin + dy * cos];
+}
+
+// Gira TODAS as agulhadas de `stitches` (array de [x,y,cmd]) ao redor de
+// (cx,cy) por `angleRad`, arredondando para o inteiro mais próximo (mesma
+// unidade de 0,1 mm dos outros pontos do design). Devolve um array NOVO;
+// nunca muta `stitches`.
+function rotateSegment(stitches, cx, cy, angleRad) {
+  return stitches.map((s) => {
+    if (!angleRad) return s.slice();
+    const [x, y] = rotatePoint(cx, cy, s[0], s[1], angleRad);
+    return [Math.round(x), Math.round(y), s[2]];
+  });
+}
+
+// Arredonda um ângulo (graus) para o múltiplo de `stepDeg` mais próximo —
+// usado pelo snap opcional a 15° (Shift durante o arraste da alça de
+// rotação). stepDeg <= 0 devolve o ângulo intacto (guarda contra divisão
+// por zero / desliga o snap).
+function snapAngleDeg(deg, stepDeg) {
+  if (!(stepDeg > 0)) return deg;
+  return Math.round(deg / stepDeg) * stepDeg;
+}
+
+// Normaliza um ângulo (graus) para o intervalo [0, 360) — usado para
+// acumular a rotação de um objeto paramétrico ao longo de vários gestos sem
+// o número crescer sem limite.
+function normalizeAngleDeg(deg) {
+  let d = deg % 360;
+  if (d < 0) d += 360;
+  return d;
+}
+
+// ------------------------------------------------ seleção múltipla / bboxes
+//
+// União de vários bboxes (design coords) na bbox conjunta da seleção
+// (issue #29 fase 3) — usada pela seleção múltipla (bbox do grupo) e por
+// alinhar/distribuir (referência "targetBBox"). Ignora entradas nulas
+// (unidade sem pontos reais, ex.: bloco vazio). Devolve null se a lista
+// toda for vazia/nula.
+function unionBBoxes(bboxes) {
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  let any = false;
+  for (const b of bboxes || []) {
+    if (!b) continue;
+    any = true;
+    if (b.minX < minX) minX = b.minX;
+    if (b.minY < minY) minY = b.minY;
+    if (b.maxX > maxX) maxX = b.maxX;
+    if (b.maxY > maxY) maxY = b.maxY;
+  }
+  return any ? { minX, minY, maxX, maxY } : null;
+}
+
+// -------------------------------------------------------- alinhar / distribuir
+//
+// Painel de alinhar/distribuir (issue #29 fase 3): opera nas bboxes das
+// unidades selecionadas, sempre relativas à bbox CONJUNTA da seleção
+// inteira (targetBBox = unionBBoxes de todo mundo selecionado) — cada
+// unidade alinha sua própria borda/centro à borda/centro do conjunto, o
+// comportamento padrão de editores vetoriais ("alinhar relativo à seleção").
+// Devolvem só o deslocamento num eixo (dx ou dy); quem chama translada a
+// unidade (translação pura, nunca precisa de MinSpacing).
+
+function alignOffsetX(bbox, targetBBox, mode) {
+  switch (mode) {
+    case 'left':
+      return targetBBox.minX - bbox.minX;
+    case 'right':
+      return targetBBox.maxX - bbox.maxX;
+    case 'center':
+      return (targetBBox.minX + targetBBox.maxX) / 2 - (bbox.minX + bbox.maxX) / 2;
+    default:
+      return 0;
+  }
+}
+
+function alignOffsetY(bbox, targetBBox, mode) {
+  switch (mode) {
+    case 'top':
+      return targetBBox.minY - bbox.minY;
+    case 'bottom':
+      return targetBBox.maxY - bbox.maxY;
+    case 'middle':
+      return (targetBBox.minY + targetBBox.maxY) / 2 - (bbox.minY + bbox.maxY) / 2;
+    default:
+      return 0;
+  }
+}
+
+// Deslocamentos {dx,dy} (na mesma ordem de `bboxes` de entrada) que
+// distribuem os CENTROS das unidades uniformemente ao longo do eixo pedido
+// ('x' ou 'y'), entre a unidade mais à esquerda/topo e a mais à
+// direita/base (essas duas âncoras não se movem). Com menos de 3 unidades
+// não há o que distribuir (devolve deslocamento zero para todas).
+function distributeOffsets(bboxes, axis) {
+  const n = bboxes.length;
+  const out = bboxes.map(() => ({ dx: 0, dy: 0 }));
+  if (n < 3) return out;
+  const centerOf = (b) => (axis === 'x' ? (b.minX + b.maxX) / 2 : (b.minY + b.maxY) / 2);
+  const order = bboxes.map((b, i) => ({ i, c: centerOf(b) })).sort((a, b) => a.c - b.c);
+  const first = order[0].c;
+  const last = order[n - 1].c;
+  const step = (last - first) / (n - 1);
+  order.forEach((entry, k) => {
+    const target = first + step * k;
+    const delta = target - entry.c;
+    out[entry.i] = axis === 'x' ? { dx: delta, dy: 0 } : { dx: 0, dy: delta };
+  });
+  return out;
+}
+
+// ------------------------------------------------- ordem de costura (issue #29 fase 3)
+//
+// O painel de ordem de costura precisa reordenar UNIDADES livremente
+// (subir/descer qualquer uma, mesmo um bloco solto pra antes de um
+// objeto) — mas assignObjectRanges consome `objects` em ordem a partir do
+// cursor 0, então blocos soltos (sem entrada em objects[]) são sempre "o
+// resto depois de todos os objetos": não dá pra expressar um bloco solto
+// ANTES de um objeto sem uma entrada correspondente. normalizeObjects
+// resolve isso preenchendo essa lacuna com STITCH_BLOCK "opacos" (sem
+// source, ver TYPES) para cada bloco solto — depois disso toda unidade tem
+// exatamente 1 entrada em objects[], e reordenar vira um swap posicional
+// simples nos três arrays em paralelo (agulhadas, threads, objects).
+// Idempotente e não muta `objects` (devolve um array novo).
+function normalizeObjects(objects, blocks) {
+  const assigned = assignObjectRanges(objects || [], blocks);
+  const consumed = assigned.length ? assigned[assigned.length - 1].blockEnd : 0;
+  const out = (objects || []).slice();
+  for (let i = consumed; i < blocks.length; i++) {
+    out.push(makeObject(TYPES.STITCH_BLOCK, null, null, 1));
+  }
+  return out;
+}
+
+// Lista TODAS as unidades de manipulação na ordem de bordado atual, cobrindo
+// `blocks` por inteiro: as cobertas por `objects` (na ordem em que aparecem
+// lá), seguidas dos blocos soltos restantes (mesmo fallback de findUnit,
+// só que para TODOS os blocos restantes, não um só). Usada pelo painel de
+// ordem de costura para exibir a lista e por swapUnits para localizar o par
+// adjacente a trocar.
+function listUnits(objects, blocks) {
+  const assigned = assignObjectRanges(objects || [], blocks);
+  const consumed = assigned.length ? assigned[assigned.length - 1].blockEnd : 0;
+  const out = assigned.slice();
+  for (let i = consumed; i < blocks.length; i++) {
+    const b = blocks[i];
+    out.push({ object: null, blockStart: i, blockEnd: i + 1, start: b.start, end: b.end });
+  }
+  return out;
+}
+
+// Troca as unidades ADJACENTES `i` e `i+1` na ordem de bordado (botões
+// subir/descer do painel): reordena os TRECHOS de agulhadas, as threads
+// correspondentes e as entradas de `objects`, mantendo cada bloco íntegro
+// (mesmos pontos/threads/stitchParams — só a posição na sequência muda).
+// Normaliza `objects` primeiro (ver normalizeObjects), o que torna a troca
+// um swap posicional direto nos três arrays em paralelo, sem restrição de
+// "cruzar a fronteira" entre bloco solto e objeto. Devolve {stitches,
+// threads, objects} NOVOS (não muta nenhum argumento), ou null se `i` não
+// tiver um vizinho válido para trocar.
+function swapUnits(objects, blocks, stitches, threads, i) {
+  const normalized = normalizeObjects(objects, blocks);
+  const units = listUnits(normalized, blocks);
+  if (i < 0 || i + 1 >= units.length) return null;
+  const a = units[i];
+  const b = units[i + 1];
+  if (a.blockEnd !== b.blockStart || a.end !== b.start) return null; // unidades deveriam ser sempre contíguas
+
+  const segA = stitches.slice(a.start, a.end).map((s) => s.slice());
+  const segB = stitches.slice(b.start, b.end).map((s) => s.slice());
+  const newStitches = stitches.slice(0, a.start).concat(segB, segA, stitches.slice(b.end));
+
+  const threadsA = threads.slice(a.blockStart, a.blockEnd);
+  const threadsB = threads.slice(b.blockStart, b.blockEnd);
+  const newThreads = threads.slice(0, a.blockStart).concat(threadsB, threadsA, threads.slice(b.blockEnd));
+
+  const newObjects = normalized.slice();
+  const tmp = newObjects[i];
+  newObjects[i] = newObjects[i + 1];
+  newObjects[i + 1] = tmp;
+
+  return { stitches: newStitches, threads: newThreads, objects: newObjects };
+}
+
+// Clone profundo de um objeto paramétrico (duplicar unidade, issue #29 fase
+// 3): source/stitchParams/transform são todos JSON-seguros (mesma premissa
+// de cloneDesignData em renderer.js), então JSON.parse(JSON.stringify(...))
+// basta. blockCount não muda (a cópia ocupa o mesmo nº de blocos que o
+// original; as threads correspondentes são clonadas à parte por quem
+// chama, igual às agulhadas).
+function cloneObject(object) {
+  return {
+    type: object.type,
+    source: object.source ? JSON.parse(JSON.stringify(object.source)) : null,
+    stitchParams: object.stitchParams ? JSON.parse(JSON.stringify(object.stitchParams)) : null,
+    transform: object.transform ? JSON.parse(JSON.stringify(object.transform)) : { rotation: 0 },
+    blockCount: object.blockCount,
+  };
+}
+
 // Monta os opts de src/core/digitize (raster.rasterToPaths/pathsToPattern,
 // via IPC digitize:generate) a partir dos parâmetros "crus" guardados no
 // objeto (largura/tolerância em mm) e da largura em pixels da imagem fonte —
@@ -202,6 +422,19 @@ const exported = {
   resizedSvgParams,
   resizedRasterParams,
   rasterOptsFromParams,
+  // issue #29 fase 3
+  rotatePoint,
+  rotateSegment,
+  snapAngleDeg,
+  normalizeAngleDeg,
+  unionBBoxes,
+  alignOffsetX,
+  alignOffsetY,
+  distributeOffsets,
+  normalizeObjects,
+  listUnits,
+  swapUnits,
+  cloneObject,
 };
 
 if (typeof module !== 'undefined' && module.exports) {

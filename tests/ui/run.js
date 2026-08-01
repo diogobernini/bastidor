@@ -188,6 +188,8 @@ function buildScenarioDefs(fx) {
     { name: 'library-dialog', args: ['--lang=pt-BR', `--library=${fx.libraryDir}`] },
     { name: 'library-newfolder', args: ['--lang=pt-BR', `--library=${fx.newFolderLibraryDir}`] },
     { name: 'drives-dialog', args: ['--lang=pt-BR', `--fake-drive=${fx.fakeDriveDir}`] },
+    { name: 'object-rotate', args: ['--dialog=text', '--lang=pt-BR'] },
+    { name: 'stitch-order-panel', args: [`--open=${SAMPLE_XXX}`, '--lang=pt-BR'] },
   ];
 }
 
