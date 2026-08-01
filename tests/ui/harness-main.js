@@ -208,13 +208,13 @@ const PAGE_TOOLKIT = `
     },
 
     // Converte um ponto em coordenadas de DESENHO (0,1mm, mesmo espaço de
-    // state.design.stitches) pra coordenadas de PÁGINA, usando a mesma
-    // window.toScreen que o próprio renderer.js expõe (script clássico:
-    // "function" no topo do arquivo vira propriedade de window).
+    // state.design.stitches) pra coordenadas de PÁGINA, usando
+    // window.RenderCanvas.toScreen (módulo IIFE extraído do renderer.js —
+    // ver src/renderer/modules/render-canvas.js).
     designPointToClient: function (sel, dx, dy) {
       var el = need(sel);
       var r = el.getBoundingClientRect();
-      var s = window.toScreen(dx, dy);
+      var s = window.RenderCanvas.toScreen(dx, dy);
       return { x: r.left + s[0], y: r.top + s[1] };
     },
   };
