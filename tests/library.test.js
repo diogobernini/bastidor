@@ -314,3 +314,302 @@ test('cache de miniaturas: arquivos diferentes não colidem (hashes distintos)',
     fs.rmSync(userData, { recursive: true, force: true });
   }
 });
+
+// ------------------------------------------------------------------ índice persistente (issue #35)
+
+test('loadIndexFile: sem arquivo ainda devolve índice vazio (não lança)', () => {
+  const userData = makeTmpDir('bastidor-lib-index-empty-');
+  try {
+    assert.deepEqual(library.loadIndexFile(userData), { version: 1, entries: {} });
+  } finally {
+    fs.rmSync(userData, { recursive: true, force: true });
+  }
+});
+
+test('saveIndexFile/loadIndexFile: grava e relê o mesmo conteúdo', () => {
+  const userData = makeTmpDir('bastidor-lib-index-roundtrip-');
+  try {
+    const data = { version: 1, entries: { '/lib/a.dst': { mtime: 1000, ok: true, wMm: 10, hMm: 20, stitches: 300 } } };
+    library.saveIndexFile(userData, data);
+    assert.deepEqual(library.loadIndexFile(userData), data);
+  } finally {
+    fs.rmSync(userData, { recursive: true, force: true });
+  }
+});
+
+test('loadIndexFile: arquivo corrompido é tratado como índice vazio (não lança)', () => {
+  const userData = makeTmpDir('bastidor-lib-index-corrupt-');
+  try {
+    fs.mkdirSync(userData, { recursive: true });
+    fs.writeFileSync(library.indexFilePath(userData), '{ não é json');
+    assert.deepEqual(library.loadIndexFile(userData), { version: 1, entries: {} });
+  } finally {
+    fs.rmSync(userData, { recursive: true, force: true });
+  }
+});
+
+test('isEntryFresh: só é fresca se existir e o mtime bater exatamente', () => {
+  assert.equal(library.isEntryFresh({ mtime: 1000 }, 1000), true);
+  assert.equal(library.isEntryFresh({ mtime: 1000 }, 2000), false);
+  assert.equal(library.isEntryFresh(undefined, 1000), false);
+  assert.equal(library.isEntryFresh(null, 1000), false);
+});
+
+test('summarizeDesignFile: lê matriz real e devolve largura/altura/pontos (mesmos números do pystitch)', () => {
+  const filePath = path.join(__dirname, 'fixtures', 'rosacea.jef');
+  const summary = library.summarizeDesignFile(filePath, { trimAt: 3 });
+  // Fixture conferida em tests/core.test.js: 2253 pontos, bounds ~[-495,-495,495,495] (0,1mm) => 99x99mm.
+  assert.deepEqual(summary, { ok: true, wMm: 99, hMm: 99, stitches: 2253 });
+});
+
+test('summarizeDesignFile: arquivo inexistente ou corrompido devolve {ok:false} (não lança)', () => {
+  assert.equal(library.summarizeDesignFile('/caminho/inexistente.dst').ok, false);
+  const userData = makeTmpDir('bastidor-lib-summarize-corrupt-');
+  try {
+    // .hus: formato com validação de tamanho no cabeçalho, lança em texto
+    // aleatório (outros formatos, ex. .dst, apenas leem um design vazio).
+    const bad = path.join(userData, 'quebrado.hus');
+    fs.writeFileSync(bad, 'não é uma matriz de bordado de verdade');
+    assert.equal(library.summarizeDesignFile(bad).ok, false);
+  } finally {
+    fs.rmSync(userData, { recursive: true, force: true });
+  }
+});
+
+test('indexBatch: espia arquivos novos, persiste no índice e devolve o resumo', () => {
+  const userData = makeTmpDir('bastidor-lib-indexbatch-new-');
+  try {
+    const filePath = path.join(__dirname, 'fixtures', 'rosacea.jef');
+    const mtime = 12345;
+    const indexData = library.loadIndexFile(userData);
+    const results = library.indexBatch(indexData, userData, [{ path: filePath, mtime }], { trimAt: 3 });
+
+    assert.equal(results.length, 1);
+    assert.deepEqual(results[0], { path: filePath, fromCache: false, ok: true, wMm: 99, hMm: 99, stitches: 2253 });
+
+    // persistiu: uma nova instância carregada do disco já vê a entrada fresca
+    const reloaded = library.loadIndexFile(userData);
+    assert.equal(library.isEntryFresh(reloaded.entries[path.resolve(filePath)], mtime), true);
+  } finally {
+    fs.rmSync(userData, { recursive: true, force: true });
+  }
+});
+
+test('indexBatch: entrada fresca não é reaberta/reparseada (mtime igual reaproveita o índice)', () => {
+  const userData = makeTmpDir('bastidor-lib-indexbatch-fresh-');
+  try {
+    // Caminho que não existe de verdade: se indexBatch tentasse reabrir, lançaria
+    // dentro de summarizeDesignFile (capturado) e devolveria ok:false — o teste
+    // prova que a entrada fresca é servida do índice, sem tocar no arquivo.
+    const filePath = '/biblioteca/nao-existe-de-verdade.dst';
+    const mtime = 5000;
+    const indexData = { version: 1, entries: { [path.resolve(filePath)]: { mtime, ok: true, wMm: 40, hMm: 50, stitches: 900 } } };
+
+    const results = library.indexBatch(indexData, userData, [{ path: filePath, mtime }], {});
+    assert.deepEqual(results, [{ path: filePath, fromCache: true, ok: true, wMm: 40, hMm: 50, stitches: 900 }]);
+
+    // nada mudou: como não houve entrada "dirty", o índice não precisou ser regravado
+    assert.equal(fs.existsSync(library.indexFilePath(userData)), false);
+  } finally {
+    fs.rmSync(userData, { recursive: true, force: true });
+  }
+});
+
+test('indexBatch: mtime diferente invalida a entrada e reindexação (arquivo "mudou")', () => {
+  const userData = makeTmpDir('bastidor-lib-indexbatch-stale-');
+  try {
+    const filePath = path.join(__dirname, 'fixtures', 'rosacea.jef');
+    const staleEntry = { mtime: 1, ok: true, wMm: 1, hMm: 1, stitches: 1 }; // valores claramente antigos/errados
+    const indexData = { version: 1, entries: { [path.resolve(filePath)]: staleEntry } };
+
+    const results = library.indexBatch(indexData, userData, [{ path: filePath, mtime: 2 }], { trimAt: 3 });
+    assert.equal(results[0].fromCache, false);
+    assert.deepEqual(results[0], { path: filePath, fromCache: false, ok: true, wMm: 99, hMm: 99, stitches: 2253 });
+  } finally {
+    fs.rmSync(userData, { recursive: true, force: true });
+  }
+});
+
+test('indexBatch: arquivo corrompido não lança, e a falha também fica cacheada (não tenta de novo com o mesmo mtime)', () => {
+  const userData = makeTmpDir('bastidor-lib-indexbatch-error-');
+  try {
+    const bad = path.join(userData, 'quebrado.hus'); // .hus valida tamanho no cabeçalho e lança em texto aleatório
+    fs.writeFileSync(bad, 'lixo');
+    const mtime = fs.statSync(bad).mtimeMs;
+
+    const indexData = library.loadIndexFile(userData);
+    const results = library.indexBatch(indexData, userData, [{ path: bad, mtime }], {});
+    assert.equal(results[0].ok, false);
+
+    // remove o arquivo: se a 2ª chamada tentasse reabrir, lançaria ENOENT
+    // (capturado por summarizeDesignFile) — mas como o mtime bate, nem chega a tentar.
+    fs.unlinkSync(bad);
+    const again = library.indexBatch(indexData, userData, [{ path: bad, mtime }], {});
+    assert.deepEqual(again, [{ path: bad, fromCache: true, ok: false }]);
+  } finally {
+    fs.rmSync(userData, { recursive: true, force: true });
+  }
+});
+
+test('indexItemsInto: núcleo sem gravação — muta o índice em memória mas não escreve no disco', () => {
+  const userData = makeTmpDir('bastidor-lib-indexitemsinto-');
+  try {
+    const filePath = path.join(__dirname, 'fixtures', 'rosacea.jef');
+    const indexData = library.loadIndexFile(userData);
+    const { results, dirty } = library.indexItemsInto(indexData, [{ path: filePath, mtime: 1 }], { trimAt: 3 });
+
+    assert.equal(dirty, true);
+    assert.equal(results[0].stitches, 2253);
+    assert.equal(indexData.entries[path.resolve(filePath)].stitches, 2253); // mutou em memória
+    assert.equal(fs.existsSync(library.indexFilePath(userData)), false); // mas não gravou no disco
+
+    // permite ao chamador fatiar um lote grande e gravar só uma vez ao final
+    // (é isso que a fatia por setImmediate do processo principal explora)
+    library.saveIndexFile(userData, indexData);
+    assert.equal(library.loadIndexFile(userData).entries[path.resolve(filePath)].stitches, 2253);
+  } finally {
+    fs.rmSync(userData, { recursive: true, force: true });
+  }
+});
+
+test('indexBatch: lote misto (fresco + novo) só reindexa o que faltava', () => {
+  const userData = makeTmpDir('bastidor-lib-indexbatch-mixed-');
+  try {
+    const real = path.join(__dirname, 'fixtures', 'rosacea.jef');
+    const fake = '/biblioteca/outra-inexistente.dst';
+    const indexData = { version: 1, entries: { [path.resolve(fake)]: { mtime: 7, ok: true, wMm: 5, hMm: 6, stitches: 7 } } };
+
+    const results = library.indexBatch(
+      indexData,
+      userData,
+      [
+        { path: fake, mtime: 7 }, // fresco
+        { path: real, mtime: 42 }, // precisa indexar
+      ],
+      { trimAt: 3 }
+    );
+    assert.equal(results[0].fromCache, true);
+    assert.equal(results[1].fromCache, false);
+    assert.equal(results[1].stitches, 2253);
+  } finally {
+    fs.rmSync(userData, { recursive: true, force: true });
+  }
+});
+
+// ------------------------------------------------------------------ teto do cache de miniaturas em disco (issue #35)
+
+function writeFakeThumb(userData, filePath, mtime, sizeBytes) {
+  const dataURL = 'data:image/png;base64,' + Buffer.alloc(sizeBytes, 65).toString('base64');
+  return library.writeCachedThumb(userData, filePath, mtime, dataURL, 10 * 1024 * 1024); // teto bem alto: não evict nesta escrita
+}
+
+// O manifesto de acesso usa Date.now() (resolução de 1ms): em disco rápido
+// (tmpfs/SSD), duas escritas seguidas podem cair no mesmo milissegundo.
+// Os testes de ORDEM de evicção esperam por esse intervalo entre os passos
+// que precisam ficar em milissegundos distintos e comparáveis.
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+test('thumbCacheUsageBytes: soma o tamanho de todas as miniaturas gravadas', () => {
+  const userData = makeTmpDir('bastidor-lib-usage-');
+  try {
+    assert.equal(library.thumbCacheUsageBytes(userData), 0);
+    writeFakeThumb(userData, '/lib/a.dst', 1, 100);
+    writeFakeThumb(userData, '/lib/b.dst', 1, 200);
+    assert.equal(library.thumbCacheUsageBytes(userData), 300);
+  } finally {
+    fs.rmSync(userData, { recursive: true, force: true });
+  }
+});
+
+test('enforceThumbCacheCap: dentro do teto não evict nada', () => {
+  const userData = makeTmpDir('bastidor-lib-cap-under-');
+  try {
+    writeFakeThumb(userData, '/lib/a.dst', 1, 100);
+    const result = library.enforceThumbCacheCap(userData, 1000);
+    assert.equal(result.evicted, 0);
+    assert.equal(fs.readdirSync(library.thumbsDir(userData)).length, 1);
+  } finally {
+    fs.rmSync(userData, { recursive: true, force: true });
+  }
+});
+
+test('enforceThumbCacheCap: acima do teto evict pelo acesso mais antigo primeiro, não pela ordem de criação', async () => {
+  const userData = makeTmpDir('bastidor-lib-cap-evict-');
+  try {
+    // Três miniaturas de 100 bytes cada: teto de 250 só cabe duas. Um
+    // pequeno intervalo entre escritas garante marcas de acesso em
+    // milissegundos distintos (ver sleep() acima).
+    writeFakeThumb(userData, '/lib/a.dst', 1, 100);
+    await sleep(5);
+    writeFakeThumb(userData, '/lib/b.dst', 1, 100);
+    await sleep(5);
+    writeFakeThumb(userData, '/lib/c.dst', 1, 100);
+    await sleep(5);
+
+    // Sem tocar em nada, a ordem de acesso é a ordem de escrita: a -> b -> c.
+    // Lê "a" de novo para tornar seu acesso o mais recente dos três — só "b"
+    // (nunca mais tocada) deve ser a mais antiga agora.
+    library.readCachedThumb(userData, '/lib/a.dst', 1);
+
+    const result = library.enforceThumbCacheCap(userData, 250);
+    assert.equal(result.evicted, 1);
+    assert.equal(result.usageBytes, 200);
+
+    // "b" (acesso mais antigo) foi removida; "a" (relida) e "c" (mais recente) sobrevivem.
+    assert.equal(library.readCachedThumb(userData, '/lib/b.dst', 1), null);
+    assert.notEqual(library.readCachedThumb(userData, '/lib/a.dst', 1), null);
+    assert.notEqual(library.readCachedThumb(userData, '/lib/c.dst', 1), null);
+  } finally {
+    fs.rmSync(userData, { recursive: true, force: true });
+  }
+});
+
+test('enforceThumbCacheCap: miniatura sem registro de acesso (pré-existente) é evictada primeiro', () => {
+  const userData = makeTmpDir('bastidor-lib-cap-noaccess-');
+  try {
+    // Simula uma miniatura gravada por uma versão anterior do app, sem
+    // manifesto de acesso: cria o PNG direto no diretório, sem passar por
+    // writeCachedThumb.
+    fs.mkdirSync(library.thumbsDir(userData), { recursive: true });
+    fs.writeFileSync(path.join(library.thumbsDir(userData), 'legado-sem-acesso.png'), Buffer.alloc(100, 66));
+
+    writeFakeThumb(userData, '/lib/nova.dst', 1, 100);
+
+    const result = library.enforceThumbCacheCap(userData, 150);
+    assert.equal(result.evicted, 1);
+    const remaining = fs.readdirSync(library.thumbsDir(userData));
+    assert.ok(!remaining.includes('legado-sem-acesso.png'));
+  } finally {
+    fs.rmSync(userData, { recursive: true, force: true });
+  }
+});
+
+test('writeCachedThumb: aplica o teto (capBytes) automaticamente após gravar', async () => {
+  const userData = makeTmpDir('bastidor-lib-cap-onwrite-');
+  try {
+    const dataURL = (n) => 'data:image/png;base64,' + Buffer.alloc(n, 67).toString('base64');
+    library.writeCachedThumb(userData, '/lib/a.dst', 1, dataURL(100), 150);
+    await sleep(5);
+    library.writeCachedThumb(userData, '/lib/b.dst', 1, dataURL(100), 150); // ultrapassa 150: deve evict "a"
+
+    assert.equal(library.readCachedThumb(userData, '/lib/a.dst', 1), null);
+    assert.notEqual(library.readCachedThumb(userData, '/lib/b.dst', 1), null);
+    assert.ok(library.thumbCacheUsageBytes(userData) <= 150);
+  } finally {
+    fs.rmSync(userData, { recursive: true, force: true });
+  }
+});
+
+test('writeCachedThumb: sem capBytes explícito usa o teto padrão (200 MB) e não evict miniaturas pequenas', () => {
+  const userData = makeTmpDir('bastidor-lib-cap-default-');
+  try {
+    const dataURL = 'data:image/png;base64,' + Buffer.alloc(1000, 68).toString('base64');
+    library.writeCachedThumb(userData, '/lib/a.dst', 1, dataURL);
+    library.writeCachedThumb(userData, '/lib/b.dst', 1, dataURL);
+    assert.equal(fs.readdirSync(library.thumbsDir(userData)).length, 2);
+  } finally {
+    fs.rmSync(userData, { recursive: true, force: true });
+  }
+});

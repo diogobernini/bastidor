@@ -258,6 +258,13 @@
           <input type="text" id="set-librarypath" readonly />
           <button type="button" id="set-librarypath-choose" class="tb-btn small" data-i18n="set.libraryChoose">Escolher pasta…</button>
         </div>
+        <label class="row">
+          <span data-i18n="set.thumbCacheCap">Teto do cache de miniaturas (MB)</span>
+          <input type="number" id="set-thumbcachecap" min="10" max="5000" step="10" />
+        </label>
+        <p class="hint" data-i18n="set.thumbCacheCapHint">
+          Miniaturas em disco além do teto são descartadas pelo acesso mais antigo.
+        </p>
       </div>
 
       <div class="dlg-actions">
@@ -544,6 +551,10 @@
     <div class="library-body">
       <nav id="lib-tree" class="lib-tree"></nav>
       <section class="lib-main">
+        <div id="lib-indexing" class="lib-indexing" hidden>
+          <div class="lib-indexing-bar"><div id="lib-indexing-fill" class="lib-indexing-fill"></div></div>
+          <span id="lib-indexing-label" class="lib-indexing-label mono"></span>
+        </div>
         <div id="lib-grid-viewport" class="lib-grid-viewport">
           <div id="lib-grid-spacer" class="lib-grid-spacer">
             <div id="lib-grid-inner" class="lib-grid-inner"></div>
@@ -689,6 +700,7 @@
   <script src="../core/sewtime.js"></script>
   <script src="../core/history.js"></script>
   <script src="../core/minspacing.js"></script>
+  <script src="../core/library-view.js"></script>
   <script src="objects.js"></script>
   <script src="renderer.js"></script>
 </body>
