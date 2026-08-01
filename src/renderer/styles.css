@@ -456,6 +456,9 @@ dialog:not([open]) {
 }
 
 dialog {
+  /* O reset global "* { margin: 0 }" remove o margin:auto nativo do <dialog>,
+     que é o que o centraliza na viewport. Devolvido aqui. */
+  margin: auto;
   background: var(--bg-raised);
   color: var(--text);
   border: 1px solid var(--line);
