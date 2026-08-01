@@ -386,6 +386,14 @@ const STRINGS = {
     'lib.toastNoDrive': 'No drive detected: open the drive manager first',
     'lib.toastCopiedToDrive': '“{name}” copied to the drive',
     'lib.toastCopyError': 'Could not copy: ',
+
+    // Auto-update (issue #31): menu item + toasts only, no dedicated dialog.
+    'menu.checkUpdates': 'Check for updates…',
+    'update.checking': 'Checking for updates…',
+    'update.notAvailable': 'Bastidor is up to date',
+    'update.available': 'A new version is available and is downloading…',
+    'update.downloaded': 'Update downloaded. It will install the next time you quit Bastidor.',
+    'update.error': 'Could not check for updates',
   },
 
   'pt-BR': {
@@ -772,6 +780,14 @@ const STRINGS = {
     'lib.toastNoDrive': 'Nenhum pendrive encontrado: abra o gestor de pendrive primeiro',
     'lib.toastCopiedToDrive': '"{name}" copiado para o pendrive',
     'lib.toastCopyError': 'Não foi possível copiar: ',
+
+    // Atualização automática (issue #31): só o item de menu + toasts, sem dialog dedicado.
+    'menu.checkUpdates': 'Buscar atualizações…',
+    'update.checking': 'Buscando atualizações…',
+    'update.notAvailable': 'O Bastidor já está atualizado',
+    'update.available': 'Uma nova versão está disponível e está sendo baixada…',
+    'update.downloaded': 'Atualização baixada. Será instalada na próxima vez que o Bastidor for encerrado.',
+    'update.error': 'Não foi possível buscar atualizações',
   },
 };
 

@@ -2,6 +2,7 @@
 // Processo principal do Bastidor: janela, menu, IPC, arquivos e preferências.
 
 const { app, BrowserWindow, Menu, dialog, ipcMain, shell } = require('electron');
+const { autoUpdater } = require('electron-updater');
 const fs = require('fs');
 const path = require('path');
 
@@ -624,6 +625,11 @@ function buildMenuTemplate() {
           label: t('menu.formats'),
           click: () => sendToRenderer('menu', 'formats'),
         },
+        { type: 'separator' },
+        {
+          label: t('menu.checkUpdates'),
+          click: () => checkForUpdates(),
+        },
       ],
     },
   ];
@@ -664,6 +670,41 @@ async function importSvgFlow() {
   }
 }
 
+// ------------------------------------------------------------------ Auto-update (issue #31)
+
+// electron-updater wiring: no new UI beyond the "Check for updates…" menu
+// item (see buildMenuTemplate) — every state change is reported through the
+// same 'menu' channel + toast() the renderer already uses for everything
+// else. Publisher config (build.publish in package.json) points electron-
+// updater at this repo's GitHub Releases.
+let autoUpdaterWired = false;
+function wireAutoUpdater() {
+  if (autoUpdaterWired) return;
+  autoUpdaterWired = true;
+  autoUpdater.logger = null; // we report through toasts, not electron-updater's own console logging
+  autoUpdater.on('checking-for-update', () => sendToRenderer('menu', 'update-checking'));
+  autoUpdater.on('update-available', () => sendToRenderer('menu', 'update-available'));
+  autoUpdater.on('update-not-available', () => sendToRenderer('menu', 'update-not-available'));
+  autoUpdater.on('update-downloaded', () => sendToRenderer('menu', 'update-downloaded'));
+  autoUpdater.on('error', () => sendToRenderer('menu', 'update-error'));
+}
+
+// Shared by the startup auto-check and the manual "Check for updates…" menu
+// item, so both paths produce the exact same toasts.
+function checkForUpdates() {
+  wireAutoUpdater();
+  autoUpdater.checkForUpdates().catch(() => sendToRenderer('menu', 'update-error'));
+}
+
+// Only runs for packaged builds (unpackaged dev/test runs have no
+// app-update.yml and electron-updater no-ops on them anyway) and only when
+// the user hasn't opted out via settings.updates.autoCheck (default true).
+function maybeAutoCheckForUpdates() {
+  if (!app.isPackaged) return;
+  if (!settings.get().updates.autoCheck) return;
+  checkForUpdates();
+}
+
 // ------------------------------------------------------------------ App
 
 // Arquivo aberto via Finder (macOS) antes ou depois da janela existir.
@@ -683,6 +724,7 @@ app.whenReady().then(() => {
   setupIpc();
   rebuildMenu();
   createWindow();
+  maybeAutoCheckForUpdates();
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();

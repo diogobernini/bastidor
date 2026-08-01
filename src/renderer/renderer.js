@@ -3370,8 +3370,19 @@ function bindMenuAndKeys() {
       'sim-reset': simReset,
       formats: () => $('dlg-formats').showModal(),
       'digitize-image': openDigitizeDialog,
+      // Auto-update (issue #31): electron-updater in the main process reports
+      // through this same 'menu' channel; no design needs to be open to see them.
+      'update-checking': () => toast(tr('update.checking')),
+      'update-available': () => toast(tr('update.available')),
+      'update-not-available': () => toast(tr('update.notAvailable')),
+      'update-downloaded': () => toast(tr('update.downloaded')),
+      'update-error': () => toast(tr('update.error'), 'error', 5000),
     };
-    if (state.design || ['open', 'settings', 'formats', 'digitize-image'].includes(action)) {
+    const alwaysAvailable = [
+      'open', 'settings', 'formats', 'digitize-image',
+      'update-checking', 'update-available', 'update-not-available', 'update-downloaded', 'update-error',
+    ];
+    if (state.design || alwaysAvailable.includes(action)) {
       const fn = actions[action];
       if (fn) fn();
     }

@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Minimal hardened-runtime entitlements for notarization (issue #31).
+
+  Bastidor is not sandboxed (no com.apple.security.app-sandbox) and does not
+  need camera/mic/network-server entitlements. These four are the standard
+  minimum an Electron app needs under the hardened runtime so the V8/Node
+  JIT and native modules keep working after codesign + notarization:
+  https://www.electronjs.org/docs/latest/tutorial/code-signing
+-->
+<plist version="1.0">
+<dict>
+  <key>com.apple.security.cs.allow-jit</key>
+  <true/>
+  <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+  <true/>
+  <key>com.apple.security.cs.allow-dyld-environment-variables</key>
+  <true/>
+  <key>com.apple.security.cs.disable-library-validation</key>
+  <true/>
+</dict>
+</plist>
