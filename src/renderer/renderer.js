@@ -710,6 +710,25 @@ function scaleDesign(factor) {
   }
 }
 
+// Como scaleDesign, mas recalcula a densidade das corridas de ponto cheio
+// (issue #4, v1) em vez de só escalar as coordenadas. Substitui o array de
+// agulhadas por inteiro (o tamanho muda), por isso não usa applyToStitches.
+function scaleDesignWithDensity(factor) {
+  if (!state.design) return;
+  const { detectSatinRuns, rescaleWithDensity } = window.DensityScale;
+  const [cx, cy] = designCenter();
+  snapshotUndo();
+  const runs = detectSatinRuns(state.design.stitches);
+  state.design.stitches = rescaleWithDensity(state.design.stitches, factor, { center: [cx, cy] });
+  deriveBlocks();
+  deriveStats();
+  updateSidebar();
+  updateStatusbar();
+  fitView();
+  requestRender();
+  toast(tr('toast.densityRescaled', { n: fmtNum(runs.length) }));
+}
+
 // --------------------------------------------------------------- salvar/exportar
 
 async function saveAs() {
@@ -1038,11 +1057,24 @@ function syncToggleButtons() {
   $('btn-jumps').classList.toggle('on', state.settings.view.showJumps);
 }
 
+// true depois que o usuário toca no checkbox "Manter densidade" à mão;
+// enquanto for false, o valor padrão reage ao % digitado.
+let keepDensityTouched = false;
+
 function openScaleDialog() {
   if (!state.design) return;
   $('scale-percent').value = 100;
+  keepDensityTouched = false;
   updateScalePreview();
   $('dlg-scale').showModal();
+}
+
+// Padrão: marcado quando a escala passa de ±10% (abaixo disso o ganho de
+// manter a densidade do ponto cheio é pequeno). Só se aplica até o
+// usuário tocar no checkbox manualmente (ver keepDensityTouched).
+function syncKeepDensityDefault(pct) {
+  if (keepDensityTouched) return;
+  $('scale-keepdensity').checked = Math.abs(pct / 100 - 1) > 0.1;
 }
 
 function updateScalePreview() {
@@ -1050,14 +1082,21 @@ function updateScalePreview() {
   const s = state.stats;
   $('scale-preview').textContent =
     `${fmtMm(s.width)} × ${fmtMm(s.height)}  →  ${fmtMm((s.width * pct) / 100)} × ${fmtMm((s.height * pct) / 100)}`;
+  syncKeepDensityDefault(pct);
 }
 
 function bindDialogs() {
   $('scale-percent').addEventListener('input', updateScalePreview);
+  $('scale-keepdensity').addEventListener('change', () => {
+    keepDensityTouched = true;
+  });
   $('scale-form').addEventListener('submit', (e) => {
     if (e.submitter && e.submitter.value === 'apply') {
       const pct = clampNum($('scale-percent').value, 10, 400, 100);
-      if (pct !== 100) scaleDesign(pct / 100);
+      if (pct !== 100) {
+        if ($('scale-keepdensity').checked) scaleDesignWithDensity(pct / 100);
+        else scaleDesign(pct / 100);
+      }
     }
   });
 
