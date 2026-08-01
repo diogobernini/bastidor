@@ -113,6 +113,7 @@ function applyI18n() {
   });
   document.querySelectorAll('[data-i18n-title]').forEach((el) => {
     el.title = tr(el.dataset.i18nTitle);
+    el.setAttribute('aria-label', el.title); // issue #38: tooltip dobra de rótulo p/ leitor de tela nos botões só-ícone
   });
   document.querySelectorAll('[data-i18n-placeholder]').forEach((el) => {
     el.placeholder = tr(el.dataset.i18nPlaceholder);
@@ -1351,6 +1352,7 @@ function settingsToForm() {
   $('set-showjumps').checked = s.view.showJumps;
   $('set-realistic').checked = s.view.realistic;
   $('set-simspeed').value = s.sim.stitchesPerSecond;
+  $('set-machinespeed').value = s.machine.speedSpm;
   $('set-hoopshow').checked = s.hoop.show;
   $('set-hooppreset').value = s.hoop.preset;
   $('set-hoopw').value = s.hoop.width;
@@ -1388,6 +1390,9 @@ function formToSettings() {
       realistic: $('set-realistic').checked,
     },
     sim: { stitchesPerSecond: clampNum($('set-simspeed').value, 50, 5000, 600) },
+    // Velocidade real da máquina (issue #38): usada na estimativa "confecção
+    // ≈" da biblioteca (src/core/sewtime.js), não na simulação acima.
+    machine: { speedSpm: Math.round(clampNum($('set-machinespeed').value, 100, 2000, 650)) },
     hoop: { show: $('set-hoopshow').checked, preset: presetKey, width, height },
     grid: { show: $('set-gridshow').checked, spacingMm: clampNum($('set-gridspacing').value, 1, 100, 10) },
     write: {
@@ -2002,21 +2007,12 @@ function ensureLibraryThumb(canvasEl, item) {
 
 const libHover = { timer: null, item: null };
 const LIB_HOVER_DELAY = 260;
-const MACHINE_SPM = 600; // agulhadas/min típicas de máquina doméstica (estimativa)
 
 function hideLibHover() {
   clearTimeout(libHover.timer);
   libHover.item = null;
   const pop = document.getElementById('lib-hover');
   if (pop) pop.hidden = true;
-}
-
-function fmtSewTime(stitches, colorChanges) {
-  const min = stitches / MACHINE_SPM + colorChanges * 0.5; // ~30s por troca de linha
-  if (min < 1) return '< 1 min';
-  const h = Math.floor(min / 60);
-  const m = Math.round(min % 60);
-  return h ? `${h} h ${String(m).padStart(2, '0')} min` : `${m} min`;
 }
 
 function showLibHover(item, cardEl) {
@@ -2041,7 +2037,7 @@ function showLibHover(item, cardEl) {
       ' · ' +
       tr('lib.hoverColors', { c: design.threads.length }) +
       ' · ' +
-      tr('lib.hoverTime', { t: fmtSewTime(n, changes) });
+      tr('lib.hoverTime', { t: SewTime.fmtSewTime(n, changes, state.settings.machine.speedSpm) });
     const colors = $('lib-hover-colors');
     colors.innerHTML = '';
     design.threads.slice(0, 16).forEach((t, i) => {
@@ -2049,16 +2045,18 @@ function showLibHover(item, cardEl) {
       sw.style.background = designThreadColor(design, i);
       colors.appendChild(sw);
     });
-    // À direita do card; sem espaço, vai para a esquerda; sempre dentro da janela.
+    // À direita do card; sem espaço, vai para a esquerda; sempre dentro da
+    // janela — clamp em src/core/viewportclamp.js (issue #38: media o
+    // tamanho real do card com offsetWidth/offsetHeight em vez de supor
+    // 334px fixos, que podiam vazar perto das bordas).
     const r = cardEl.getBoundingClientRect();
-    const pw = 334;
-    const ph = pop.offsetHeight || 380;
-    let x = r.right + 10;
-    if (x + pw > window.innerWidth - 8) x = r.left - pw - 10;
-    if (x < 8) x = 8;
-    let y = Math.min(Math.max(r.top - 20, 8), window.innerHeight - ph - 8);
-    pop.style.left = x + 'px';
-    pop.style.top = y + 'px';
+    const { left, top } = ViewportClamp.clampToViewport(
+      r,
+      { width: pop.offsetWidth || 334, height: pop.offsetHeight || 380 },
+      { width: window.innerWidth, height: window.innerHeight }
+    );
+    pop.style.left = left + 'px';
+    pop.style.top = top + 'px';
   });
 }
 
@@ -2351,6 +2349,7 @@ function buildLibAct(glyph, title, onClick, danger) {
   btn.className = 'lib-act' + (danger ? ' danger' : '');
   btn.textContent = glyph;
   btn.title = title;
+  btn.setAttribute('aria-label', title); // issue #38: botão só-ícone (glifo), sem texto visível
   btn.addEventListener('click', (e) => {
     e.stopPropagation();
     onClick();
@@ -2372,6 +2371,7 @@ function buildLibraryGridItem(item) {
   favBtn.className = 'lib-fav-btn' + (isFav ? ' active' : '');
   favBtn.textContent = isFav ? '★' : '☆';
   favBtn.title = tr('lib.actionFavorite');
+  favBtn.setAttribute('aria-label', favBtn.title); // issue #38: botão só-ícone (★/☆), sem texto visível
   favBtn.addEventListener('click', (e) => {
     e.stopPropagation();
     toggleLibraryFavorite(item);
@@ -3346,6 +3346,65 @@ function bindSvgImportDialog() {
   $('svgimport-fill').addEventListener('change', queueSvgPreview);
 }
 
+// --------------------------------------------------------------- atalhos de teclado (issue #38)
+
+// Fonte única do diálogo "?" (dlg-shortcuts, abaixo): os bindings REAIS
+// ficam em bindMenuAndKeys — o keydown global mais adiante nesta função
+// (Espaço/E/G/B/J/0/+/-/?, e dentro do modo de edição Esc/Delete/I/setas) —
+// e nos accelerators do menu Electron (src/main/main.js, buildMenuTemplate,
+// os Cmd/Ctrl+...). Esta tabela só DOCUMENTA esses dois lugares para
+// renderizar o diálogo; não os registra. Mudou um atalho? Atualize os dois:
+// o handler de verdade e esta lista.
+const SHORTCUTS = [
+  { keys: 'Space', i18n: 'shortcuts.desc.sim', context: 'global' },
+  { keys: 'E', i18n: 'shortcuts.desc.edit', context: 'global' },
+  { keys: 'G', i18n: 'shortcuts.desc.grid', context: 'global' },
+  { keys: 'B', i18n: 'shortcuts.desc.hoop', context: 'global' },
+  { keys: 'J', i18n: 'shortcuts.desc.jumps', context: 'global' },
+  { keys: '0', i18n: 'shortcuts.desc.fit', context: 'global' },
+  { keys: '+', i18n: 'shortcuts.desc.zoomIn', context: 'global' },
+  { keys: '-', i18n: 'shortcuts.desc.zoomOut', context: 'global' },
+  { keys: '?', i18n: 'shortcuts.desc.help', context: 'global' },
+  { keys: 'I', i18n: 'shortcuts.desc.insertPoint', context: 'edit' },
+  { keys: '↑ ↓ ← →', i18n: 'shortcuts.desc.nudgePoint', context: 'edit' },
+  { keys: 'Shift+↑↓←→', i18n: 'shortcuts.desc.nudgePoint10', context: 'edit' },
+  { keys: 'Delete', i18n: 'shortcuts.desc.deletePoint', context: 'edit' },
+  { keys: 'Esc', i18n: 'shortcuts.desc.deselectPoint', context: 'edit' },
+  { keys: 'Esc', i18n: 'shortcuts.desc.closeDialog', context: 'dialog' },
+  { keys: 'Cmd/Ctrl+O', i18n: 'shortcuts.desc.open', context: 'global' },
+  { keys: 'Cmd/Ctrl+Shift+S', i18n: 'shortcuts.desc.saveAs', context: 'global' },
+  { keys: 'Cmd/Ctrl+E', i18n: 'shortcuts.desc.exportPng', context: 'global' },
+  { keys: 'Cmd/Ctrl+R', i18n: 'shortcuts.desc.resize', context: 'global' },
+  { keys: 'Cmd/Ctrl+Z', i18n: 'shortcuts.desc.undo', context: 'global' },
+  { keys: 'Cmd/Ctrl+,', i18n: 'shortcuts.desc.settings', context: 'global' },
+];
+
+const SHORTCUT_CONTEXT_I18N = { global: 'shortcuts.ctxGlobal', edit: 'shortcuts.ctxEdit', dialog: 'shortcuts.ctxDialog' };
+
+function renderShortcutsTable() {
+  const tbody = $('shortcuts-body');
+  tbody.innerHTML = '';
+  for (const row of SHORTCUTS) {
+    const rowEl = document.createElement('tr'); // "tr" já é a função de tradução; evita sombrear
+    const tdKeys = document.createElement('td');
+    tdKeys.className = 'mono';
+    tdKeys.textContent = row.keys;
+    const tdDesc = document.createElement('td');
+    tdDesc.textContent = tr(row.i18n);
+    const tdCtx = document.createElement('td');
+    tdCtx.className = 'muted';
+    tdCtx.textContent = tr(SHORTCUT_CONTEXT_I18N[row.context]);
+    rowEl.append(tdKeys, tdDesc, tdCtx);
+    tbody.appendChild(rowEl);
+  }
+}
+
+// Renderiza de novo a cada abertura (idioma pode ter mudado desde a última vez).
+function openShortcutsDialog() {
+  renderShortcutsTable();
+  $('dlg-shortcuts').showModal();
+}
+
 function bindMenuAndKeys() {
   window.api.onMenu((action) => {
     const actions = {
@@ -3369,6 +3428,7 @@ function bindMenuAndKeys() {
       'sim-toggle': () => simSetPlaying(!state.sim.playing),
       'sim-reset': simReset,
       formats: () => $('dlg-formats').showModal(),
+      shortcuts: openShortcutsDialog,
       'digitize-image': openDigitizeDialog,
       // Auto-update (issue #31): electron-updater in the main process reports
       // through this same 'menu' channel; no design needs to be open to see them.
@@ -3379,7 +3439,7 @@ function bindMenuAndKeys() {
       'update-error': () => toast(tr('update.error'), 'error', 5000),
     };
     const alwaysAvailable = [
-      'open', 'settings', 'formats', 'digitize-image',
+      'open', 'settings', 'formats', 'shortcuts', 'digitize-image',
       'update-checking', 'update-available', 'update-not-available', 'update-downloaded', 'update-error',
     ];
     if (state.design || alwaysAvailable.includes(action)) {
@@ -3434,6 +3494,9 @@ function bindMenuAndKeys() {
     else if (key === '0') fitView();
     else if (key === '+' || key === '=') zoomCenter(1.3);
     else if (key === '-') zoomCenter(1 / 1.3);
+    // "?" (issue #38): normalmente já chega como key === '?' com Shift+/,
+    // mas alguns layouts de teclado não normalizam — checa os dois.
+    else if (key === '?' || (e.shiftKey && key === '/')) openShortcutsDialog();
   });
 }
 
@@ -3718,6 +3781,7 @@ async function boot() {
   if (launch.dialog === 'settings') openSettings();
   if (launch.dialog === 'scale' && state.design) openScaleDialog();
   if (launch.dialog === 'formats') $('dlg-formats').showModal();
+  if (launch.dialog === 'shortcuts') openShortcutsDialog();
   if (launch.dialog === 'drives') await openDrivesDialog();
   if (launch.dialog === 'text') openTextDialog();
   if (launch.dialog === 'digitize') $('dlg-digitize').showModal();

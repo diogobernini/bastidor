@@ -622,6 +622,16 @@ function buildMenuTemplate() {
       label: t('menu.help'),
       submenu: [
         {
+          // Diálogo de atalhos (issue #38): sem accelerator próprio de
+          // propósito — "?" e Shift+/ já são tratados no keydown global do
+          // renderer (bindMenuAndKeys em src/renderer/renderer.js), no mesmo
+          // esquema das outras teclas sem modificador (G, B, J, E...);
+          // duplicar aqui como accelerator do Electron arriscaria abrir o
+          // diálogo duas vezes de uma tecla só.
+          label: t('menu.shortcuts'),
+          click: () => sendToRenderer('menu', 'shortcuts'),
+        },
+        {
           label: t('menu.formats'),
           click: () => sendToRenderer('menu', 'formats'),
         },

@@ -190,10 +190,23 @@ input[type='color'] {
   padding: 2px;
 }
 
-select:focus,
-input:focus {
-  outline: 1px solid var(--accent);
-  outline-offset: 0;
+/* Foco visível consistente (acessibilidade, issue #38): âmbar em todo
+   controle interativo, só quando o foco vem do teclado (:focus-visible) —
+   clique do mouse não acende o anel, igual ao padrão do navegador. Cobre
+   também os botões (.tb-btn, inclusive os só-ícone da toolbar), que antes
+   não tinham nenhum indicador de foco. */
+a:focus-visible,
+button:focus-visible,
+select:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+:focus:not(:focus-visible) {
+  outline: none;
 }
 
 /* ---------------------------------------------------------- workspace */
@@ -578,25 +591,35 @@ dialog h2 {
   margin-top: 18px;
 }
 
-.formats {
+.formats,
+.shortcuts {
   width: 100%;
   border-collapse: collapse;
   font-size: 13px;
 }
 
 .formats th,
-.formats td {
+.formats td,
+.shortcuts th,
+.shortcuts td {
   text-align: left;
   padding: 6px 8px;
   border-bottom: 1px solid var(--line);
 }
 
-.formats th {
+.formats th,
+.shortcuts th {
   color: var(--text-dim);
   font-weight: 600;
   font-size: 11.5px;
   text-transform: uppercase;
   letter-spacing: 0.06em;
+}
+
+/* Diálogo de atalhos (issue #38): 3 colunas de texto pedem mais fôlego que
+   os 480px padrão do <dialog>. */
+#dlg-shortcuts {
+  width: min(640px, 94vw);
 }
 
 /* ---------------------------------------------------------- gestão de pendrive */
