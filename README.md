@@ -63,6 +63,10 @@ and colors, and vice versa (see `tests/`).
 |---|---|
 | ![Settings](docs/en/settings.png) | ![Welcome screen](docs/en/welcome.png) |
 
+| Library (browse designs, search, thumbnails) |
+|---|
+| ![Library](docs/en/library.png) |
+
 ## Running
 
 Requires [Node.js](https://nodejs.org) 18 or newer.
@@ -139,6 +143,17 @@ to the generous open source work of others:
 
 Thank you! The original MIT license is preserved in
 [`LICENSES/pystitch-LICENSE.txt`](LICENSES/pystitch-LICENSE.txt).
+
+### Bundled fonts
+
+Bastidor ships with single-line lettering fonts under the SIL Open Font License and related free licenses:
+
+- **Hershey Sans 1-stroke**: Hershey Fonts license (permissive with attribution)
+- **EMS Nixish** and **EMS Allure**: SIL Open Font License 1.1
+- **Pacifico Regular**: SIL Open Font License 1.1
+- **Allegria Sample** (Ink/Stitch fonts collection): SIL Open Font License 1.1
+
+See [`fonts/README.md`](fonts/README.md) for detailed credits and license files.
 
 ## License
 

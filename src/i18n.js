@@ -329,8 +329,8 @@ const STRINGS = {
 
     // Library manager (issue #17): browse the catalog by folder, with search,
     // filters, favorites and open/save-as integration.
-    'lib.titleOpen': 'Library — Open design',
-    'lib.titleSave': 'Library — Save design',
+    'lib.titleOpen': 'Library · Open design',
+    'lib.titleSave': 'Library · Save design',
     'lib.searchPlaceholder': 'Search by name…',
     'lib.filterFormatTip': 'Filter by format',
     'lib.filterFormatAll': 'All formats',

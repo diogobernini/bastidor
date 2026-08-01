@@ -63,6 +63,10 @@ e cores idênticas, e vice-versa (suíte em `tests/`).
 |---|---|
 | ![Configurações](docs/pt/configuracoes.png) | ![Tela inicial](docs/pt/inicial.png) |
 
+| Biblioteca (navegar matrizes, buscar, miniaturas) |
+|---|
+| ![Biblioteca](docs/pt/biblioteca.png) |
+
 ## Rodando
 
 Requisitos: [Node.js](https://nodejs.org) 18 ou superior.
@@ -139,6 +143,17 @@ ao trabalho generoso de código aberto de outras pessoas:
 
 Muito obrigado! A licença MIT original está preservada em
 [`LICENSES/pystitch-LICENSE.txt`](LICENSES/pystitch-LICENSE.txt).
+
+### Fontes incluídas
+
+O Bastidor vem com fontes de linha única para lettering sob a Licença de Fonte Aberta SIL e licenças livres relacionadas:
+
+- **Hershey Sans 1-stroke**: Licença Hershey Fonts (permissiva com atribuição)
+- **EMS Nixish** e **EMS Allure**: Licença de Fonte Aberta SIL 1.1
+- **Pacifico Regular**: Licença de Fonte Aberta SIL 1.1
+- **Allegria Sample** (coleção de fontes Ink/Stitch): Licença de Fonte Aberta SIL 1.1
+
+Veja [`fonts/README.md`](fonts/README.md) para créditos detalhados e arquivos de licença.
 
 ## Licença
 
