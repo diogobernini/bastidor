@@ -88,6 +88,7 @@ const REPO_ROOT = path.join(__dirname, '..', '..');
 const HARNESS_MAIN = path.join(__dirname, 'harness-main.js');
 const ELECTRON_BIN = require('electron'); // fora do Electron, require('electron') resolve pro caminho do executável
 const SAMPLE_XXX = path.join(REPO_ROOT, 'samples', 'rosacea.xxx');
+const SAMPLE_SVG_FOLHA = path.join(REPO_ROOT, 'samples', 'folha.svg'); // preenchimento + contorno, 2 cores (issue #61: move-color-block-object)
 
 const ONLY = process.argv[2] || null; // node tests/ui/run.js <cenario> roda só esse
 
@@ -158,6 +159,11 @@ function buildFixtures(tmpRoot) {
     resizeAfter: path.join(tmpRoot, 'resize', 'after.xxx'),
     roundtripPath: path.join(tmpRoot, 'roundtrip', 'saved.xxx'),
     projectPath: path.join(tmpRoot, 'project', 'projeto.bastidor'),
+    // Caminho PRÓPRIO (não reaproveita fx.projectPath) pro roundtrip de
+    // move-color-block-object: evita depender da ordem de execução com
+    // project-roundtrip, mesmo os cenários rodando sequencialmente hoje —
+    // mesmo critério de newFolderLibraryDir acima.
+    objectProjectPath: path.join(tmpRoot, 'project-object', 'projeto-objeto.bastidor'),
   };
 }
 
@@ -167,6 +173,11 @@ function buildScenarioDefs(fx) {
     { name: 'open-sample', args: [`--open=${SAMPLE_XXX}`, '--lang=pt-BR'] },
     { name: 'edit-mode', args: [`--open=${SAMPLE_XXX}`, '--lang=pt-BR'] },
     { name: 'merge-color-blocks', args: [`--open=${SAMPLE_XXX}`, '--lang=pt-BR'] },
+    { name: 'move-color-block', args: [`--open=${SAMPLE_XXX}`, '--lang=pt-BR'] },
+    {
+      name: 'move-color-block-object',
+      args: [`--svg-import=${SAMPLE_SVG_FOLHA}`, '--lang=pt-BR', `--stub-project-path=${fx.objectProjectPath}`],
+    },
     {
       name: 'resize-keep-density',
       args: [`--open=${SAMPLE_XXX}`, '--lang=pt-BR', `--stub-save-paths=${fx.resizeBefore},${fx.resizeAfter}`],

@@ -422,6 +422,28 @@ textarea:focus-visible,
   border-color: var(--accent);
 }
 
+/* Reordenar a sequência de bordado (issue #61): botões ▲/▼ por linha, igual
+   estilo do .merge-btn. ▲ escondido no primeiro bloco, ▼ escondido no
+   último (ver updateSidebar em renderer.js). */
+.colors .move-btn {
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--accent);
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.colors .move-btn:hover {
+  background: #3a2c14;
+  border-color: var(--accent);
+}
+
 .transform-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;

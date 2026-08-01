@@ -37,6 +37,15 @@
 // "window.ObjectModel" escapa.
 (function () {
 
+// Mesmas constantes (valores) de src/core/colorblocks.js — cada IIFE tem seu
+// próprio escopo de função, então não há colisão com o `const COLOR_CHANGE`
+// solto no topo de renderer.js (script clássico, escopo compartilhado):
+// usadas só por swapUnits/hasClosingMarker, para achar a fronteira certa
+// entre 2 unidades (COLOR_CHANGE no meio, END no fim de verdade).
+const COMMAND_MASK = 0xff;
+const COLOR_CHANGE = 5;
+const END = 4;
+
 const TYPES = {
   TEXT: 'text',
   SVG_SHAPE: 'svg-shape',
@@ -340,15 +349,47 @@ function listUnits(objects, blocks) {
   return out;
 }
 
+// Confere se o último stitch do intervalo [start, end) é um "fechamento":
+// um COLOR_CHANGE (fecha uma unidade do meio) OU um END (fecha o desenho
+// inteiro — todo design carregado/gerado termina com um END de verdade,
+// ver src/core/io e stripTrailingEnd em src/renderer/objects.js). Mesmo
+// cuidado de ColorBlocks.hasClosingMarker (src/core/colorblocks.js, issue
+// #61): só a unidade que fecha o desenho (a última de todas) pode ter END
+// em vez de COLOR_CHANGE; uma unidade sem nenhum dos dois (raro, só em
+// dados sintéticos de teste) não tem fechamento algum.
+function hasClosingMarker(stitches, start, end) {
+  if (end <= start) return false;
+  const last = stitches[end - 1];
+  if (!last) return false;
+  const cmd = last[2] & COMMAND_MASK;
+  return cmd === COLOR_CHANGE || cmd === END;
+}
+
 // Troca as unidades ADJACENTES `i` e `i+1` na ordem de bordado (botões
-// subir/descer do painel): reordena os TRECHOS de agulhadas, as threads
-// correspondentes e as entradas de `objects`, mantendo cada bloco íntegro
-// (mesmos pontos/threads/stitchParams — só a posição na sequência muda).
-// Normaliza `objects` primeiro (ver normalizeObjects), o que torna a troca
-// um swap posicional direto nos três arrays em paralelo, sem restrição de
-// "cruzar a fronteira" entre bloco solto e objeto. Devolve {stitches,
-// threads, objects} NOVOS (não muta nenhum argumento), ou null se `i` não
-// tiver um vizinho válido para trocar.
+// subir/descer do painel, ou o painel de Cores quando um dos blocos
+// pertence a um objeto — ver moveColorBlock em renderer.js, issue #61):
+// reordena os TRECHOS de agulhadas, as threads correspondentes e as
+// entradas de `objects`, mantendo cada bloco íntegro (mesmos pontos/
+// threads/stitchParams — só a posição na sequência muda). Normaliza
+// `objects` primeiro (ver normalizeObjects), o que torna a troca um swap
+// posicional direto nos três arrays em paralelo, sem restrição de "cruzar
+// a fronteira" entre bloco solto e objeto. Devolve {stitches, threads,
+// objects} NOVOS (não muta nenhum argumento), ou null se `i` não tiver um
+// vizinho válido para trocar.
+//
+// CUIDADO nas bordas (mesma primitiva de ColorBlocks.swapBlocks, e mesmo
+// motivo): a unidade `a` NUNCA é a última de todas (sempre existe `b` logo
+// depois), então seu último stitch É sempre um COLOR_CHANGE — mas `b` pode
+// muito bem SER a última unidade do desenho inteiro, e nesse caso ela não
+// tem COLOR_CHANGE de fechamento (termina em END/TRIM/etc). Uma troca
+// "ingênua" (só concatenar os dois trechos brutos invertidos) deixaria
+// esse COLOR_CHANGE de `a` sobrando no meio da nova sequência e o
+// terminador de verdade (END) preso ANTES dele, corrompendo o desenho
+// (dois "fins" no meio do arquivo, nenhum COLOR_CHANGE de fechamento onde
+// devia estar o novo último bloco). Por isso: separa o "conteúdo puro" de
+// cada unidade do seu COLOR_CHANGE de fechamento (quando existe), e reusa
+// o de `a` como a nova fronteira entre as duas — só sobra um COLOR_CHANGE
+// no fim se `b` já tinha um (ou seja, se ela não era a última unidade).
 function swapUnits(objects, blocks, stitches, threads, i) {
   const normalized = normalizeObjects(objects, blocks);
   const units = listUnits(normalized, blocks);
@@ -357,9 +398,20 @@ function swapUnits(objects, blocks, stitches, threads, i) {
   const b = units[i + 1];
   if (a.blockEnd !== b.blockStart || a.end !== b.start) return null; // unidades deveriam ser sempre contíguas
 
-  const segA = stitches.slice(a.start, a.end).map((s) => s.slice());
-  const segB = stitches.slice(b.start, b.end).map((s) => s.slice());
-  const newStitches = stitches.slice(0, a.start).concat(segB, segA, stitches.slice(b.end));
+  const ccAIdx = a.end - 1;
+  const ccA = stitches[ccAIdx];
+  if (!ccA || (ccA[2] & COMMAND_MASK) !== COLOR_CHANGE) {
+    throw new Error('ObjectModel.swapUnits: unidade de cima sem COLOR_CHANGE de fechamento');
+  }
+  const bHasClosing = hasClosingMarker(stitches, b.start, b.end);
+  const pureA = stitches.slice(a.start, ccAIdx).map((s) => s.slice());
+  const bContentEnd = bHasClosing ? b.end - 1 : b.end;
+  const pureB = stitches.slice(b.start, bContentEnd).map((s) => s.slice());
+  const closingB = bHasClosing ? stitches[b.end - 1].slice() : null;
+
+  const newSegment = pureB.concat([ccA.slice()], pureA);
+  if (closingB) newSegment.push(closingB);
+  const newStitches = stitches.slice(0, a.start).concat(newSegment, stitches.slice(b.end));
 
   const threadsA = threads.slice(a.blockStart, a.blockEnd);
   const threadsB = threads.slice(b.blockStart, b.blockEnd);

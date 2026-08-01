@@ -554,6 +554,247 @@ const SCENARIOS = {
     ctx.assert('total de pontos igual ao original após Desfazer', stitchesUndone === stitchesBefore, stitchesUndone);
   },
 
+  // Reordenar a sequência de bordado direto no painel de Cores (issue #61):
+  // sobe o bloco 2 (clica ▲ na 2ª linha), confere que a 1ª e a 2ª linha
+  // trocaram de conteúdo (thread e contagem de pontos), que o total de
+  // pontos e o nº de trocas de cor não mudam (só a ordem), e que dá pra
+  // desfazer (undo) voltando à ordem original. A "linha" é conferida pela
+  // COR do swatch (input[type=color].value), não pelo texto do nome: as
+  // threads de rosacea.xxx não têm description/catalog, então o rótulo cai
+  // no fallback "Cor {n}" — que é baseado na POSIÇÃO (bi+1), não no
+  // conteúdo, e por isso não muda mesmo quando a thread por trás muda de
+  // verdade (ver threadLabel() em renderer.js). A cor do swatch reflete
+  // design.threads[block.threadIndex].color de verdade.
+  async 'move-color-block'(ctx) {
+    ctx.assert('boot sinalizou pronto', ctx.bootReady);
+    ctx.assert('3 cores na lista (original)', (await ctx.page("__ui.count('#color-list li')")) === 3);
+    ctx.assert(
+      '2 botões de subir (todos menos o primeiro bloco)',
+      (await ctx.page("__ui.count('#color-list li button.move-up-btn')")) === 2
+    );
+    ctx.assert(
+      '2 botões de descer (todos menos o último bloco)',
+      (await ctx.page("__ui.count('#color-list li button.move-down-btn')")) === 2
+    );
+    ctx.assert(
+      'primeiro bloco não tem botão de subir',
+      (await ctx.page("__ui.exists('#color-list li:nth-child(1) button.move-up-btn')")) === false
+    );
+    ctx.assert(
+      'último bloco não tem botão de descer',
+      (await ctx.page("__ui.exists('#color-list li:nth-child(3) button.move-down-btn')")) === false
+    );
+
+    const stitchesBefore = parseIntLoose(await ctx.page("__ui.text('#info-list dd:nth-of-type(2)')"));
+    const colorChangesBefore = parseIntLoose(await ctx.page("__ui.text('#info-list dd:nth-of-type(3)')"));
+    const swatch1Before = await ctx.page("__ui.value('#color-list li:nth-child(1) .swatch')");
+    const swatch2Before = await ctx.page("__ui.value('#color-list li:nth-child(2) .swatch')");
+    const count1Before = parseIntLoose(await ctx.page("__ui.text('#color-list li:nth-child(1) .count')"));
+    const count2Before = parseIntLoose(await ctx.page("__ui.text('#color-list li:nth-child(2) .count')"));
+    ctx.assert('blocos 1 e 2 começam diferentes (senão a troca seria indetectável)', count1Before !== count2Before);
+    ctx.assert('cores 1 e 2 começam diferentes', swatch1Before !== swatch2Before, `${swatch1Before} vs ${swatch2Before}`);
+
+    // Sobe o bloco 2 (2ª linha): ele passa a ser o 1º, e o antigo 1º vira o
+    // 2º.
+    await ctx.page("__ui.click('#color-list li:nth-child(2) button.move-up-btn')");
+
+    ctx.assert('ainda 3 cores após mover', await ctx.waitFor("__ui.count('#color-list li') === 3", 3000));
+    const swatch1After = await ctx.page("__ui.value('#color-list li:nth-child(1) .swatch')");
+    const swatch2After = await ctx.page("__ui.value('#color-list li:nth-child(2) .swatch')");
+    const count1After = parseIntLoose(await ctx.page("__ui.text('#color-list li:nth-child(1) .count')"));
+    const count2After = parseIntLoose(await ctx.page("__ui.text('#color-list li:nth-child(2) .count')"));
+
+    ctx.assert(
+      '1ª linha ganhou a contagem que era da 2ª (bloco subiu de verdade)',
+      count1After === count2Before,
+      `${count1Before} <-> ${count2Before}, depois: ${count1After}`
+    );
+    ctx.assert('2ª linha ganhou a contagem que era da 1ª', count2After === count1Before);
+    ctx.assert(
+      'a linha (thread) acompanhou o bloco: 1ª e 2ª trocaram de cor',
+      swatch1After === swatch2Before && swatch2After === swatch1Before,
+      `${swatch1Before}|${swatch2Before} -> ${swatch1After}|${swatch2After}`
+    );
+
+    const stitchesAfter = parseIntLoose(await ctx.page("__ui.text('#info-list dd:nth-of-type(2)')"));
+    ctx.assert('total de pontos não muda (só a ordem)', stitchesAfter === stitchesBefore, stitchesAfter);
+    const colorChangesAfter = parseIntLoose(await ctx.page("__ui.text('#info-list dd:nth-of-type(3)')"));
+    ctx.assert(
+      'nº de trocas de cor não muda (só reposicionadas)',
+      colorChangesAfter === colorChangesBefore,
+      `${colorChangesBefore} -> ${colorChangesAfter}`
+    );
+    ctx.assert('Desfazer habilitado após mover', (await ctx.page("__ui.isDisabled('#t-undo')")) === false);
+
+    await ctx.page("__ui.click('#t-undo')");
+    ctx.assert('ainda 3 cores após Desfazer', await ctx.waitFor("__ui.count('#color-list li') === 3", 3000));
+    const swatch1Undone = await ctx.page("__ui.value('#color-list li:nth-child(1) .swatch')");
+    const swatch2Undone = await ctx.page("__ui.value('#color-list li:nth-child(2) .swatch')");
+    const count1Undone = parseIntLoose(await ctx.page("__ui.text('#color-list li:nth-child(1) .count')"));
+    const count2Undone = parseIntLoose(await ctx.page("__ui.text('#color-list li:nth-child(2) .count')"));
+    ctx.assert(
+      'ordem original restaurada (cores e contagens)',
+      swatch1Undone === swatch1Before && swatch2Undone === swatch2Before && count1Undone === count1Before && count2Undone === count2Before,
+      `${swatch1Before}|${swatch2Before} vs ${swatch1Undone}|${swatch2Undone}`
+    );
+    const stitchesUndone = parseIntLoose(await ctx.page("__ui.text('#info-list dd:nth-of-type(2)')"));
+    ctx.assert('total de pontos igual ao original após Desfazer', stitchesUndone === stitchesBefore, stitchesUndone);
+  },
+
+  // Reordenar no painel de Cores QUANDO um objeto paramétrico multi-bloco
+  // está envolvido (issue #61 + issue #29 fase 3, ver moveColorBlock em
+  // renderer.js): importa samples/folha.svg (preenchimento + contorno, cada
+  // um de uma cor — ver src/core/digitize/svgimport.js) com fill+outline
+  // ligados (padrão do diálogo), o que registra UM objeto svg-shape com
+  // blockCount=2 cobrindo os 2 blocos resultantes. Insere um texto por cima
+  // (vira um 2º objeto, blockCount=1, 3º bloco). O painel de Cores deve
+  // então: esconder os botões ▲/▼ na linha INTERNA do objeto multi-bloco
+  // (só a 1ª linha do objeto tem ▲, só a ÚLTIMA tem ▼), e mover a unidade
+  // INTEIRA (os 2 blocos do SVG juntos, nunca um sozinho) ao clicar. Cobre
+  // o pedido do orquestrador: troca com objeto multi-bloco, undo, e
+  // round-trip .bastidor pós-reordenação sem corromper design.objects[].
+  async 'move-color-block-object'(ctx) {
+    ctx.assert('boot sinalizou pronto', ctx.bootReady);
+    ctx.assert('diálogo de importar SVG abriu (--svg-import=)', await ctx.waitFor("__ui.isOpen('#dlg-svg-import')", 5000));
+    await ctx.page("__ui.click('#svgimport-form button[value=apply]')");
+    ctx.assert('painel lateral visível (SVG importado)', await ctx.waitFor("!__ui.isHidden('#sidebar')", 5000));
+    ctx.assert(
+      '2 cores na lista (preenchimento + contorno do SVG, 1 objeto só)',
+      await ctx.waitFor("__ui.count('#color-list li') === 2", 5000)
+    );
+
+    // Confirma ANTES de mais nada que os 2 blocos do SVG são reconhecidos
+    // como 1 UNIDADE só pelo painel de ordem de costura da fase 3 (prova
+    // independente de que blockCount=2 registrou certo).
+    await ctx.page("__ui.click('#btn-objects')");
+    ctx.assert('modo de objetos ativado', await ctx.page("__ui.hasClass('#btn-objects', 'on')"));
+    ctx.assert(
+      '1 unidade só na ordem de costura (os 2 blocos do SVG contam como 1 objeto)',
+      await ctx.waitFor("__ui.count('#stitch-order-list li') === 1", 3000)
+    );
+    await ctx.page("__ui.click('#btn-objects')"); // desliga de novo, não interfere no resto do cenário
+
+    // Insere um texto por cima (issue #29 fase 2: emenda como um novo bloco
+    // ao final de um design já aberto) — vira um 2º objeto (blockCount=1).
+    await ctx.page("__ui.click('#btn-text')");
+    ctx.assert('diálogo de texto abriu', await ctx.waitFor("__ui.isOpen('#dlg-text')", 5000));
+    await ctx.page("__ui.setValue('#text-input', 'X')");
+    await ctx.page("__ui.setValue('#text-height', '15')");
+    await ctx.page("__ui.click('#text-insert-btn')");
+    ctx.assert('3 cores na lista (SVG de 2 blocos + texto)', await ctx.waitFor("__ui.count('#color-list li') === 3", 5000));
+
+    // Visibilidade dos botões: 1ª linha (fill do SVG, meio da unidade) sem
+    // nenhum; 2ª linha (contorno do SVG, ÚLTIMA do objeto) só ▼; 3ª linha
+    // (texto, sua própria unidade) só ▲.
+    ctx.assert('1ª linha (dentro do objeto SVG) sem botão de subir', (await ctx.page("__ui.exists('#color-list li:nth-child(1) button.move-up-btn')")) === false);
+    ctx.assert('1ª linha (dentro do objeto SVG) sem botão de descer', (await ctx.page("__ui.exists('#color-list li:nth-child(1) button.move-down-btn')")) === false);
+    ctx.assert('2ª linha (fim do objeto SVG) sem botão de subir (não é a 1ª do objeto)', (await ctx.page("__ui.exists('#color-list li:nth-child(2) button.move-up-btn')")) === false);
+    ctx.assert('2ª linha (fim do objeto SVG) TEM botão de descer', (await ctx.page("__ui.exists('#color-list li:nth-child(2) button.move-down-btn')")) === true);
+    ctx.assert('3ª linha (texto) TEM botão de subir', (await ctx.page("__ui.exists('#color-list li:nth-child(3) button.move-up-btn')")) === true);
+    ctx.assert('3ª linha (texto, última unidade) sem botão de descer', (await ctx.page("__ui.exists('#color-list li:nth-child(3) button.move-down-btn')")) === false);
+
+    const stitchesBefore = parseIntLoose(await ctx.page("__ui.text('#info-list dd:nth-of-type(2)')"));
+    const colorChangesBefore = parseIntLoose(await ctx.page("__ui.text('#info-list dd:nth-of-type(3)')"));
+    const swatch1Before = await ctx.page("__ui.value('#color-list li:nth-child(1) .swatch')");
+    const swatch2Before = await ctx.page("__ui.value('#color-list li:nth-child(2) .swatch')");
+    const swatch3Before = await ctx.page("__ui.value('#color-list li:nth-child(3) .swatch')");
+    const count1Before = parseIntLoose(await ctx.page("__ui.text('#color-list li:nth-child(1) .count')"));
+    const count2Before = parseIntLoose(await ctx.page("__ui.text('#color-list li:nth-child(2) .count')"));
+    const count3Before = parseIntLoose(await ctx.page("__ui.text('#color-list li:nth-child(3) .count')"));
+
+    // Desce o objeto SVG inteiro (clica ▼ na 2ª linha, fim da unidade): o
+    // texto (unidade de 1 bloco) deveria subir para o lugar do SVG, e o SVG
+    // (2 blocos JUNTOS, sem separar fill de contorno) vai para o fim.
+    await ctx.page("__ui.click('#color-list li:nth-child(2) button.move-down-btn')");
+    ctx.assert(
+      'a unidade de texto veio para a 1ª posição',
+      await ctx.waitFor(`__ui.value('#color-list li:nth-child(1) .swatch') === ${JSON.stringify(swatch3Before)}`, 3000)
+    );
+    const swatch1After = await ctx.page("__ui.value('#color-list li:nth-child(1) .swatch')");
+    const swatch2After = await ctx.page("__ui.value('#color-list li:nth-child(2) .swatch')");
+    const swatch3After = await ctx.page("__ui.value('#color-list li:nth-child(3) .swatch')");
+    const count1After = parseIntLoose(await ctx.page("__ui.text('#color-list li:nth-child(1) .count')"));
+    const count2After = parseIntLoose(await ctx.page("__ui.text('#color-list li:nth-child(2) .count')"));
+    const count3After = parseIntLoose(await ctx.page("__ui.text('#color-list li:nth-child(3) .count')"));
+    ctx.assert(
+      'o objeto SVG (2 blocos) moveu JUNTO, na mesma ordem interna (fill antes do contorno)',
+      swatch2After === swatch1Before && swatch3After === swatch2Before && count2After === count1Before && count3After === count2Before,
+      `antes: ${swatch1Before},${swatch2Before},${swatch3Before} / depois: ${swatch1After},${swatch2After},${swatch3After}`
+    );
+    ctx.assert('nenhum bloco do SVG ficou pra trás (só 3 linhas, nenhuma perdida ou duplicada)', (await ctx.page("__ui.count('#color-list li')")) === 3);
+
+    const stitchesAfter = parseIntLoose(await ctx.page("__ui.text('#info-list dd:nth-of-type(2)')"));
+    ctx.assert('total de pontos não muda ao mover a unidade multi-bloco', stitchesAfter === stitchesBefore, stitchesAfter);
+    const colorChangesAfter = parseIntLoose(await ctx.page("__ui.text('#info-list dd:nth-of-type(3)')"));
+    ctx.assert('nº de trocas de cor não muda (só reposicionadas)', colorChangesAfter === colorChangesBefore, `${colorChangesBefore} -> ${colorChangesAfter}`);
+
+    // Confirma de novo pela ordem de costura: ainda 2 unidades (o SVG
+    // continua 1 unidade só, não virou 2 blocos soltos por acidente).
+    await ctx.page("__ui.click('#btn-objects')");
+    ctx.assert('ainda 2 unidades na ordem de costura após mover', await ctx.waitFor("__ui.count('#stitch-order-list li') === 2", 3000));
+    await ctx.page("__ui.click('#btn-objects')");
+
+    // Undo: restaura a ordem original (design.objects[] incluído — usa o
+    // fallback 'snapshot' do histórico, ver moveColorBlock em renderer.js).
+    ctx.assert('Desfazer habilitado após mover', (await ctx.page("__ui.isDisabled('#t-undo')")) === false);
+    await ctx.page("__ui.click('#t-undo')");
+    ctx.assert(
+      'ordem original restaurada após Desfazer',
+      await ctx.waitFor(`__ui.value('#color-list li:nth-child(1) .swatch') === ${JSON.stringify(swatch1Before)}`, 3000)
+    );
+    const count1Undone = parseIntLoose(await ctx.page("__ui.text('#color-list li:nth-child(1) .count')"));
+    const count2Undone = parseIntLoose(await ctx.page("__ui.text('#color-list li:nth-child(2) .count')"));
+    const count3Undone = parseIntLoose(await ctx.page("__ui.text('#color-list li:nth-child(3) .count')"));
+    ctx.assert(
+      'contagens originais restauradas',
+      count1Undone === count1Before && count2Undone === count2Before && count3Undone === count3Before
+    );
+    await ctx.page("__ui.click('#btn-objects')");
+    ctx.assert(
+      'ordem de costura também restaurada (2 unidades) após Desfazer',
+      await ctx.waitFor("__ui.count('#stitch-order-list li') === 2", 3000)
+    );
+    await ctx.page("__ui.click('#btn-objects')");
+
+    // Redo: refaz o movimento (volta ao estado "depois" já verificado acima).
+    await ctx.page("__ui.click('#t-redo')");
+    ctx.assert(
+      'Refazer aplica o movimento de novo',
+      await ctx.waitFor(`__ui.value('#color-list li:nth-child(1) .swatch') === ${JSON.stringify(swatch1After)}`, 3000)
+    );
+
+    // Round-trip .bastidor DEPOIS de reordenar (pedido do orquestrador): o
+    // objeto svg-shape (2 blocos) precisa sobreviver ao JSON com blockCount
+    // e posição corretos, não só o array de agulhadas achatado.
+    const toastsBeforeSave = await ctx.page("__ui.count('#toasts .toast')");
+    await ctx.page('window.saveProjectFlow()');
+    ctx.assert('toast de projeto salvo apareceu', await ctx.waitFor(`__ui.count('#toasts .toast') > ${toastsBeforeSave}`, 5000));
+
+    await ctx.page('window.openProjectFlow()');
+    ctx.assert(
+      'reabriu com a mesma contagem de agulhadas',
+      await ctx.waitFor(`Number((__ui.text('#info-list dd:nth-of-type(2)') || '').replace(/\\D/g, '')) === ${stitchesAfter}`, 5000)
+    );
+    ctx.assert('reabriu com as 3 cores na mesma ordem reordenada', (await ctx.page("__ui.text('#color-count')")) === '(3)');
+    const swatch1Reopened = await ctx.page("__ui.value('#color-list li:nth-child(1) .swatch')");
+    const swatch2Reopened = await ctx.page("__ui.value('#color-list li:nth-child(2) .swatch')");
+    const swatch3Reopened = await ctx.page("__ui.value('#color-list li:nth-child(3) .swatch')");
+    ctx.assert(
+      'ordem reordenada preservada pelo roundtrip .bastidor',
+      swatch1Reopened === swatch1After && swatch2Reopened === swatch2After && swatch3Reopened === swatch3After,
+      `${swatch1After},${swatch2After},${swatch3After} vs ${swatch1Reopened},${swatch2Reopened},${swatch3Reopened}`
+    );
+    // A prova de verdade (mesmo espírito de project-roundtrip): a ordem de
+    // costura ainda enxerga 2 unidades, não 3 — só é possível se
+    // design.objects[] (com o blockCount=2 do SVG) sobreviveu ao JSON, não
+    // só stitches/threads.
+    await ctx.page("__ui.click('#btn-objects')");
+    ctx.assert(
+      'objeto multi-bloco sobreviveu ao save/reopen (ainda 2 unidades, não 3)',
+      await ctx.waitFor("__ui.count('#stitch-order-list li') === 2", 3000)
+    );
+  },
+
   // Diálogo da biblioteca apontando pra uma pasta fixture (--library=, a
   // mesma flag de autoteste que já existia) com 2 matrizes geradas no setup
   // do run.js (tests/ui/run.js: makeFixtureLibrary).

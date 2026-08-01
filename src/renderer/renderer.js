@@ -310,6 +310,15 @@ const historyApplyFns = {
       { stitch: op.stitch, thread: op.thread }
     );
   },
+  // Reordenar blocos de cor adjacentes (issue #61): a troca é sua própria
+  // inversa (ver comentário em src/core/history.js), então undo() e redo()
+  // caem exatamente aqui os dois, sempre com o mesmo upperIndex. state.blocks
+  // reflete a posição ATUAL dos blocos (recém derivada após a última
+  // mutação, seja ela o "fazer" original ou o undo/redo anterior), então
+  // recalcular o plano a partir dele a cada chamada é seguro.
+  moveColorBlock(op) {
+    ColorBlocks.swapAdjacentBlocks(state.design.stitches, state.design.threads, state.blocks, op.upperIndex);
+  },
   transform(op) {
     applyTransformToDesign(op.kind, op.params);
   },
@@ -438,6 +447,17 @@ function updateSidebar() {
   const list = $('color-list');
   list.innerHTML = '';
   $('color-count').textContent = state.blocks.length ? `(${state.blocks.length})` : '';
+  // Reordenar (issue #61) depois do painel de objetos (issue #29 fase 3):
+  // um objeto paramétrico pode ocupar VÁRIOS blocos consecutivos (ex.: SVG
+  // com preenchimento + contorno), e cada um aparece como uma linha própria
+  // aqui. ObjectModel.listUnits (a MESMA função usada pelo painel de ordem
+  // de costura, ObjectCanvas.reorderUnit) devolve as unidades reais — um
+  // bloco solto é sua própria unidade de 1 bloco só, então o cálculo abaixo
+  // reduz exatamente ao comportamento original quando o design não tem
+  // objects[] (a esmagadora maioria do catálogo). unitOf(bi) localiza a
+  // unidade que cobre a linha `bi`.
+  const unitsForColorsPanel = ObjectModel.listUnits(state.design.objects || [], state.blocks);
+  const unitOf = (bi) => unitsForColorsPanel.find((u) => bi >= u.blockStart && bi < u.blockEnd);
   state.blocks.forEach((block, bi) => {
     const li = document.createElement('li');
     const sw = document.createElement('input');
@@ -479,6 +499,42 @@ function updateSidebar() {
     count.className = 'count';
     count.textContent = I18n.fmtNum(block.stitchCount);
     li.append(sw, name, count);
+    // Reordenar a sequência de bordado (issue #61): ▲ sobe, ▼ desce. Um
+    // bloco no MEIO de um objeto multi-bloco (issue #29 fase 3) não pode se
+    // mover sozinho sem quebrar a unidade — por isso os botões só aparecem
+    // na PRIMEIRA linha (▲) e na ÚLTIMA linha (▼) da unidade que cobre esta
+    // linha, nunca nas linhas internas. Clicar em qualquer um dos dois move
+    // a unidade INTEIRA (moveColorBlock delega a ObjectModel.swapUnits
+    // quando a unidade é um objeto de verdade — ver comentário lá). Para um
+    // bloco solto (unidade de 1 bloco só, o caso comum) isso reduz
+    // exatamente à condição original bi>0 / bi<length-1.
+    const unit = unitOf(bi);
+    if (unit && bi === unit.blockStart && unit.blockStart > 0) {
+      const upBtn = document.createElement('button');
+      upBtn.type = 'button';
+      upBtn.className = 'move-btn move-up-btn'; // 2ª classe: seletor único p/ automação (tests/ui)
+      upBtn.textContent = '▲';
+      upBtn.title = I18n.tr('colors.moveUp');
+      upBtn.setAttribute('aria-label', upBtn.title); // issue #38: tooltip dobra de rótulo p/ leitor de tela
+      upBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        moveColorBlock(bi, 'up');
+      });
+      li.append(upBtn);
+    }
+    if (unit && bi === unit.blockEnd - 1 && unit.blockEnd < state.blocks.length) {
+      const downBtn = document.createElement('button');
+      downBtn.type = 'button';
+      downBtn.className = 'move-btn move-down-btn'; // 2ª classe: seletor único p/ automação (tests/ui)
+      downBtn.textContent = '▼';
+      downBtn.title = I18n.tr('colors.moveDown');
+      downBtn.setAttribute('aria-label', downBtn.title);
+      downBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        moveColorBlock(bi, 'down');
+      });
+      li.append(downBtn);
+    }
     // Ação de mesclar (issue #50): funde o bloco de BAIXO neste, mantendo a
     // linha/config deste bloco. Escondida no último, que não tem bloco
     // abaixo para mesclar.
@@ -540,6 +596,73 @@ function mergeColorBlockWithNext(bi) {
     stitch: removed.stitch,
     thread: removed.thread,
   });
+  bumpArt();
+  deriveBlocks();
+  deriveStats();
+  updateSidebar();
+  updateStatusbar();
+  RenderCanvas.requestRender();
+}
+
+// Reordenar a sequência de bordado (issue #61), ciente de design.objects[]
+// (issue #29 fase 3): move a UNIDADE que cobre a linha `bi` — um bloco
+// solto sozinho, ou um objeto paramétrico inteiro com todos os blocos que
+// ocupa — uma posição para cima ou para baixo, trocando de lugar com a
+// unidade vizinha. Nunca separa os blocos de um mesmo objeto (a UI já
+// esconde os botões nas linhas internas, mas o cálculo é redundante aqui
+// de propósito: por segurança, caso este código seja chamado de outro
+// lugar no futuro).
+//
+// Dois caminhos, escolhidos pelo mesmo critério do painel de ordem de
+// costura (ObjectCanvas.reorderUnit, que usa a mesma ObjectModel.swapUnits
+// abaixo — os dois painéis fazem a MESMA operação para a mesma intenção):
+//
+//  - RÁPIDO (a esmagadora maioria do catálogo: arquivo de máquina aberto
+//    direto, sem nenhum objeto paramétrico registrado): as duas unidades
+//    envolvidas são blocos soltos (unit.object null) — troca direta via
+//    ColorBlocks.swapAdjacentBlocks, sem tocar em design.objects[] (que
+//    pode ficar ausente/vazio, como sempre). Op de histórico leve e
+//    autoinversa (moveColorBlock {upperIndex}, ver src/core/history.js).
+//
+//  - UNIDADE (pelo menos um dos lados é um objeto paramétrico de verdade,
+//    possivelmente ocupando vários blocos): delega a ObjectModel.swapUnits
+//    (o mesmo núcleo do painel de objetos), que normaliza design.objects[]
+//    e devolve stitches/threads/objects NOVOS com as DUAS unidades
+//    inteiras trocadas de posição. swapUnits não tem inversa analítica
+//    barata que cubra design.objects[] com segurança (a normalização muda
+//    a FORMA do array na primeira vez que corre, mesmo sem mexer no
+//    desenho) — por isso usa o mesmo fallback 'snapshot' (clone completo
+//    de antes/depois) que ObjectCanvas.reorderUnit já usa para a mesmíssima
+//    operação, garantindo que o undo restaura objects[] tal como estava.
+function moveColorBlock(bi, direction) {
+  if (!state.design) return;
+  const objects = state.design.objects || [];
+  const units = ObjectModel.listUnits(objects, state.blocks);
+  const unitIndex = units.findIndex((u) => bi >= u.blockStart && bi < u.blockEnd);
+  if (unitIndex === -1) return;
+  const upperUnitIndex = direction === 'up' ? unitIndex - 1 : unitIndex;
+  if (upperUnitIndex < 0 || upperUnitIndex + 1 >= units.length) return; // não há unidade vizinha nessa direção
+  const upperUnit = units[upperUnitIndex];
+  const lowerUnit = units[upperUnitIndex + 1];
+  if (upperUnit.blockEnd !== lowerUnit.blockStart) return; // deveriam ser sempre contíguas (defensivo)
+
+  if (!upperUnit.object && !lowerUnit.object) {
+    // Caminho rápido: as duas unidades são blocos soltos de 1 bloco só —
+    // blockStart é o próprio índice do bloco.
+    const upperIndex = upperUnit.blockStart;
+    const moved = ColorBlocks.swapAdjacentBlocks(state.design.stitches, state.design.threads, state.blocks, upperIndex);
+    if (!moved) return;
+    pushHistory({ type: 'moveColorBlock', upperIndex });
+  } else {
+    // Caminho de unidade: pelo menos um objeto paramétrico real envolvido.
+    const before = cloneDesignData();
+    const result = ObjectModel.swapUnits(objects, state.blocks, state.design.stitches, state.design.threads, upperUnitIndex);
+    if (!result) return;
+    state.design.stitches = result.stitches;
+    state.design.threads = result.threads;
+    state.design.objects = result.objects;
+    pushHistory({ type: 'snapshot', before, after: cloneDesignData() });
+  }
   bumpArt();
   deriveBlocks();
   deriveStats();
