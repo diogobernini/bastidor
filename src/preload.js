@@ -56,4 +56,21 @@ contextBridge.exposeInMainWorld('api', {
   openImageDialog: () => ipcRenderer.invoke('dialog:open-image'),
   digitizePosterize: (image, colors) => ipcRenderer.invoke('digitize:posterize', { image, colors }),
   digitizeGenerate: (image, opts) => ipcRenderer.invoke('digitize:generate', { image, opts }),
+
+  // Gestão de biblioteca (issue #17): navegador por pastas com busca,
+  // favoritos e cache de miniaturas. Abrir/copiar-para-pendrive/mostrar-no-
+  // Finder reaproveitam as pontes já existentes acima (openFromDrive,
+  // copyDesigns, showItemInFolder, peekDesign, listDrives).
+  libraryRoot: () => ipcRenderer.invoke('library:root'),
+  libraryListFolder: (relDir) => ipcRenderer.invoke('library:list-folder', relDir),
+  libraryListSubfolders: (relDir) => ipcRenderer.invoke('library:list-subfolders', relDir),
+  librarySearch: (query) => ipcRenderer.invoke('library:search', query),
+  libraryFavoritesList: () => ipcRenderer.invoke('library:favorites-list'),
+  libraryFavoriteToggle: (filePath) => ipcRenderer.invoke('library:favorites-toggle', filePath),
+  libraryThumbGet: (filePath, mtime) => ipcRenderer.invoke('library:thumb-get', { filePath, mtime }),
+  libraryThumbSave: (filePath, mtime, dataURL) => ipcRenderer.invoke('library:thumb-save', { filePath, mtime, dataURL }),
+  libraryRename: (filePath, newName) => ipcRenderer.invoke('library:rename', { filePath, newName }),
+  libraryMove: (filePath, destRelDir) => ipcRenderer.invoke('library:move', { filePath, destRelDir }),
+  libraryTrash: (filePath) => ipcRenderer.invoke('library:trash', filePath),
+  libraryWriteDesign: (relDir, fileName, design) => ipcRenderer.invoke('library:write-design', { relDir, fileName, design }),
 });

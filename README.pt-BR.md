@@ -116,7 +116,7 @@ então os parsers podem ser reaproveitados em CLI ou servidor.
 6. ✅ Modo de visualização realista (textura de fio)
 7. Suporte a VP3, HUS, SEW e PCS
 8. ✅ Gestão de pendrive: carregar e descarregar matrizes estilo biblioteca, com ejeção segura e limpeza dos arquivos ocultos do macOS
-9. Gestão de biblioteca: navegar o catálogo por pastas, com busca, miniaturas e integração com abrir/salvar como ([issue #17](https://github.com/diogobernini/bastidor/issues/17))
+9. ✅ Gestão de biblioteca: navegar o catálogo por pastas, com busca, miniaturas e integração com abrir/salvar como ([issue #17](https://github.com/diogobernini/bastidor/issues/17))
 
 ## Créditos e agradecimentos
 
