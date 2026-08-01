@@ -120,6 +120,30 @@
           <h2 data-i18n="side.warnings">Avisos</h2>
           <ul id="warning-list" class="warnings"></ul>
         </section>
+        <!-- Painel do modo de objetos (issue #29 fase 3): duplicar, alinhar/
+             distribuir a seleção múltipla e a ordem de costura. Visibilidade e
+             estado disabled controlados por ObjectCanvas.refreshPanel() em
+             src/renderer/objects.js (só aparece com o modo "Objetos" ativo). -->
+        <section id="obj-panel" hidden>
+          <h2 data-i18n="side.objects">Objetos</h2>
+          <div class="obj-actions">
+            <button id="obj-duplicate" class="tb-btn small wide" data-i18n="obj.duplicate" data-i18n-title="obj.duplicateTip">Duplicar</button>
+          </div>
+          <div class="align-grid">
+            <button id="obj-align-left" class="tb-btn small icon" data-i18n-title="obj.alignLeftTip">⇤</button>
+            <button id="obj-align-centerh" class="tb-btn small icon" data-i18n-title="obj.alignCenterHTip">↔</button>
+            <button id="obj-align-right" class="tb-btn small icon" data-i18n-title="obj.alignRightTip">⇥</button>
+            <button id="obj-align-top" class="tb-btn small icon" data-i18n-title="obj.alignTopTip">⤒</button>
+            <button id="obj-align-middlev" class="tb-btn small icon" data-i18n-title="obj.alignMiddleVTip">↕</button>
+            <button id="obj-align-bottom" class="tb-btn small icon" data-i18n-title="obj.alignBottomTip">⤓</button>
+          </div>
+          <div class="distribute-row">
+            <button id="obj-distribute-h" class="tb-btn small" data-i18n="obj.distributeH" data-i18n-title="obj.distributeHTip">⇹ Distribuir H</button>
+            <button id="obj-distribute-v" class="tb-btn small" data-i18n="obj.distributeV" data-i18n-title="obj.distributeVTip">⇳ Distribuir V</button>
+          </div>
+          <h3 data-i18n="side.stitchOrder">Ordem de costura</h3>
+          <ul id="stitch-order-list" class="stitch-order"></ul>
+        </section>
       </aside>
     </main>
 

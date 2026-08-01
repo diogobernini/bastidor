@@ -547,6 +547,7 @@ function updateSidebar() {
     warnings.push(I18n.tr('warn.hoop', { w: h.width, h: h.height }));
   }
   if (window.ObjectCanvas && ObjectCanvas.sidebarWarning()) warnings.push(ObjectCanvas.sidebarWarning()); // issue #29
+  if (window.ObjectCanvas) ObjectCanvas.refreshPanel(); // painel de seleção/ordem de costura (issue #29 fase 3)
   $('warnings-section').hidden = warnings.length === 0;
   const wl = $('warning-list');
   wl.innerHTML = '';

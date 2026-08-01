@@ -476,6 +476,90 @@ textarea:focus-visible,
   font-size: 9px;
 }
 
+/* ------------------------------------------------- painel de objetos (issue #29 fase 3) */
+
+#sidebar h3 {
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-dim);
+  margin: 12px 0 8px;
+  font-weight: 600;
+}
+
+.obj-actions {
+  margin-bottom: 8px;
+}
+
+.align-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.align-grid .tb-btn.icon {
+  font-size: 15px;
+}
+
+.distribute-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.stitch-order {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-top: 4px;
+}
+
+.stitch-order li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+}
+
+.stitch-order .name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stitch-order .count {
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+  font-size: 11.5px;
+}
+
+.stitch-order .order-btn {
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--accent);
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.stitch-order .order-btn:hover:not(:disabled) {
+  background: #3a2c14;
+  border-color: var(--accent);
+}
+
+.stitch-order .order-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
 /* ---------------------------------------------------------- statusbar */
 
 #statusbar {
