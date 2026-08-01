@@ -18,10 +18,22 @@ window.DrivesUI = (function () {
 // contagem de pontos vêm de uma leitura preguiçosa (drives:peek-design), tolerante
 // a erro, cacheada por caminho+mtime para não reparsear ao reabrir o modal.
 
-// Teto do cache de peek (state.drives.cache): usado tanto pela gestão de
-// pendrive quanto pela grade/hover/filtros da biblioteca, sem limite cresceria
-// pelo tamanho do catálogo inteiro numa sessão longa (issue #28, item 3).
-const DRIVE_PEEK_CACHE_CAP = 2000;
+// Tetos do cache de peek (state.drives.cache): usado tanto pela gestão de
+// pendrive quanto pela grade/hover/miniaturas da biblioteca. Cada entrada
+// resolvida retém uma MATRIZ INTEIRA (array de agulhadas, ~1 MB em média em
+// catálogo real — issue #57), então o limite que importa é o orçamento por
+// agulhadas retidas (~40 MB), não a contagem de entradas; esta fica só como
+// anteparo contra acúmulo de pendências/erros (custo ~0 para o orçamento).
+// Com teto só por contagem (2000), navegar um catálogo grande estourava os
+// 4 GB do heap do renderer (OOM do V8) na primeira sessão sem thumbs em disco.
+const DRIVE_PEEK_CACHE_CAP = 512;
+const DRIVE_PEEK_STITCH_BUDGET = 400000;
+
+// Custo de uma entrada do cache para o orçamento: agulhadas retidas. Entradas
+// pendentes (Promise) e erros não retêm matriz — custo zero.
+function peekEntryCost(entry) {
+  return entry && entry.ok && entry.design && entry.design.stitches ? entry.design.stitches.length : 0;
+}
 
 function driveCacheKey(item) {
   return `${item.path}::${item.mtime}`;
@@ -37,7 +49,10 @@ function peekDriveDesign(item) {
     .peekDesign(item.path)
     .then((res) => {
       const entry = res && res.ok ? { ok: true, design: res.design } : { ok: false, error: res && res.error };
-      state.drives.cache.set(key, entry); // já existe (chave inserida abaixo): só atualiza o valor, não cresce
+      // set direto (pode até reinserir uma chave que o orçamento despejou no
+      // meio-tempo); o evictToBudget logo abaixo reequilibra em qualquer caso.
+      state.drives.cache.set(key, entry);
+      LruCap.evictToBudget(state.drives.cache, peekEntryCost, DRIVE_PEEK_STITCH_BUDGET);
       return entry;
     })
     .catch((err) => {

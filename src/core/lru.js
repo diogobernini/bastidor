@@ -28,7 +28,28 @@ const LruCap = (function () {
     return map;
   }
 
-  return { setWithCap };
+  // Teto por CUSTO, não por contagem (issue #57): um teto de N entradas não
+  // protege um cache cujas entradas variam de bytes a megabytes — o cache de
+  // peek guarda matrizes inteiras (~1 MB cada em catálogo real), então 2000
+  // entradas eram ~2 GB e derrubavam o renderer por OOM. Aqui o chamador
+  // descreve o custo de cada valor (costOf, ex.: nº de agulhadas retidas) e
+  // um orçamento total; descartamos as entradas mais antigas até o somatório
+  // caber. O(n) por chamada — os caches do app têm no máximo centenas de
+  // entradas vivas, então não vale carregar contabilidade incremental.
+  function evictToBudget(map, costOf, budget) {
+    let total = 0;
+    for (const v of map.values()) total += costOf(v) || 0;
+    const oldest = map.keys();
+    while (total > budget) {
+      const k = oldest.next().value;
+      if (k === undefined) break;
+      total -= costOf(map.get(k)) || 0;
+      map.delete(k);
+    }
+    return map;
+  }
+
+  return { setWithCap, evictToBudget };
 })();
 
 if (typeof module !== 'undefined' && module.exports) {
