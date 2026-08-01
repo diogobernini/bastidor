@@ -159,6 +159,7 @@ function buildScenarioDefs(fx) {
     { name: 'boot', args: ['--lang=pt-BR'] },
     { name: 'open-sample', args: [`--open=${SAMPLE_XXX}`, '--lang=pt-BR'] },
     { name: 'edit-mode', args: [`--open=${SAMPLE_XXX}`, '--lang=pt-BR'] },
+    { name: 'merge-color-blocks', args: [`--open=${SAMPLE_XXX}`, '--lang=pt-BR'] },
     {
       name: 'resize-keep-density',
       args: [`--open=${SAMPLE_XXX}`, '--lang=pt-BR', `--stub-save-paths=${fx.resizeBefore},${fx.resizeAfter}`],
