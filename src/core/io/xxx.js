@@ -15,8 +15,17 @@ const { BinReader, BinWriter, signed8, signed16 } = require('../binary');
 const WRITE_SETTINGS = {
   full_jump: false,
   round: true,
-  max_jump: 124,
-  max_stitch: 124,
+  // O formato aceita ±124, mas as máquinas domésticas Singer não executam
+  // saltos tão longos: matrizes de fábrica (Compucon/PSW) nunca passam de
+  // 81 décimos de mm por eixo num salto, e uma Superb EM200 real driftava
+  // ao receber saltos de 94/95 (o excedente do movimento se perde a cada
+  // salto e o desenho escorrega). 80 mantém a gravação dentro do envelope
+  // comprovado dessas máquinas.
+  max_jump: 80,
+  // 123 (e não 124): pontos de exatamente ±124 seriam gravados no registro
+  // estendido 0x7D de 16 bits, que firmwares antigos não conhecem; abaixo
+  // disso todo ponto cabe no par de bytes clássico. Fábrica usa até 113.
+  max_stitch: 123,
 };
 
 function read(buf, out) {

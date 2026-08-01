@@ -71,7 +71,7 @@ test('cabeçalho XXX tem contagens e marcador de fim corretos', () => {
   assert.equal(buf[endOfStitches + 2], 0x02);
   assert.equal(buf[endOfStitches + 3], 0x14);
   const declaredCommands = buf.readUInt32LE(0x17);
-  const normalized = original.getNormalizedPattern({ max_jump: 124, max_stitch: 124, round: true });
+  const normalized = original.getNormalizedPattern(Object.assign({}, io.FORMATS.xxx.writeSettings));
   assert.equal(declaredCommands, normalized.stitches.length - 1);
 });
 
@@ -207,6 +207,46 @@ test('pontos longos em PEC/PES/JEF são divididos dentro do limite de cada forma
     assert.ok(maxDelta(readBack) <= limit, `${ext}: delta máximo ${maxDelta(readBack)}`);
     assertBoundsClose(readBack.bounds(), original.bounds(), 2);
   }
+});
+
+test('XXX gravado fica no envelope das Singer domésticas (salto ≤80, ponto ≤123, sem registro 0x7D)', () => {
+  // Matrizes de fábrica nunca passam de 81/eixo num salto; acima disso a
+  // máquina perde o excedente do movimento e o bordado deriva (drift).
+  const { Pattern } = require('../src/core/pattern');
+  const p = new Pattern();
+  p.addThread({ color: 0xaa3355 });
+  p.stitchAbs(0, 0);
+  p.stitchAbs(124, 0); // ponto no teto do formato: precisa ser dividido
+  p.stitchAbs(124, 30);
+  p.moveAbs(420, -310); // salto de ~30mm na diagonal
+  p.stitchAbs(420, -310);
+  p.stitchAbs(430, -310);
+  p.end();
+  const buf = io.writeBuffer(p, 'xxx');
+
+  const s8 = (v) => (v > 127 ? v - 256 : v);
+  let i = 0x100;
+  while (i < buf.length) {
+    const b1 = buf[i];
+    assert.notEqual(b1, 0x7d, `registro 0x7D (16 bits) no offset ${i}`);
+    assert.notEqual(b1, 0x7e, `registro 0x7E (16 bits) no offset ${i}`);
+    if (b1 === 0x7f) {
+      const b2 = buf[i + 1];
+      if (b2 === 0x7f) break; // fim
+      if (b2 === 0x01) {
+        const m = Math.max(Math.abs(s8(buf[i + 2])), Math.abs(s8(buf[i + 3])));
+        assert.ok(m <= 80, `salto de ${m} décimos excede o envelope da máquina`);
+      }
+      i += 4;
+      continue;
+    }
+    const m = Math.max(Math.abs(s8(b1)), Math.abs(s8(buf[i + 1])));
+    assert.ok(m <= 123, `ponto de ${m} décimos entraria no registro 0x7D`);
+    i += 2;
+  }
+
+  const readBack = io.readBuffer(buf, 'xxx');
+  assertBoundsClose(readBack.bounds(), p.bounds(), 2);
 });
 
 test('TRIM sobrevive à ida-e-volta em DST (wiggle de saltos + clipping)', () => {
