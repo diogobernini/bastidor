@@ -19,9 +19,38 @@ const DEFAULTS = {
   outline: true,
 };
 
+// Escala toda a geometria para a largura final pedida ANTES de costurar:
+// assim o espaçamento/agulhada em mm valem de verdade (redimensionar o
+// Pattern depois esmagaria ou esticaria a densidade).
+function scaleGroupsToTargetWidth(groups, targetWidthMm) {
+  if (!targetWidthMm || !(targetWidthMm > 0)) return;
+  let minX = Infinity;
+  let maxX = -Infinity;
+  const visit = (pts) => {
+    for (const p of pts) {
+      if (p[0] < minX) minX = p[0];
+      if (p[0] > maxX) maxX = p[0];
+    }
+  };
+  for (const g of groups.fills) for (const r of g.rings) visit(r.points || r);
+  for (const g of groups.strokes) for (const pl of g.polylines) visit(pl.points);
+  const w = maxX - minX;
+  if (!(w > 0)) return;
+  const f = (targetWidthMm * MM) / w;
+  const scalePts = (pts) => {
+    for (const p of pts) {
+      p[0] *= f;
+      p[1] *= f;
+    }
+  };
+  for (const g of groups.fills) for (const r of g.rings) scalePts(r.points || r);
+  for (const g of groups.strokes) for (const pl of g.polylines) scalePts(pl.points);
+}
+
 function importSvg(svgText, opts = {}) {
   const cfg = Object.assign({}, DEFAULTS, opts);
   const groups = svgimport.parseSvgToShapeGroups(svgText);
+  scaleGroupsToTargetWidth(groups, cfg.targetWidthMm);
 
   const pattern = new Pattern();
   let started = false;

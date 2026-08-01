@@ -33,6 +33,10 @@ const argFakeDrive = getArgValue('--fake-drive');
 // disputar o userData com uma instância aberta do app.
 const argUserData = getArgValue('--user-data');
 if (argUserData) app.setPath('userData', path.resolve(argUserData));
+// --digitize-image=arquivo: abre o dialog de digitalizar já com a imagem (autoteste).
+const argDigitizeImage = getArgValue('--digitize-image');
+// --svg-import=arquivo: abre o dialog de importar SVG já com o arquivo (autoteste).
+const argSvgImport = getArgValue('--svg-import');
 
 function currentLang() {
   if (argLang) return resolveLang(argLang, 'en');
@@ -145,11 +149,22 @@ function createWindow() {
 
 // ------------------------------------------------------------------ IPC
 
+function readImageAsPayload(filePath) {
+  const ext = io.extOf(filePath);
+  const mime = IMAGE_MIME[ext] || 'application/octet-stream';
+  const base64 = fs.readFileSync(filePath).toString('base64');
+  return { name: path.basename(filePath), dataURL: `data:${mime};base64,${base64}` };
+}
+
 function setupIpc() {
   ipcMain.handle('app:launch-options', () => ({
     openPath: argOpen || pendingOpenPath || firstFileArg(),
     screenshotMode: !!argScreenshot,
     dialog: argDialog,
+    digitizeImage: argDigitizeImage ? readImageAsPayload(argDigitizeImage) : null,
+    svgImport: argSvgImport
+      ? { path: path.resolve(argSvgImport), text: fs.readFileSync(argSvgImport, 'utf8'), name: path.basename(argSvgImport) }
+      : null,
     hoopPresets: HOOP_PRESETS,
     version: app.getVersion(),
     lang: currentLang(),
@@ -227,8 +242,16 @@ function setupIpc() {
 
   // Pipeline completa da digitalização: imagem -> contornos -> Pattern -> design.
   ipcMain.handle('digitize:generate', (e, { image, opts }) => {
-    const paths = raster.rasterToPaths(image, { colors: opts.colors, simplifyTol: opts.simplifyTol });
-    const pattern = raster.pathsToPattern(paths, { scale: opts.scale, stitchLenMm: opts.stitchLenMm });
+    const paths = raster.rasterToPaths(image, { colors: opts.colors, simplifyTol: opts.simplifyTol, ignoreBackground: opts.ignoreBackground });
+    const pattern = raster.pathsToPattern(paths, {
+      scale: opts.scale,
+      stitchLenMm: opts.stitchLenMm,
+      outline: opts.outline,
+      fill: opts.fill,
+      fillSpacingMm: opts.fillSpacingMm,
+      fillAngleDeg: opts.fillAngleDeg,
+      fillStitchMm: opts.fillStitchMm,
+    });
     return patternToDesign(pattern, { name: opts.name || 'digitalizado', format: null, path: null });
   });
 
@@ -319,15 +342,20 @@ function setupIpc() {
 
   // Digitalização: gera o Pattern no núcleo e publica pelo mesmo canal de
   // "design:opened" usado pela abertura normal de arquivos.
-  ipcMain.handle('svg:import', (e, { text, opts, name, path: svgPath }) => {
+  ipcMain.handle('svg:import', (e, { text, opts, name, path: svgPath, preview }) => {
     const pattern = digitize.importSvg(text, opts || {});
     const design = patternToDesign(pattern, {
       name: name || 'import.svg',
       path: svgPath || null,
       format: 'svg',
     });
+    const b = pattern.bounds();
+    const widthMm = pattern.stitches.length ? (b[2] - b[0]) / 10 : 0;
+    const heightMm = pattern.stitches.length ? (b[3] - b[1]) / 10 : 0;
+    // preview: o dialog quer só olhar o resultado; nada de design:opened.
+    if (preview) return { ok: true, widthMm, heightMm, design };
     sendToRenderer('design:opened', design);
-    return { ok: true, stitches: pattern.countStitches() };
+    return { ok: true, stitches: pattern.countStitches(), widthMm, heightMm };
   });
 
   // Lettering (issue #7): fontes de traço único em fonts/, layout e pontos

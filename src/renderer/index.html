@@ -280,6 +280,14 @@
       <h2 data-i18n="svgimport.title">Importar SVG</h2>
       <p class="hint mono" id="svgimport-filename"></p>
       <label class="row">
+        <span data-i18n="svgimport.width">Largura final (mm)</span>
+        <input type="number" id="svgimport-width" min="5" max="600" step="1" />
+      </label>
+      <label class="row">
+        <span data-i18n="svgimport.height">Altura final (mm)</span>
+        <input type="number" id="svgimport-height" min="5" max="600" step="1" />
+      </label>
+      <label class="row">
         <span data-i18n="svgimport.fillSpacing">Espaçamento entre fileiras (mm)</span>
         <input type="number" id="svgimport-spacing" min="0.1" max="2" step="0.05" value="0.4" />
       </label>
@@ -299,6 +307,10 @@
         <input type="checkbox" id="svgimport-outline" checked />
         <span data-i18n="svgimport.outline">Gerar contornos (stroke)</span>
       </label>
+      <div class="dig-stitches">
+        <canvas id="svgimport-cv"></canvas>
+        <span id="svgimport-stats" class="mono"></span>
+      </div>
       <div class="dlg-actions">
         <button value="cancel" class="tb-btn" data-i18n="set.cancel">Cancelar</button>
         <button value="apply" class="tb-btn accent" data-i18n="svgimport.apply">Importar</button>
@@ -420,7 +432,7 @@
   <dialog id="dlg-digitize">
     <form method="dialog" id="digitize-form">
       <h2 data-i18n="dig.title">Digitalizar imagem</h2>
-      <p class="hint" data-i18n="dig.hint">Posteriza a imagem numa quantidade de cores à sua escolha e costura ponto corrido pelo contorno de cada cor. O preenchimento de áreas fechadas chega junto com a ferramenta de digitalização de SVG.</p>
+      <p class="hint" data-i18n="dig.hint">Posteriza a imagem numa quantidade de cores à sua escolha, preenche cada área com tatami e contorna com ponto corrido. Ajuste os parâmetros olhando a prévia dos pontos.</p>
 
       <div class="dig-preview">
         <div class="dig-pane">
@@ -438,18 +450,53 @@
         <input type="range" id="dig-colors" min="2" max="8" step="1" value="4" />
         <span id="dig-colors-value" class="mono">4</span>
       </label>
+      <label class="row check">
+        <input type="checkbox" id="dig-ignorebg" checked />
+        <span data-i18n="dig.ignoreBg">Ignorar a cor de fundo (borda da imagem)</span>
+      </label>
       <label class="row">
         <span data-i18n="dig.width">Largura final (mm)</span>
         <input type="number" id="dig-width" min="5" max="600" step="1" value="80" />
       </label>
       <label class="row">
+        <span data-i18n="dig.height">Altura final (mm)</span>
+        <input type="number" id="dig-height" min="5" max="600" step="1" value="80" />
+      </label>
+      <label class="row">
         <span data-i18n="dig.tolerance">Tolerância de simplificação (mm)</span>
         <input type="number" id="dig-tolerance" min="0" max="5" step="0.05" value="0.3" />
       </label>
+      <hr />
+      <label class="row check">
+        <input type="checkbox" id="dig-fill" checked />
+        <span data-i18n="dig.fill">Preenchimento (tatami)</span>
+      </label>
       <label class="row">
-        <span data-i18n="dig.stitchLen">Comprimento do ponto (mm)</span>
+        <span data-i18n="dig.fillSpacing">Espaçamento entre fileiras (mm)</span>
+        <input type="number" id="dig-fillspacing" min="0.1" max="2" step="0.05" value="0.4" />
+      </label>
+      <label class="row">
+        <span data-i18n="dig.fillAngle">Ângulo do preenchimento (°)</span>
+        <input type="number" id="dig-fillangle" min="-180" max="180" step="5" value="0" />
+      </label>
+      <label class="row">
+        <span data-i18n="dig.fillStitch">Agulhada do preenchimento (mm)</span>
+        <input type="number" id="dig-fillstitch" min="1" max="8" step="0.1" value="3" />
+      </label>
+      <hr />
+      <label class="row check">
+        <input type="checkbox" id="dig-outline" checked />
+        <span data-i18n="dig.outline">Contorno (ponto corrido)</span>
+      </label>
+      <label class="row">
+        <span data-i18n="dig.stitchLen">Agulhada do contorno (mm)</span>
         <input type="number" id="dig-stitchlen" min="0.5" max="6" step="0.1" value="2.5" />
       </label>
+      <hr />
+      <div class="dig-stitches">
+        <canvas id="dig-cv-stitches"></canvas>
+        <span data-i18n="dig.previewStitches">Prévia dos pontos</span>
+      </div>
       <p id="dig-summary" class="hint mono"></p>
 
       <div class="dlg-actions">

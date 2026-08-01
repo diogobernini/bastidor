@@ -9,6 +9,8 @@
 // tudo) -> pathsToPattern (ponto corrido pelos contornos).
 
 const { Pattern } = require('../pattern');
+const fill = require('./fill');
+const runstitch = require('./runstitch');
 
 // ------------------------------------------------------------ quantização
 
@@ -290,13 +292,45 @@ function rgbToHex([r, g, b]) {
 // paleta. options.colors: 2..8 (padrão 4). options.simplifyTol: tolerância
 // do Douglas-Peucker EM PIXELS (padrão ~1,5 px); quem chama converte a
 // tolerância em mm escolhida na interface para pixels antes de passar aqui.
+// Índice de paleta mais frequente na borda da imagem: numa foto/logotipo o
+// fundo encosta na moldura; é a cor que o usuário quase nunca quer costurar.
+function borderBackgroundIndex(indexed, width, height) {
+  const counts = new Map();
+  const bump = (i) => {
+    const v = indexed[i];
+    if (v === 255) return; // transparente já não vira ponto
+    counts.set(v, (counts.get(v) || 0) + 1);
+  };
+  for (let x = 0; x < width; x++) {
+    bump(x);
+    bump((height - 1) * width + x);
+  }
+  for (let y = 1; y < height - 1; y++) {
+    bump(y * width);
+    bump(y * width + width - 1);
+  }
+  let best = -1;
+  let bestCount = 0;
+  for (const [v, n] of counts) {
+    if (n > bestCount) {
+      best = v;
+      bestCount = n;
+    }
+  }
+  return best;
+}
+
 function rasterToPaths(image, options = {}) {
   const colors = Math.max(2, Math.min(8, Math.round(options.colors !== undefined ? options.colors : 4)));
   const simplifyTol = options.simplifyTol !== undefined ? options.simplifyTol : 1.5;
 
   const { palette, indexed } = quantize(image, colors);
+  const skipIndex = options.ignoreBackground
+    ? borderBackgroundIndex(indexed, image.width, image.height)
+    : -1;
   const paths = [];
   for (let ci = 0; ci < palette.length; ci++) {
+    if (ci === skipIndex) continue;
     const rawContours = traceRegions(indexed, image.width, image.height, ci);
     const contours = [];
     for (const raw of rawContours) {
@@ -326,34 +360,43 @@ function rasterToPaths(image, options = {}) {
 // antes ou em vez do ponto corrido do contorno.
 function pathsToPattern(paths, options = {}) {
   const scale = options.scale || 1;
-  const stitchLen = Math.max(1, Math.round((options.stitchLenMm !== undefined ? options.stitchLenMm : 2.5) * 10));
+  const outline = options.outline !== false;
+  const outlineStitch = Math.max(1, Math.round((options.stitchLenMm !== undefined ? options.stitchLenMm : 2.5) * 10));
+  const doFill = !!options.fill;
+  // Parâmetros do tatami em unidades nativas (0,1 mm), mesmos nomes do
+  // importador de SVG (fill.js é compartilhado entre os dois caminhos).
+  const fillSpacing = Math.max(1, (options.fillSpacingMm !== undefined ? options.fillSpacingMm : 0.4) * 10);
+  const fillAngle = options.fillAngleDeg !== undefined ? options.fillAngleDeg : 0;
+  const fillStitch = Math.max(5, (options.fillStitchMm !== undefined ? options.fillStitchMm : 3) * 10);
 
   const pattern = new Pattern();
   const visible = paths.filter((p) => p.contours && p.contours.length);
   for (const p of visible) pattern.addThread(p.color);
 
-  function sewTo(x, y) {
-    const x0 = pattern._previousX;
-    const y0 = pattern._previousY;
-    const dist = Math.hypot(x - x0, y - y0);
-    const steps = Math.max(1, Math.ceil(dist / stitchLen));
-    for (let s = 1; s <= steps; s++) {
-      pattern.stitchAbs(Math.round(x0 + ((x - x0) * s) / steps), Math.round(y0 + ((y - y0) * s) / steps));
+  function emitRuns(runs) {
+    for (const run of runs) {
+      if (!run.length) continue;
+      pattern.moveAbs(Math.round(run[0][0]), Math.round(run[0][1]));
+      for (let i = 1; i < run.length; i++) pattern.stitchAbs(Math.round(run[i][0]), Math.round(run[i][1]));
     }
   }
 
   visible.forEach((p, pi) => {
-    for (const contour of p.contours) {
-      const [fx0, fy0] = contour[0];
-      const fx = Math.round(fx0 * scale);
-      const fy = Math.round(fy0 * scale);
-      pattern.moveAbs(fx, fy);
-      for (let i = 1; i < contour.length; i++) {
-        sewTo(Math.round(contour[i][0] * scale), Math.round(contour[i][1] * scale));
+    // Todos os anéis da cor entram juntos no preenchimento: o par-ímpar das
+    // varreduras (spansAtY) é o que preserva os furos (contornos internos).
+    const rings = p.contours.map((ct) => ct.map(([x, y]) => [x * scale, y * scale]));
+    if (doFill) {
+      emitRuns(fill.fillPolygonsTatami(rings, {
+        angleDeg: fillAngle,
+        rowSpacing: fillSpacing,
+        stitchLength: fillStitch,
+      }));
+    }
+    if (outline) {
+      for (const ring of rings) {
+        const resampled = runstitch.resampleRunStitch(ring, outlineStitch, true);
+        if (resampled.length >= 2) emitRuns([[...resampled, resampled[0]]]);
       }
-      sewTo(fx, fy); // fecha o contorno voltando ao ponto inicial
-
-      // << PREENCHIMENTO tatami entraria aqui (issue #1), por contorno >>
     }
     if (pi < visible.length - 1) pattern.colorChange();
   });
