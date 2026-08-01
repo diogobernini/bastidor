@@ -51,7 +51,7 @@ const STRINGS = {
     'dlg.saveTitle': 'Save design as',
     'dlg.exportPngTitle': 'Export PNG',
     'dlg.openError': 'Could not open',
-    'about.copyright': 'Embroidery studio · Singer XXX, DST, PES, JEF, EXP designs',
+    'about.copyright': 'Embroidery studio · Singer XXX, DST, PES, JEF, EXP, VP3, HUS, SEW, PCS designs',
 
     'tb.open': 'Open',
     'tb.openTip': 'Open design (Cmd/Ctrl+O)',
@@ -81,7 +81,7 @@ const STRINGS = {
     'colors.catalog': 'no. {n}',
 
     'empty.title': 'Drop a design here',
-    'empty.formats': 'Singer XXX · Tajima DST · Brother PES/PEC · Janome JEF · Melco EXP',
+    'empty.formats': 'Singer XXX · Tajima DST · Brother PES/PEC · Janome JEF · Melco EXP · VP3 · HUS · SEW · PCS',
     'empty.open': 'Open file…',
     'empty.browser': 'Run with npm start to open designs.',
 
@@ -182,6 +182,10 @@ const STRINGS = {
     'fmt.hRead': 'Read',
     'fmt.hWrite': 'Write',
     'fmt.dst': 'Tajima and most industrial machines',
+    'fmt.vp3': 'Husqvarna Viking / Pfaff',
+    'fmt.hus': 'Husqvarna Viking (older machines)',
+    'fmt.sew': 'Janome (alternate format)',
+    'fmt.pcs': 'Pfaff (older machines)',
     'fmt.svg': 'Vector and image (client approval)',
     'fmt.close': 'Close',
 
@@ -407,7 +411,7 @@ const STRINGS = {
     'dlg.saveTitle': 'Salvar matriz como',
     'dlg.exportPngTitle': 'Exportar PNG',
     'dlg.openError': 'Não foi possível abrir',
-    'about.copyright': 'Estúdio de bordado · matrizes Singer XXX, DST, PES, JEF, EXP',
+    'about.copyright': 'Estúdio de bordado · matrizes Singer XXX, DST, PES, JEF, EXP, VP3, HUS, SEW, PCS',
 
     'tb.open': 'Abrir',
     'tb.openTip': 'Abrir matriz (Cmd/Ctrl+O)',
@@ -437,7 +441,7 @@ const STRINGS = {
     'colors.catalog': 'nº {n}',
 
     'empty.title': 'Arraste uma matriz para cá',
-    'empty.formats': 'Singer XXX · Tajima DST · Brother PES/PEC · Janome JEF · Melco EXP',
+    'empty.formats': 'Singer XXX · Tajima DST · Brother PES/PEC · Janome JEF · Melco EXP · VP3 · HUS · SEW · PCS',
     'empty.open': 'Abrir arquivo…',
     'empty.browser': 'Execute com npm start para abrir matrizes.',
 
@@ -538,6 +542,10 @@ const STRINGS = {
     'fmt.hRead': 'Leitura',
     'fmt.hWrite': 'Gravação',
     'fmt.dst': 'Tajima e a maioria das industriais',
+    'fmt.vp3': 'Husqvarna Viking / Pfaff',
+    'fmt.hus': 'Husqvarna Viking (máquinas mais antigas)',
+    'fmt.sew': 'Janome (formato alternativo)',
+    'fmt.pcs': 'Pfaff (máquinas mais antigas)',
     'fmt.svg': 'Vetor e imagem (aprovação de cliente)',
     'fmt.close': 'Fechar',
 

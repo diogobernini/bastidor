@@ -106,6 +106,69 @@ function buildLongStitchTest() {
   return p;
 }
 
+// Matriz sintética de 4 cores (issue #18 — fixtures VP3/HUS/SEW/PCS): usada
+// junto com a rosácea para validação cruzada com o pystitch. Só segmentos
+// alinhados aos eixos (múltiplos exatos de STEP) — evita qualquer ambiguidade
+// de arredondamento entre o Math.round (JS, sempre arredonda 0,5 pra cima) e
+// o round() do Python (banker's rounding) no espelho usado para gerar as
+// fixtures de referência (ver tools/pystitch-fixtures/).
+function buildMultiColorSample() {
+  const p = new Pattern();
+  p.metadata('name', 'MULTICOR');
+  p.addThread({ color: 0xd11f2c, description: 'Vermelho' });
+  p.addThread({ color: 0x1f9d55, description: 'Verde' });
+  p.addThread({ color: 0x1f5fd1, description: 'Azul' });
+  p.addThread({ color: 0xe8c200, description: 'Amarelo' });
+
+  const STEP = 20;
+  function lineTo(x, y) {
+    const x0 = p._previousX;
+    const y0 = p._previousY;
+    const dist = Math.abs(x - x0) + Math.abs(y - y0); // sempre um só eixo muda
+    const steps = Math.round(dist / STEP);
+    for (let s = 1; s <= steps; s++) {
+      p.stitchAbs(x0 + Math.round(((x - x0) * s) / steps), y0 + Math.round(((y - y0) * s) / steps));
+    }
+  }
+
+  // Cor 1 (vermelho): quadrado 300x300.
+  p.moveAbs(-400, -400);
+  lineTo(-100, -400);
+  lineTo(-100, -100);
+  lineTo(-400, -100);
+  lineTo(-400, -400);
+  p.trim();
+  p.colorChange();
+
+  // Cor 2 (verde): retângulo 200x200, depois de um salto grande.
+  p.moveAbs(300, -400);
+  lineTo(500, -400);
+  lineTo(500, -200);
+  lineTo(300, -200);
+  lineTo(300, -400);
+  p.trim();
+  p.colorChange();
+
+  // Cor 3 (azul): escada em zigue-zague.
+  p.moveAbs(-400, 200);
+  for (let i = 0; i < 6; i++) {
+    lineTo(p._previousX + 60, p._previousY);
+    lineTo(p._previousX, p._previousY + 60);
+  }
+  p.trim();
+  p.colorChange();
+
+  // Cor 4 (amarelo): pontos isolados (saltos entre agulhadas soltas).
+  p.moveAbs(200, 200);
+  p.stitchAbs(200, 200);
+  for (let i = 1; i < 6; i++) {
+    p.moveAbs(200 + i * 60, 200 + (i % 2) * 60);
+    p.stitchAbs(200 + i * 60, 200 + (i % 2) * 60);
+  }
+  p.end();
+  return p;
+}
+
 function main() {
   const outDir = path.join(__dirname, '..', 'samples');
   fs.mkdirSync(outDir, { recursive: true });
@@ -120,4 +183,4 @@ function main() {
 
 if (require.main === module) main();
 
-module.exports = { buildRosacea, buildLongStitchTest };
+module.exports = { buildRosacea, buildLongStitchTest, buildMultiColorSample };

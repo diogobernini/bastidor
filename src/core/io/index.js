@@ -13,6 +13,10 @@ const jef = require('./jef');
 const pes = require('./pes');
 const pec = require('./pec');
 const svg = require('./svg');
+const vp3 = require('./vp3');
+const hus = require('./hus');
+const sew = require('./sew');
+const pcs = require('./pcs');
 
 const FORMATS = {
   xxx: { name: 'Singer XXX', read: xxx.read, write: xxx.write, writeSettings: xxx.WRITE_SETTINGS },
@@ -21,6 +25,10 @@ const FORMATS = {
   jef: { name: 'Janome JEF', read: jef.read, write: jef.write, writeSettings: jef.WRITE_SETTINGS },
   pes: { name: 'Brother PES', read: pes.read, write: pes.write, writeSettings: pes.WRITE_SETTINGS },
   pec: { name: 'Brother PEC', read: pes.read, write: pec.write, writeSettings: pec.WRITE_SETTINGS },
+  vp3: { name: 'Husqvarna/Pfaff VP3', read: vp3.read, write: vp3.write, writeSettings: vp3.WRITE_SETTINGS },
+  hus: { name: 'Husqvarna HUS', read: hus.read },
+  sew: { name: 'Janome SEW', read: sew.read },
+  pcs: { name: 'Pfaff PCS', read: pcs.read, write: pcs.write, writeSettings: pcs.WRITE_SETTINGS },
   svg: { name: 'SVG (vetor)', write: svg.write, plain: true },
 };
 
