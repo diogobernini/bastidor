@@ -247,6 +247,21 @@ input:focus {
   pointer-events: auto;
 }
 
+/* Cartão escuro translúcido: o estado vazio precisa continuar legível sobre
+   qualquer cor/textura de tecido escolhida nos ajustes. */
+#empty-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 30px 40px;
+  background: rgba(18, 18, 23, 0.86);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 14px;
+  backdrop-filter: blur(5px);
+  max-width: min(720px, 88%);
+}
+
 #empty-state svg {
   color: #3c3c46;
   margin-bottom: 6px;
@@ -486,6 +501,12 @@ dialog h2 {
   flex-direction: column;
   gap: 11px;
   min-height: 240px;
+}
+
+/* display:flex acima venceria o atributo hidden (regra de autor > regra do
+   navegador); sem isto as abas empilham todos os painéis de uma vez. */
+.tab-pane[hidden] {
+  display: none;
 }
 
 .tab-pane hr {
