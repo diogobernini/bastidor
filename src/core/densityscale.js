@@ -7,7 +7,7 @@
 //
 // Escopo v1 (reduzido): cobre só ponto cheio (satin), detectado por
 // zigue-zague entre duas bordas. Preenchimentos (tatami) NÃO são
-// regenerados aqui — permanecem com escala pura de coordenadas até existir
+// regenerados aqui: permanecem com escala pura de coordenadas até existir
 // detecção de preenchimento, que depende do motor de digitalização da
 // issue #1 (fill algorithms para formas fechadas). Ponto corrido (running
 // stitch) também usa escala pura: só ponto cheio tem reconstrução.
@@ -18,8 +18,8 @@ const COMMAND_MASK = 0xff;
 // Limiares da heurística de detecção de ponto cheio (ver relatório da
 // issue #4 para a taxa de acerto medida na amostra rosacea.xxx).
 const DEFAULTS = {
-  minSegLen: 5, // 0,5 mm — agulhada mais curta considerada satin
-  maxSegLen: 120, // 12 mm — agulhada mais longa considerada satin
+  minSegLen: 5, // 0,5 mm, agulhada mais curta considerada satin
+  maxSegLen: 120, // 12 mm, agulhada mais longa considerada satin
   minTurnAngleDeg: 140, // reversão mínima de direção entre agulhadas consecutivas
   minStitches: 8, // tamanho mínimo de uma corrida para valer a pena regenerar
 };
@@ -38,7 +38,7 @@ function dist(a, b) {
 // consecutivas em zigue-zague (ângulo entre segmentos > minTurnAngleDeg,
 // alternando de lado a cada passo), com comprimento de agulhada em
 // [minSegLen, maxSegLen] e ao menos minStitches agulhadas.
-// Retorna [{start, end}] — índices no array `stitches`, `end` exclusivo
+// Retorna [{start, end}]: índices no array `stitches`, `end` exclusivo
 // (mesma convenção de Array.prototype.slice usada no resto do core).
 function detectSatinRuns(stitches, options = {}) {
   const opts = Object.assign({}, DEFAULTS, options);
@@ -263,7 +263,7 @@ function rescaleWithDensity(stitches, factor, options = {}) {
 
 const api = { detectSatinRuns, rescaleWithDensity, DEFAULTS };
 
-// CommonJS (testes, processo principal) — guardado para não quebrar em
+// CommonJS (testes, processo principal), guardado para não quebrar em
 // contexto de navegador puro (nodeIntegration desligado).
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = api;

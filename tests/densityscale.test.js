@@ -15,7 +15,7 @@ const io = require('../src/core/io');
 // ------------------------------------------------------------- fixtures
 
 // Reamostra uma polilinha em passo de comprimento de arco ~= spacing.
-// (cópia local só para gerar a fixture — o núcleo tem a sua própria.)
+// (cópia local só para gerar a fixture; o núcleo tem a sua própria.)
 function resample(points, spacing) {
   const cum = [0];
   for (let i = 1; i < points.length; i++) {
@@ -74,7 +74,7 @@ function buildSatinColumn({ length = 800, amplitude = 80, cycles = 1.5, width = 
 }
 
 // Ponto corrido puro: avança em curva suave (sem reversão de direção), só
-// para frente — não deve ser confundido com ponto cheio.
+// para frente; não deve ser confundido com ponto cheio.
 function buildRunningStitch({ n = 60, step = 25 } = {}) {
   const stitches = [[0, 0, C.JUMP]];
   let x = 0;
