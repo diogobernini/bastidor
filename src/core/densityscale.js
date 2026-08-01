@@ -12,6 +12,7 @@
 // issue #1 (fill algorithms para formas fechadas). Ponto corrido (running
 // stitch) também usa escala pura: só ponto cheio tem reconstrução.
 
+(function () {
 const STITCH_CMD = 0; // valor de STITCH em src/core/commands.js
 const COMMAND_MASK = 0xff;
 
@@ -261,14 +262,18 @@ function rescaleWithDensity(stitches, factor, options = {}) {
   return out;
 }
 
-const api = { detectSatinRuns, rescaleWithDensity, DEFAULTS };
+const exported = { detectSatinRuns, rescaleWithDensity, DEFAULTS };
 
 // CommonJS (testes, processo principal), guardado para não quebrar em
 // contexto de navegador puro (nodeIntegration desligado).
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = api;
+  module.exports = exported;
 }
-// <script> comum no renderer (sem require/import disponível).
+// <script> comum no renderer (sem require/import disponível). O IIFE isola
+// os identificadores do escopo global: scripts clássicos compartilham o
+// escopo léxico da página, e "api" (preload) e "COMMAND_MASK" (renderer.js)
+// já existem lá.
 if (typeof window !== 'undefined') {
-  window.DensityScale = api;
+  window.DensityScale = exported;
 }
+})();
