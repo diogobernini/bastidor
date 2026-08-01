@@ -1,63 +1,19 @@
 'use strict';
 // Converte texto (via layout.js) num Pattern do núcleo: cada traço de cada
 // glifo se torna ponto corrido reamostrado a cada stitchLengthMm (padrão
-// 2 mm), ou ponto triplo/"bean" (ida-volta-ida em cada segmento) quando
-// opts.bean; salto (sem costura) entre traços e entre letras; um único fio
-// (preto, por padrão); termina com end(). Por padrão, o resultado sai
-// centralizado na origem (opts.center = false para desligar).
+// 2 mm), ponto triplo/"bean" (ida-volta-ida em cada segmento) quando
+// opts.bean, ou ponto cheio/satin (zigue-zague via satin.js — issue #19)
+// quando opts.finish === 'satin'; salto (sem costura) entre traços e entre
+// letras; um único fio (preto, por padrão); termina com end(). Por padrão, o
+// resultado sai centralizado na origem (opts.center = false para desligar).
 
 const { Pattern, Thread } = require('../pattern');
 const C = require('../commands');
 const { layoutText } = require('./layout');
+const { resamplePolyline } = require('./resample');
+const satin = require('./satin');
 
 const DEFAULT_STITCH_LENGTH_MM = 2;
-
-function dedupePoints(points) {
-  const out = [];
-  for (const p of points) {
-    const prev = out[out.length - 1];
-    if (!prev || Math.hypot(p[0] - prev[0], p[1] - prev[1]) > 1e-6) out.push(p);
-  }
-  return out;
-}
-
-function roundDedupe(points) {
-  return dedupePoints(points.map(([x, y]) => [Math.round(x), Math.round(y)]));
-}
-
-// Reamostra uma polilinha para que os pontos de saída fiquem a ~stepUnits de
-// distância entre si (acumulando a sobra de cada segmento para o próximo, o
-// que mantém o compasso constante mesmo atravessando vértices). Preserva o
-// primeiro e o último ponto originais; o trecho final por isso pode ficar
-// mais curto que stepUnits — prática comum em digitalização, para acertar
-// exatamente o ponto final do traço.
-function resamplePolyline(points, stepUnits) {
-  const pts = dedupePoints(points);
-  if (pts.length < 2) return [];
-  if (!(stepUnits > 0)) return roundDedupe(pts);
-
-  const out = [pts[0]];
-  let carry = 0;
-  for (let i = 1; i < pts.length; i++) {
-    const [x0, y0] = pts[i - 1];
-    const [x1, y1] = pts[i];
-    const segLen = Math.hypot(x1 - x0, y1 - y0);
-    if (segLen <= 1e-9) continue;
-    let dist = stepUnits - carry;
-    while (dist <= segLen) {
-      const t = dist / segLen;
-      out.push([x0 + (x1 - x0) * t, y0 + (y1 - y0) * t]);
-      dist += stepUnits;
-    }
-    carry = segLen - (dist - stepUnits);
-  }
-  const last = pts[pts.length - 1];
-  const outLast = out[out.length - 1];
-  if (Math.hypot(last[0] - outLast[0], last[1] - outLast[1]) > 1e-6) out.push(last);
-
-  const rounded = roundDedupe(out);
-  return rounded.length >= 2 ? rounded : roundDedupe([pts[0], pts[pts.length - 1]]);
-}
 
 // Costura os segmentos de uma polilinha já reamostrada. Ponto triplo (bean):
 // cada segmento é percorrido ida-volta-ida (3 agulhadas por segmento em vez
@@ -76,11 +32,40 @@ function stitchSegments(pattern, points, bean) {
   }
 }
 
+// Acabamento pedido em opts: 'running' (ponto corrido, padrão), 'bean'
+// (ponto triplo) ou 'satin' (ponto cheio). opts.finish é a forma nova e
+// preferida; opts.bean continua funcionando sozinho (compatibilidade com a
+// fase 1) quando opts.finish não é informado.
+function resolveFinish(opts) {
+  if (opts.finish === 'satin') return 'satin';
+  if (opts.finish === 'bean' || opts.bean) return 'bean';
+  return 'running';
+}
+
+// Monta a sequência de agulhadas do ponto cheio para um traço: o zigue-zague
+// (satin.satinizeStroke) e, se opts.underlay, um ponto corrido pelo centro
+// do traço antes dele. Quando há underlay, o zigue-zague é percorrido de
+// trás para frente (do fim do traço para o início): o underlay já deixou a
+// agulha perto do fim do traço, então "voltar" pelo satin evita uma agulhada
+// longa ligando o fim do underlay ao início do zigue-zague (que começa perto
+// do início do traço, do outro lado do glifo).
+function buildSatinSequence(pts, { widthUnits, densityUnits, underlay, stepUnits }) {
+  const zigzag = satin.satinizeStroke(pts, { widthUnits, densityUnits });
+  if (!underlay) return zigzag;
+  const under = resamplePolyline(pts, stepUnits);
+  if (under.length < 2) return zigzag;
+  if (zigzag.length < 2) return under;
+  return [...under, ...zigzag.slice().reverse()];
+}
+
 function textToPattern(font, text, opts = {}) {
   const stitchLengthMm = opts.stitchLengthMm > 0 ? opts.stitchLengthMm : DEFAULT_STITCH_LENGTH_MM;
   const stepUnits = stitchLengthMm * 10; // 0,1 mm
-  const bean = !!opts.bean;
+  const finish = resolveFinish(opts);
   const color = opts.color !== undefined ? opts.color : 0x000000;
+  const satinWidthUnits = (opts.satinWidthMm > 0 ? opts.satinWidthMm : satin.DEFAULT_WIDTH_MM) * 10;
+  const satinDensityUnits = (opts.satinDensityMm > 0 ? opts.satinDensityMm : satin.DEFAULT_DENSITY_MM) * 10;
+  const underlay = finish === 'satin' && !!opts.underlay;
 
   const laid = layoutText(font, text, opts);
 
@@ -95,12 +80,16 @@ function textToPattern(font, text, opts = {}) {
         placed.originX + x * placed.scale,
         placed.originY + y * placed.scale,
       ]);
-      const resampled = resamplePolyline(pts, stepUnits);
-      if (resampled.length < 2) continue;
 
-      pattern.moveAbs(resampled[0][0], resampled[0][1]);
+      const sequence =
+        finish === 'satin'
+          ? buildSatinSequence(pts, { widthUnits: satinWidthUnits, densityUnits: satinDensityUnits, underlay, stepUnits })
+          : resamplePolyline(pts, stepUnits);
+      if (sequence.length < 2) continue;
+
+      pattern.moveAbs(sequence[0][0], sequence[0][1]);
       hasStitches = true;
-      stitchSegments(pattern, resampled, bean);
+      stitchSegments(pattern, sequence, finish === 'bean');
     }
   }
 
@@ -150,5 +139,7 @@ module.exports = {
   textToPattern,
   resamplePolyline,
   patternPolylines,
+  resolveFinish,
+  buildSatinSequence,
   DEFAULT_STITCH_LENGTH_MM,
 };

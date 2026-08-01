@@ -2735,8 +2735,19 @@ function readTextFormOpts() {
     letterSpacing: clampNum($('text-letterspacing').value, -20, 300, 0),
     lineSpacing: clampNum($('text-linespacing').value, -20, 300, 0),
     stitchLengthMm: clampNum($('text-stitchlen').value, 0.5, 6, 2),
-    bean: $('text-bean').checked,
+    finish: $('text-finish').value,
+    satinWidthMm: clampNum($('text-satinwidth').value, 0.8, 5, 2),
+    satinDensityMm: clampNum($('text-satindensity').value, 0.2, 1.5, 0.4),
+    underlay: $('text-underlay').checked,
   };
+}
+
+// Os campos de largura/densidade e o checkbox de underlay só fazem sentido
+// com acabamento satin — escondidos nos outros dois (ponto corrido/bean).
+function syncTextFinishVisibility() {
+  const isSatin = $('text-finish').value === 'satin';
+  $('text-satin-fields').hidden = !isSatin;
+  $('text-underlay-row').hidden = !isSatin;
 }
 
 function sizeTextPreviewCanvas() {
@@ -2843,6 +2854,7 @@ function redrawTextPreview() {
 
 function openTextDialog() {
   $('dlg-text').showModal();
+  syncTextFinishVisibility();
   sizeTextPreviewCanvas();
   redrawTextPreview();
   $('text-input').focus();
@@ -3152,11 +3164,15 @@ function bindDialogs() {
       insertTextDesign();
     }
   });
-  for (const id of ['text-input', 'text-height', 'text-letterspacing', 'text-linespacing', 'text-stitchlen']) {
+  for (const id of ['text-input', 'text-height', 'text-letterspacing', 'text-linespacing', 'text-stitchlen', 'text-satinwidth', 'text-satindensity']) {
     $(id).addEventListener('input', scheduleTextPreview);
   }
   $('text-font').addEventListener('change', scheduleTextPreview);
-  $('text-bean').addEventListener('change', scheduleTextPreview);
+  $('text-finish').addEventListener('change', () => {
+    syncTextFinishVisibility();
+    scheduleTextPreview();
+  });
+  $('text-underlay').addEventListener('change', scheduleTextPreview);
   new ResizeObserver(() => {
     sizeTextPreviewCanvas();
     redrawTextPreview();
