@@ -51,7 +51,7 @@ O app é bilíngue (português do Brasil e inglês) e acompanha o idioma do sist
 | EXP | Melco / Bernina | ✓ | ✓ |
 | PES / PEC | Brother / Babylock | ✓ | ✓ |
 | JEF | Janome / Elna | ✓ | ✓ |
-| SVG / PNG | vetor e imagem | · | ✓ |
+| SVG / PNG | vetor e imagem (digitalizados em pontos ao importar) | ✓ | ✓ |
 
 Os parsers são validados de forma cruzada contra o [pystitch](https://github.com/inkstitch/pystitch):
 os arquivos gravados pelo Bastidor são lidos pela biblioteca de referência com geometria
