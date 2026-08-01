@@ -165,6 +165,15 @@ class Pattern {
     return this.extras[name] !== undefined ? this.extras[name] : fallback;
   }
 
+  // Posição atual da agulha (fim da última agulhada/salto/etc. gravada, ou
+  // [0,0] se o Pattern ainda estiver vazio) — usada pelo roteamento de
+  // preenchimento por região (src/core/digitize/regions.js) pra ordenar as
+  // regiões a partir de onde a agulha realmente está, em vez de sempre
+  // recomeçar do zero a cada bloco de cor/glifo.
+  currentPosition() {
+    return [this._previousX, this._previousY];
+  }
+
   bounds() {
     let minX = Infinity;
     let minY = Infinity;

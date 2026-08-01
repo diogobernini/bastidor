@@ -9,11 +9,14 @@
 //   2 mm), ponto triplo/"bean" (ida-volta-ida em cada segmento) quando
 //   opts.bean, ou ponto cheio/satin (zigue-zague via satin.js — issue #19)
 //   quando opts.finish === 'satin'.
-// - font.kind === 'fill' (fontes TTF/OTF — issue #20): cada glifo é um
-//   contorno fechado (com furos em letras como "o"/"a"/"e"), preenchido com
-//   o motor de preenchimento tatami existente (src/core/digitize/fill.js) e,
-//   opcionalmente, contornado em ponto corrido (src/core/digitize/runstitch.js)
-//   — o mesmo par de mecanismos que a digitalização de SVG já usa.
+// - font.kind === 'fill' (fontes TTF/OTF — issue #20): cada glifo é um ou
+//   mais contornos fechados (com furos em letras como "o"/"a"/"e", e até
+//   mais de uma região desconexa — "i", ":", "%"), preenchidos região por
+//   região pelo roteamento de preenchimento existente
+//   (src/core/digitize/regions.js, issue #67, por cima do motor de
+//   preenchimento tatami em src/core/digitize/fill.js) e, opcionalmente,
+//   contornados em ponto corrido (src/core/digitize/runstitch.js) — os
+//   mesmos mecanismos que a digitalização de SVG já usa.
 //
 // Em ambos os casos: salto (sem costura) entre traços/contornos e entre
 // letras; um único fio (preto, por padrão); termina com end(). Por padrão, o
@@ -24,7 +27,7 @@ const C = require('../commands');
 const { layoutText } = require('./layout');
 const { resamplePolyline } = require('./resample');
 const satin = require('./satin');
-const fill = require('../digitize/fill');
+const regions = require('../digitize/regions');
 const runstitch = require('../digitize/runstitch');
 
 const DEFAULT_STITCH_LENGTH_MM = 2;
@@ -85,9 +88,18 @@ function emitFillGlyph(pattern, placed, opts) {
   if (!rings.length) return false;
 
   let emitted = false;
-  const runs = fill.fillPolygonsTatami(
+  // fillRegionsTatami (issue #67): um glifo TTF pode ter mais de uma região
+  // desconexa (ponto do "i", os dois círculos do "%", etc.) — preenche cada
+  // uma isoladamente e ordena pela posição atual da agulha, em vez de
+  // varrer todos os anéis do glifo numa scanline global só.
+  const runs = regions.fillRegionsTatami(
     rings.map((points) => ({ points })),
-    { angleDeg: opts.fillAngleDeg, rowSpacing: opts.fillSpacingUnits, stitchLength: opts.fillStitchUnits }
+    {
+      angleDeg: opts.fillAngleDeg,
+      rowSpacing: opts.fillSpacingUnits,
+      stitchLength: opts.fillStitchUnits,
+      startPoint: pattern.currentPosition(),
+    }
   );
   for (const run of runs) {
     if (!run.length) continue;
