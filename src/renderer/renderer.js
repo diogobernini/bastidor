@@ -33,6 +33,7 @@ const state = {
   hoopPresets: {},
   lang: 'pt-BR',
   strings: {},
+  platform: 'darwin',
   view: { scale: 1, tx: 0, ty: 0 },
   sim: { playing: false, pos: Infinity, lastT: 0 },
   edit: { active: false, selected: -1 }, // modo "Editar pontos" (issue #3)
@@ -42,6 +43,17 @@ const state = {
   interacting: false, // pan/zoom em andamento (mouse/wheel)
   artVersion: 0, // incrementa a cada mudança que afeta o desenho dos pontos
   realisticCache: null, // canvas offscreen com a arte realista já desenhada
+  // Gestão de pendrive (biblioteca <-> drive): ver seção dedicada mais abaixo.
+  drives: {
+    list: [],
+    selectedMount: null,
+    libraryPath: null,
+    libraryItems: [],
+    driveItems: [],
+    refreshTimer: null,
+    selection: { library: new Set(), drive: new Set() },
+    cache: new Map(), // "caminho::mtime" -> {ok:true,design} | {ok:false,error} | Promise disso
+  },
 };
 
 function bumpArt() {
@@ -1160,6 +1172,7 @@ function settingsToForm() {
   $('set-tieoff').checked = s.write.tieOff;
   $('set-trimat').value = s.write.trimAtJumps;
   $('set-warnlong').value = s.warnings.longStitchMm;
+  $('set-librarypath').value = s.library.path;
   syncHoopCustomVisibility();
 }
 
@@ -1239,6 +1252,412 @@ async function applySettingsFromForm() {
 function nearestSimOption(v) {
   const opts = [150, 300, 600, 1200, 2500];
   return opts.reduce((a, b) => (Math.abs(b - v) < Math.abs(a - v) ? b : a));
+}
+
+// --------------------------------------------------------------- gestão de pendrive
+//
+// Modal de dois painéis (biblioteca <-> pendrive selecionado). Cada arquivo listado
+// é só metadado (io principal manda path/nome/tamanho/mtime); a miniatura e a
+// contagem de pontos vêm de uma leitura preguiçosa (drives:peek-design), tolerante
+// a erro, cacheada por caminho+mtime para não reparsear ao reabrir o modal.
+
+function fmtBytesLocal(bytes) {
+  if (typeof bytes !== 'number' || !Number.isFinite(bytes) || bytes < 0) return '—';
+  if (bytes < 1024) return `${Math.round(bytes)} B`;
+  const units = ['KB', 'MB', 'GB', 'TB'];
+  let value = bytes / 1024;
+  let i = 0;
+  while (value >= 1024 && i < units.length - 1) {
+    value /= 1024;
+    i++;
+  }
+  const decimals = value < 10 ? 2 : value < 100 ? 1 : 0;
+  return `${value.toFixed(decimals)} ${units[i]}`;
+}
+
+function designThreadColor(design, i) {
+  const t = design.threads && design.threads[i];
+  return t && t.color ? t.color : FILLER_COLORS[i % FILLER_COLORS.length];
+}
+
+function designBounds(design) {
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const st of design.stitches) {
+    const cmd = st[2] & COMMAND_MASK;
+    if (cmd === STITCH || cmd === JUMP || cmd === SEQUIN_EJECT) {
+      if (st[0] < minX) minX = st[0];
+      if (st[0] > maxX) maxX = st[0];
+      if (st[1] < minY) minY = st[1];
+      if (st[1] > maxY) maxY = st[1];
+    }
+  }
+  return { minX, minY, maxX, maxY };
+}
+
+function countStitches(design) {
+  let n = 0;
+  for (const st of design.stitches) {
+    if ((st[2] & COMMAND_MASK) === STITCH) n++;
+  }
+  return n;
+}
+
+// Miniatura num canvas pequeno, com a mesma lógica de polilinha do desenho
+// principal (drawStitches: moveTo só no primeiro ponto após a pena levantada
+// por salto/corte/parada/troca de cor, o resto encadeia com lineTo) — só que
+// operando sobre um "design" qualquer, não o state.design global.
+function drawDesignThumbnail(canvas, design) {
+  const size = 72;
+  const localDpr = window.devicePixelRatio || 1;
+  canvas.width = size * localDpr;
+  canvas.height = size * localDpr;
+  const c = canvas.getContext('2d');
+  c.setTransform(localDpr, 0, 0, localDpr, 0, 0);
+  c.clearRect(0, 0, size, size);
+
+  const stitches = design.stitches;
+  const b = designBounds(design);
+  if (!stitches.length || !isFinite(b.minX)) return;
+  const w = Math.max(b.maxX - b.minX, 1);
+  const h = Math.max(b.maxY - b.minY, 1);
+  const margin = 6;
+  const scale = Math.min((size - margin * 2) / w, (size - margin * 2) / h);
+  const tx = size / 2 - ((b.minX + b.maxX) / 2) * scale;
+  const ty = size / 2 - ((b.minY + b.maxY) / 2) * scale;
+  const project = (x, y) => [x * scale + tx, y * scale + ty];
+
+  c.lineCap = 'round';
+  c.lineJoin = 'round';
+  c.lineWidth = Math.max(0.9, scale * 0.4);
+
+  let colorIndex = 0;
+  c.strokeStyle = designThreadColor(design, colorIndex);
+  c.beginPath();
+  let penDown = false;
+  let px = null;
+  let py = null;
+  for (const st of stitches) {
+    const cmd = st[2] & COMMAND_MASK;
+    if (cmd === STITCH || cmd === SEQUIN_EJECT) {
+      const [sx, sy] = project(st[0], st[1]);
+      if (!penDown || px === null) c.moveTo(px === null ? sx : px, py === null ? sy : py);
+      c.lineTo(sx, sy);
+      px = sx;
+      py = sy;
+      penDown = true;
+    } else if (cmd === JUMP) {
+      const [sx, sy] = project(st[0], st[1]);
+      penDown = false;
+      px = sx;
+      py = sy;
+    } else if (cmd === TRIM || cmd === STOP) {
+      penDown = false;
+    } else if (cmd === COLOR_CHANGE) {
+      c.stroke();
+      colorIndex++;
+      c.strokeStyle = designThreadColor(design, colorIndex);
+      c.beginPath();
+      penDown = false;
+    }
+  }
+  c.stroke();
+}
+
+function driveCacheKey(item) {
+  return `${item.path}::${item.mtime}`;
+}
+
+// Lê e cacheia (por caminho+mtime) o design de um item da lista. Tolerante a
+// erro: nunca rejeita, devolve {ok:false, error} para a UI mostrar um rótulo.
+function peekDriveDesign(item) {
+  const key = driveCacheKey(item);
+  const cached = state.drives.cache.get(key);
+  if (cached) return cached;
+  const pending = window.api
+    .peekDesign(item.path)
+    .then((res) => {
+      const entry = res && res.ok ? { ok: true, design: res.design } : { ok: false, error: res && res.error };
+      state.drives.cache.set(key, entry);
+      return entry;
+    })
+    .catch((err) => {
+      const entry = { ok: false, error: err.message };
+      state.drives.cache.set(key, entry);
+      return entry;
+    });
+  state.drives.cache.set(key, pending);
+  return pending;
+}
+
+function drivesSideRoot(side) {
+  return side === 'library' ? state.drives.libraryPath : state.drives.selectedMount;
+}
+
+function updateDriveActionButtons() {
+  const hasLib = state.drives.selection.library.size > 0;
+  const hasDrive = state.drives.selection.drive.size > 0;
+  $('lib-copy-to-drive').disabled = !hasLib || !state.drives.selectedMount;
+  $('drive-copy-to-lib').disabled = !hasDrive;
+  $('drive-delete').disabled = !hasDrive;
+}
+
+function buildDriveItemRow(item, side) {
+  const li = document.createElement('li');
+  li.className = 'drive-item';
+
+  const checkbox = document.createElement('input');
+  checkbox.type = 'checkbox';
+  checkbox.checked = state.drives.selection[side].has(item.path);
+  checkbox.addEventListener('change', () => {
+    if (checkbox.checked) state.drives.selection[side].add(item.path);
+    else state.drives.selection[side].delete(item.path);
+    updateDriveActionButtons();
+  });
+
+  const thumb = document.createElement('canvas');
+  thumb.className = 'drive-thumb';
+
+  const info = document.createElement('div');
+  info.className = 'drive-item-info';
+  const name = document.createElement('div');
+  name.className = 'name';
+  name.textContent = item.name;
+  const meta = document.createElement('div');
+  meta.className = 'meta muted';
+  meta.textContent = fmtBytesLocal(item.sizeBytes);
+  info.append(name, meta);
+
+  li.append(checkbox, thumb, info);
+  li.addEventListener('dblclick', () => openDesignFromDriveManager(item.path));
+
+  Promise.resolve(peekDriveDesign(item)).then((entry) => {
+    if (entry.ok) {
+      drawDesignThumbnail(thumb, entry.design);
+      meta.textContent = `${fmtBytesLocal(item.sizeBytes)} · ${tr('status.stitches', { n: fmtNum(countStitches(entry.design)) })}`;
+    } else {
+      meta.textContent = `${fmtBytesLocal(item.sizeBytes)} · ${tr('drv.parseError')}`;
+    }
+  });
+
+  return li;
+}
+
+function renderDriveList(listEl, items, side) {
+  listEl.innerHTML = '';
+  if (!items.length) {
+    const li = document.createElement('li');
+    li.className = 'drive-empty';
+    li.textContent = tr(side === 'library' ? 'drv.emptyLibrary' : 'drv.emptyDrive');
+    listEl.appendChild(li);
+    return;
+  }
+  for (const item of items) listEl.appendChild(buildDriveItemRow(item, side));
+}
+
+async function refreshLibraryPane() {
+  const info = await window.api.libraryInfo();
+  state.drives.libraryPath = info.path;
+  $('library-path-label').textContent = info.path;
+  const items = await window.api.scanDesigns(info.path);
+  state.drives.libraryItems = items;
+  renderDriveList($('library-list'), items, 'library');
+  updateDriveActionButtons();
+}
+
+async function refreshDrivePane() {
+  const mount = state.drives.selectedMount;
+  const drive = state.drives.list.find((d) => d.mount === mount);
+  $('drive-eject').disabled = !drive;
+  $('drive-clean-hidden').disabled = !drive;
+  if (!drive) {
+    $('drive-space').textContent = '';
+    $('drive-fswarn').hidden = true;
+    state.drives.driveItems = [];
+    state.drives.selection.drive.clear();
+    renderDriveList($('drive-list'), [], 'drive');
+    updateDriveActionButtons();
+    return;
+  }
+  $('drive-space').textContent =
+    drive.capacityBytes != null
+      ? tr('drv.freeOf', { free: fmtBytesLocal(drive.freeBytes), total: fmtBytesLocal(drive.capacityBytes) })
+      : tr('drv.unknownSpace');
+  $('drive-fswarn').hidden = /fat/i.test(drive.filesystem || '');
+  const items = await window.api.scanDesigns(mount);
+  state.drives.driveItems = items;
+  for (const p of [...state.drives.selection.drive]) {
+    if (!items.some((it) => it.path === p)) state.drives.selection.drive.delete(p);
+  }
+  renderDriveList($('drive-list'), items, 'drive');
+  updateDriveActionButtons();
+}
+
+async function refreshDriveSelectList() {
+  const list = await window.api.listDrives();
+  state.drives.list = list;
+  const sel = $('drive-select');
+  const prevMount = state.drives.selectedMount;
+  sel.innerHTML = '';
+  if (!list.length) {
+    const opt = document.createElement('option');
+    opt.value = '';
+    opt.textContent = tr('drv.noDrive');
+    sel.appendChild(opt);
+    sel.disabled = true;
+    state.drives.selectedMount = null;
+  } else {
+    sel.disabled = false;
+    for (const d of list) {
+      const opt = document.createElement('option');
+      opt.value = d.mount;
+      opt.textContent = d.name || d.mount;
+      sel.appendChild(opt);
+    }
+    const stillThere = prevMount && list.some((d) => d.mount === prevMount);
+    state.drives.selectedMount = stillThere ? prevMount : list[0].mount;
+    sel.value = state.drives.selectedMount;
+  }
+  await refreshDrivePane();
+}
+
+async function refreshDriveSide(side) {
+  if (side === 'library') await refreshLibraryPane();
+  else await refreshDrivePane();
+}
+
+// Diálogo de confirmação genérico (sobrescrever/apagar), devolve true/false.
+function confirmDialog({ title, message, okLabel }) {
+  return new Promise((resolve) => {
+    $('confirm-title').textContent = title;
+    $('confirm-message').textContent = message;
+    $('confirm-ok').textContent = okLabel;
+    const dlg = $('dlg-confirm');
+    const onClose = () => {
+      dlg.removeEventListener('close', onClose);
+      resolve(dlg.returnValue === 'ok');
+    };
+    dlg.addEventListener('close', onClose);
+    dlg.showModal();
+  });
+}
+
+async function copySelectedDesigns(fromSide) {
+  const toSide = fromSide === 'library' ? 'drive' : 'library';
+  const sources = [...state.drives.selection[fromSide]];
+  if (!sources.length) return;
+  const destDir = drivesSideRoot(toSide);
+  if (!destDir) {
+    toast(tr('drv.noDriveSelected'), 'warn');
+    return;
+  }
+  let results = await window.api.copyDesigns(sources, destDir, false);
+  const conflicts = results.filter((r) => r.status === 'conflict');
+  if (conflicts.length) {
+    const ok = await confirmDialog({
+      title: tr('drv.confirmOverwriteTitle'),
+      message: tr('drv.confirmOverwriteMsg', { n: conflicts.length, names: conflicts.map((c) => c.name).join(', ') }),
+      okLabel: tr('drv.confirmOverwriteOk'),
+    });
+    if (!ok) {
+      const copiedCount = results.filter((r) => r.status === 'copied').length;
+      toast(tr('drv.copyPartial', { n: copiedCount }));
+      await refreshDriveSide(toSide);
+      return;
+    }
+    results = await window.api.copyDesigns(sources, destDir, true);
+  }
+  const copiedCount = results.filter((r) => r.status === 'copied').length;
+  toast(tr('drv.copyDone', { n: copiedCount }));
+  await refreshDriveSide(toSide);
+}
+
+async function deleteSelectedFromDrive() {
+  const sources = [...state.drives.selection.drive];
+  if (!sources.length) return;
+  const ok = await confirmDialog({
+    title: tr('drv.confirmDeleteTitle'),
+    message: tr('drv.confirmDeleteMsg', { n: sources.length }),
+    okLabel: tr('drv.confirmDeleteOk'),
+  });
+  if (!ok) return;
+  const results = await window.api.deleteFromDrive(sources, state.drives.selectedMount);
+  const okCount = results.filter((r) => r.ok).length;
+  toast(tr('drv.deleteDone', { n: okCount }));
+  await refreshDrivePane();
+}
+
+async function ejectSelectedDrive() {
+  const mount = state.drives.selectedMount;
+  if (!mount) return;
+  try {
+    await window.api.ejectDrive(mount);
+    toast(tr('drv.ejected'));
+    await refreshDriveSelectList();
+  } catch (err) {
+    toast(tr('drv.ejectError') + err.message, 'error', 5000);
+  }
+}
+
+async function cleanHiddenOnDrive() {
+  const mount = state.drives.selectedMount;
+  if (!mount) return;
+  const count = await window.api.cleanHiddenFiles(mount);
+  toast(tr('drv.cleanDone', { n: count }));
+  await refreshDrivePane();
+}
+
+// Duplo clique num item (biblioteca ou pendrive): mesmo fluxo de abrir usado
+// pelo menu Recentes/Finder (main emite design:opened; ver bindMenuAndKeys).
+async function openDesignFromDriveManager(filePath) {
+  await window.api.openFromDrive(filePath);
+}
+
+async function openDrivesDialog() {
+  $('drive-clean-hidden').hidden = state.platform !== 'darwin';
+  state.drives.selection.library.clear();
+  state.drives.selection.drive.clear();
+  $('dlg-drives').showModal();
+  await Promise.all([refreshLibraryPane(), refreshDriveSelectList()]);
+  if (state.drives.refreshTimer) clearInterval(state.drives.refreshTimer);
+  state.drives.refreshTimer = setInterval(refreshDriveSelectList, 3000);
+}
+
+function closeDrivesDialog() {
+  const dlg = $('dlg-drives');
+  if (dlg.open) dlg.close();
+}
+
+function bindDrivesDialog() {
+  $('btn-drives').addEventListener('click', openDrivesDialog);
+  $('drives-close').addEventListener('click', closeDrivesDialog);
+  $('dlg-drives').addEventListener('close', () => {
+    if (state.drives.refreshTimer) {
+      clearInterval(state.drives.refreshTimer);
+      state.drives.refreshTimer = null;
+    }
+  });
+
+  $('drive-select').addEventListener('change', async (e) => {
+    state.drives.selectedMount = e.target.value || null;
+    state.drives.selection.drive.clear();
+    await refreshDrivePane();
+  });
+  $('drive-refresh').addEventListener('click', () => refreshDriveSelectList());
+  $('drive-eject').addEventListener('click', ejectSelectedDrive);
+  $('drive-clean-hidden').addEventListener('click', cleanHiddenOnDrive);
+  $('drive-delete').addEventListener('click', deleteSelectedFromDrive);
+  $('lib-copy-to-drive').addEventListener('click', () => copySelectedDesigns('library'));
+  $('drive-copy-to-lib').addEventListener('click', () => copySelectedDesigns('drive'));
+
+  $('set-librarypath-choose').addEventListener('click', async () => {
+    const chosen = await window.api.chooseLibraryFolder();
+    if (!chosen) return;
+    state.settings.library = { path: chosen };
+    $('set-librarypath').value = chosen;
+  });
 }
 
 // --------------------------------------------------------------- interação
@@ -1517,7 +1936,10 @@ function bindMenuAndKeys() {
     }
   });
 
-  window.api.onDesignOpened((design) => setDesign(design));
+  window.api.onDesignOpened((design) => {
+    setDesign(design);
+    closeDrivesDialog(); // abrir uma matriz (Recentes/Finder/gestor de pendrive) tira o modal do caminho
+  });
 
   window.addEventListener('keydown', (e) => {
     const tag = e.target.tagName;
@@ -1576,6 +1998,7 @@ async function boot() {
   state.hoopPresets = launch.hoopPresets;
   state.lang = launch.lang;
   state.strings = launch.strings;
+  state.platform = launch.platform;
 
   applyI18n();
   syncToggleButtons();
@@ -1586,6 +2009,7 @@ async function boot() {
   bindDialogs();
   bindMenuAndKeys();
   bindDragDrop();
+  bindDrivesDialog();
   resizeCanvas();
   refreshEmptyRecents();
   requestRender();
@@ -1596,6 +2020,7 @@ async function boot() {
   if (launch.dialog === 'settings') openSettings();
   if (launch.dialog === 'scale' && state.design) openScaleDialog();
   if (launch.dialog === 'formats') $('dlg-formats').showModal();
+  if (launch.dialog === 'drives') await openDrivesDialog();
 
   // Sinaliza para o modo screenshot que a primeira pintura aconteceu.
   requestAnimationFrame(() => requestAnimationFrame(() => window.api.notifyRenderReady()));

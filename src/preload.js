@@ -31,4 +31,16 @@ contextBridge.exposeInMainWorld('api', {
 
   onMenu: (cb) => ipcRenderer.on('menu', (e, action) => cb(action)),
   onDesignOpened: (cb) => ipcRenderer.on('design:opened', (e, design) => cb(design)),
+
+  // Gestão de pendrive
+  listDrives: () => ipcRenderer.invoke('drives:list'),
+  ejectDrive: (mount) => ipcRenderer.invoke('drives:eject', mount),
+  libraryInfo: () => ipcRenderer.invoke('drives:library-info'),
+  chooseLibraryFolder: () => ipcRenderer.invoke('drives:choose-library'),
+  scanDesigns: (dir) => ipcRenderer.invoke('drives:scan', dir),
+  peekDesign: (filePath) => ipcRenderer.invoke('drives:peek-design', filePath),
+  copyDesigns: (sources, destDir, overwrite) => ipcRenderer.invoke('drives:copy', { sources, destDir, overwrite }),
+  deleteFromDrive: (paths, root) => ipcRenderer.invoke('drives:delete', { paths, root }),
+  cleanHiddenFiles: (driveRoot) => ipcRenderer.invoke('drives:clean-hidden', driveRoot),
+  openFromDrive: (filePath) => ipcRenderer.invoke('drives:open-design', filePath),
 });

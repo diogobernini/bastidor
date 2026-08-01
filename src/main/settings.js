@@ -2,7 +2,15 @@
 // Preferências persistentes (JSON em userData/settings.json).
 
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
+
+// Pasta padrão da biblioteca de matrizes (gestão de pendrive): ~/Bordados no
+// darwin/linux, ~\Documents\Bordados no win32. Só é criada sob demanda.
+function defaultLibraryPath() {
+  const home = os.homedir();
+  return process.platform === 'win32' ? path.join(home, 'Documents', 'Bordados') : path.join(home, 'Bordados');
+}
 
 const DEFAULTS = {
   language: 'auto', // 'auto' | 'en' | 'pt-BR'
@@ -26,6 +34,7 @@ const DEFAULTS = {
   warnings: {
     longStitchMm: 12.1,
   },
+  library: { path: defaultLibraryPath() },
   recent: [],
 };
 

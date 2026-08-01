@@ -55,6 +55,12 @@
         <select id="sim-speed" data-i18n-title="tb.simSpeedTip"></select>
       </div>
 
+      <div class="tb-sep"></div>
+
+      <div class="tb-group">
+        <button id="btn-drives" class="tb-btn" data-i18n="tb.drives" data-i18n-title="tb.drivesTip">Pendrive</button>
+      </div>
+
       <div class="tb-spacer"></div>
 
       <button id="btn-settings" class="tb-btn icon" data-i18n-title="tb.settingsTip">⚙</button>
@@ -122,6 +128,7 @@
         <label><input type="radio" name="tab" value="view" checked /><span data-i18n="set.tabView">Visualização</span></label>
         <label><input type="radio" name="tab" value="hoop" /><span data-i18n="set.tabHoop">Bastidor e grade</span></label>
         <label><input type="radio" name="tab" value="write" /><span data-i18n="set.tabWrite">Gravação</span></label>
+        <label><input type="radio" name="tab" value="library" /><span data-i18n="set.tabLibrary">Biblioteca</span></label>
       </div>
 
       <div class="tab-pane" data-tab="view">
@@ -215,6 +222,14 @@
         </label>
       </div>
 
+      <div class="tab-pane" data-tab="library" hidden>
+        <label class="row"><span data-i18n="set.libraryPath">Pasta da biblioteca</span></label>
+        <div class="row pathpick">
+          <input type="text" id="set-librarypath" readonly />
+          <button type="button" id="set-librarypath-choose" class="tb-btn small" data-i18n="set.libraryChoose">Escolher pasta…</button>
+        </div>
+      </div>
+
       <div class="dlg-actions">
         <button value="cancel" class="tb-btn" data-i18n="set.cancel">Cancelar</button>
         <button value="save" class="tb-btn accent" id="settings-save" data-i18n="set.save">Salvar</button>
@@ -265,6 +280,54 @@
         <form method="dialog"><button class="tb-btn accent" data-i18n="fmt.close">Fechar</button></form>
       </div>
     </div>
+  </dialog>
+
+  <dialog id="dlg-drives" class="wide">
+    <div class="drives-head">
+      <h2 data-i18n="drv.title">Gestão de pendrive</h2>
+      <button type="button" id="drives-close" class="tb-btn" data-i18n="drv.close">Fechar</button>
+    </div>
+    <div class="drives-panes">
+      <section class="drive-pane">
+        <header class="drive-pane-head">
+          <h3 data-i18n="drv.library">Biblioteca</h3>
+          <span id="library-path-label" class="muted mono path-label"></span>
+        </header>
+        <div class="drive-toolbar">
+          <button type="button" id="lib-copy-to-drive" class="tb-btn small" disabled data-i18n="drv.copyToDrive">Copiar para o pendrive →</button>
+        </div>
+        <ul class="drive-list" id="library-list"></ul>
+      </section>
+      <section class="drive-pane">
+        <header class="drive-pane-head">
+          <h3 data-i18n="drv.driveSide">Pendrive</h3>
+          <select id="drive-select"></select>
+          <button type="button" id="drive-refresh" class="tb-btn small icon" data-i18n-title="drv.refreshTip">⟳</button>
+          <button type="button" id="drive-eject" class="tb-btn small" disabled data-i18n="drv.eject" data-i18n-title="drv.ejectTip">Ejetar</button>
+        </header>
+        <div class="drive-meta">
+          <span id="drive-space" class="muted mono"></span>
+          <span id="drive-fswarn" class="drive-fswarn" hidden data-i18n="drv.fsWarn">Não é FAT32/FAT</span>
+        </div>
+        <div class="drive-toolbar">
+          <button type="button" id="drive-copy-to-lib" class="tb-btn small" disabled data-i18n="drv.copyToLibrary">← Copiar para a biblioteca</button>
+          <button type="button" id="drive-delete" class="tb-btn small danger" disabled data-i18n="drv.delete">Apagar</button>
+          <button type="button" id="drive-clean-hidden" class="tb-btn small" hidden data-i18n="drv.cleanHidden">Limpar arquivos ocultos do macOS</button>
+        </div>
+        <ul class="drive-list" id="drive-list"></ul>
+      </section>
+    </div>
+  </dialog>
+
+  <dialog id="dlg-confirm">
+    <form method="dialog" id="confirm-form">
+      <h2 id="confirm-title"></h2>
+      <p class="hint" id="confirm-message"></p>
+      <div class="dlg-actions">
+        <button value="cancel" class="tb-btn" data-i18n="set.cancel">Cancelar</button>
+        <button value="ok" class="tb-btn accent" id="confirm-ok"></button>
+      </div>
+    </form>
   </dialog>
 
   <div id="toasts"></div>

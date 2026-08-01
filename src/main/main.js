@@ -9,6 +9,7 @@ const io = require('../core/io');
 const { patternToDesign, designToPattern } = require('../core/design');
 const { SettingsStore, HOOP_PRESETS } = require('./settings');
 const { STRINGS, resolveLang, makeT } = require('../i18n');
+const drives = require('./drives');
 
 let win = null;
 let settings = null;
@@ -19,6 +20,8 @@ const argOpen = getArgValue('--open');
 const argScreenshot = getArgValue('--screenshot');
 const argDialog = getArgValue('--dialog');
 const argLang = getArgValue('--lang');
+// --fake-drive=pasta: apresenta uma pasta comum como pendrive "FAKE" (telas/testes sem hardware).
+const argFakeDrive = getArgValue('--fake-drive');
 
 function currentLang() {
   if (argLang) return resolveLang(argLang, 'en');
@@ -60,6 +63,20 @@ function readDesignFromPath(filePath, opts = {}) {
     format: ext,
     name: path.basename(filePath),
   });
+}
+
+// Leitura "de espiada" para miniatura/contagem de pontos no gestor de pendrive:
+// não entra em recentes nem reconstrói o menu, e nunca lança (tolerante a
+// matriz corrompida ou formato inesperado na pasta).
+function peekDesign(filePath) {
+  try {
+    const ext = io.extOf(filePath);
+    const buf = fs.readFileSync(filePath);
+    const pattern = io.readBuffer(buf, ext, { trim_at: settings.get().write.trimAtJumps });
+    return { ok: true, design: patternToDesign(pattern, { path: filePath, format: ext, name: path.basename(filePath) }) };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
 }
 
 function writeSettingsFromPrefs() {
@@ -115,6 +132,7 @@ function setupIpc() {
     version: app.getVersion(),
     lang: currentLang(),
     strings: STRINGS,
+    platform: process.platform,
   }));
 
   ipcMain.handle('settings:get', () => settings.get());
@@ -202,6 +220,40 @@ function setupIpc() {
   ipcMain.handle('shell:show-item', (e, filePath) => {
     shell.showItemInFolder(filePath);
   });
+
+  // -------------------------------------------------------- gestão de pendrive
+  ipcMain.handle('drives:list', () => drives.listRemovableDrives({ fakeDrivePath: argFakeDrive }));
+
+  ipcMain.handle('drives:eject', (e, mount) => {
+    if (argFakeDrive && path.resolve(mount) === path.resolve(argFakeDrive)) return { simulated: true };
+    drives.eject(mount);
+    return { simulated: false };
+  });
+
+  ipcMain.handle('drives:library-info', () => {
+    const libPath = settings.get().library.path;
+    drives.ensureDir(libPath);
+    return { path: libPath };
+  });
+
+  ipcMain.handle('drives:choose-library', async () => {
+    const result = await dialog.showOpenDialog(win, {
+      title: t('drv.chooseLibraryTitle'),
+      defaultPath: settings.get().library.path,
+      properties: ['openDirectory', 'createDirectory'],
+    });
+    if (result.canceled || result.filePaths.length === 0) return null;
+    const chosen = result.filePaths[0];
+    settings.set({ library: { path: chosen } });
+    return chosen;
+  });
+
+  ipcMain.handle('drives:scan', (e, dir) => drives.scanDesigns(dir));
+  ipcMain.handle('drives:peek-design', (e, filePath) => peekDesign(filePath));
+  ipcMain.handle('drives:copy', (e, { sources, destDir, overwrite }) => drives.copyFiles(sources, destDir, { overwrite }));
+  ipcMain.handle('drives:delete', (e, { paths, root }) => drives.deleteWithinRoot(paths, root));
+  ipcMain.handle('drives:clean-hidden', (e, driveRoot) => drives.cleanHiddenFiles(driveRoot));
+  ipcMain.handle('drives:open-design', (e, filePath) => openPathIntoRenderer(filePath));
 
   // Sinal do renderer de que terminou de desenhar (usado no modo screenshot).
   ipcMain.on('render:ready', async () => {
