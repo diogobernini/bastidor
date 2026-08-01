@@ -118,6 +118,13 @@ então os parsers podem ser reaproveitados em CLI ou servidor.
 8. ✅ Gestão de pendrive: carregar e descarregar matrizes estilo biblioteca, com ejeção segura e limpeza dos arquivos ocultos do macOS
 9. ✅ Gestão de biblioteca: navegar o catálogo por pastas, com busca, miniaturas e integração com abrir/salvar como ([issue #17](https://github.com/diogobernini/bastidor/issues/17))
 
+### Fase 2 (em planejamento)
+
+1. **Canvas de objetos**: selecionar, mover, redimensionar e apagar elementos como num editor vetorial, com regeneração de pontos e guarda de distância mínima ([#29](https://github.com/diogobernini/bastidor/issues/29))
+2. Confiabilidade e distribuição: CI em todo PR ([#30](https://github.com/diogobernini/bastidor/issues/30)), assinatura/notarização/instaladores/auto-update ([#31](https://github.com/diogobernini/bastidor/issues/31)), validação em máquina física ([#32](https://github.com/diogobernini/bastidor/issues/32))
+3. Fundação: modularização do renderer ([#33](https://github.com/diogobernini/bastidor/issues/33)), suíte de testes de interface ([#34](https://github.com/diogobernini/bastidor/issues/34)), biblioteca em escala de 10-15 mil matrizes ([#35](https://github.com/diogobernini/bastidor/issues/35), [#28](https://github.com/diogobernini/bastidor/issues/28)), undo por deltas ([#37](https://github.com/diogobernini/bastidor/issues/37))
+4. Polimento: atualização das capturas ([#36](https://github.com/diogobernini/bastidor/issues/36)), ajuda de atalhos e acessibilidade ([#38](https://github.com/diogobernini/bastidor/issues/38))
+
 ## Créditos e agradecimentos
 
 O coração deste projeto, o conhecimento dos formatos binários de bordado, existe graças

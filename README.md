@@ -118,6 +118,13 @@ dependency, so the parsers can be reused in a CLI or server.
 8. ✅ USB drive manager: library-style load and unload of designs, with safe eject and macOS hidden-file cleanup
 9. ✅ Library manager: browse the design catalog by folder, with search, thumbnails and open/save-as integration ([issue #17](https://github.com/diogobernini/bastidor/issues/17))
 
+### Phase 2 (in planning)
+
+1. **Object canvas**: select, move, resize and delete design elements like a vector editor, with stitch regeneration and a minimum-spacing guard ([#29](https://github.com/diogobernini/bastidor/issues/29))
+2. Reliability and distribution: CI on every PR ([#30](https://github.com/diogobernini/bastidor/issues/30)), signing/notarization/installers/auto-update ([#31](https://github.com/diogobernini/bastidor/issues/31)), validation on a physical machine ([#32](https://github.com/diogobernini/bastidor/issues/32))
+3. Foundation: renderer modularization ([#33](https://github.com/diogobernini/bastidor/issues/33)), Electron UI test suite ([#34](https://github.com/diogobernini/bastidor/issues/34)), 10-15k-design library scale ([#35](https://github.com/diogobernini/bastidor/issues/35), [#28](https://github.com/diogobernini/bastidor/issues/28)), delta undo ([#37](https://github.com/diogobernini/bastidor/issues/37))
+4. Polish: docs refresh ([#36](https://github.com/diogobernini/bastidor/issues/36)), shortcuts help and accessibility ([#38](https://github.com/diogobernini/bastidor/issues/38))
+
 ## Credits and thanks
 
 The heart of this project, the knowledge of binary embroidery formats, exists thanks
