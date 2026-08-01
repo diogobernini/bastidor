@@ -919,6 +919,129 @@ textarea {
 }
 
 .dig-stitches span {
+/* ---------------------------------------------------------- gestão de biblioteca (issue #17) */
+
+#dlg-library {
+  width: min(1200px, 97vw);
+  height: min(780px, 92vh);
+  max-height: 92vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.library-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  flex: 0 0 auto;
+}
+
+.library-head h2 {
+  margin-bottom: 0;
+}
+
+.library-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--line);
+  flex: 0 0 auto;
+}
+
+.lib-search {
+  flex: 1 1 160px;
+  min-width: 120px;
+}
+
+.lib-filter-group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.lib-dim {
+  width: 96px;
+  font-size: 12px;
+  padding: 4px 5px;
+}
+
+.lib-fav-toggle {
+  white-space: nowrap;
+}
+
+.lib-drive-select {
+  max-width: 180px;
+}
+
+.library-body {
+  display: flex;
+  gap: 14px;
+  flex: 1;
+  min-height: 0;
+  margin-top: 10px;
+}
+
+.lib-tree {
+  flex: 0 0 220px;
+  overflow-y: auto;
+  background: var(--bg-inset);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.lib-tree-node {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+  padding: 4px 8px;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  border-radius: 6px;
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.lib-tree-node:hover {
+  background: #1c1c24;
+}
+
+.lib-tree-node.selected {
+  background: #2a2415;
+  color: var(--accent);
+}
+
+.lib-tree-node .twisty {
+  flex: 0 0 auto;
+  width: 12px;
+  color: var(--text-dim);
+  font-size: 10px;
+}
+
+.lib-tree-node .name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lib-tree-children {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.lib-tree-empty {
+  padding: 4px 8px 4px 26px;
   font-size: 11.5px;
   color: var(--text-dim);
 }
@@ -942,4 +1065,208 @@ textarea {
   background: var(--bg-inset);
   border: 1px solid var(--line);
   border-radius: 6px;
+.lib-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.lib-grid-viewport {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  background: var(--bg-inset);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px;
+  position: relative;
+}
+
+.lib-grid-spacer {
+  position: relative;
+  width: 100%;
+}
+
+.lib-grid-inner {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.lib-empty-msg {
+  text-align: center;
+  color: var(--text-dim);
+  padding: 10px 8px;
+}
+
+.lib-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 6px;
+  border-radius: 8px;
+}
+
+.lib-item:hover {
+  background: #1c1c24;
+}
+
+.lib-item.selected {
+  background: #2a2415;
+}
+
+.lib-item-thumb-wrap {
+  position: relative;
+  width: 84px;
+  height: 84px;
+}
+
+.lib-item-thumb {
+  width: 84px;
+  height: 84px;
+  border-radius: 6px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+}
+
+.lib-fav-btn {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  border: none;
+  background: rgba(10, 10, 13, 0.6);
+  color: var(--text-dim);
+  font-size: 13px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+}
+
+.lib-fav-btn.active {
+  color: var(--accent);
+}
+
+.lib-item-name {
+  font-size: 11.5px;
+  max-width: 100%;
+  width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: center;
+}
+
+.lib-item-meta {
+  font-size: 10.5px;
+  color: var(--text-dim);
+  max-width: 100%;
+  width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: center;
+}
+
+.lib-item-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 2px;
+  width: 100%;
+}
+
+.lib-act {
+  width: 23px;
+  height: 20px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text);
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.lib-act:hover {
+  background: #24242c;
+}
+
+.lib-act.danger {
+  color: #e08585;
+  border-color: #5c2a2a;
+}
+
+.lib-act.danger:hover {
+  background: #2a1616;
+}
+
+.library-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+  flex: 0 0 auto;
+}
+
+.lib-footer-mode {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+
+/* [hidden] tem a mesma especificidade de uma classe: sem isto, o "display:
+   flex" acima venceria o [hidden] do user-agent e o rodapé errado (abrir
+   quando é modo salvar, ou vice-versa) continuaria visível. */
+.lib-footer-mode[hidden] {
+  display: none;
+}
+
+.lib-save-target {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lib-save-name {
+  flex: 1 1 160px;
+  min-width: 120px;
+}
+
+/* mode "salvar": some ações que só fazem sentido navegando/abrindo */
+#dlg-library.mode-save .lib-item-actions,
+#dlg-library.mode-save .lib-fav-btn {
+  display: none;
+}
+
+.lib-move-body {
+  width: min(420px, 92vw);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.lib-move-body .lib-tree {
+  /* sobrescreve o flex-basis de .lib-tree (220px): num container flex em
+     coluna, flex-basis manda mais que height quando não é "auto". */
+  flex: 0 0 280px;
 }

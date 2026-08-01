@@ -429,6 +429,97 @@
     </form>
   </dialog>
 
+  <!-- Gestão de biblioteca (issue #17): navegador por pastas + busca, usado
+       tanto para "Abrir" quanto para "Salvar como" (modo controlado por JS). -->
+  <dialog id="dlg-library" class="wide">
+    <div class="library-head">
+      <h2 id="library-title" data-i18n="lib.titleOpen">Biblioteca</h2>
+      <button type="button" id="library-close" class="tb-btn" data-i18n="drv.close">Fechar</button>
+    </div>
+
+    <div class="library-toolbar">
+      <input type="search" id="lib-search" class="lib-search" data-i18n-placeholder="lib.searchPlaceholder" placeholder="Buscar por nome…" />
+      <select id="lib-filter-format" data-i18n-title="lib.filterFormatTip"></select>
+      <div class="lib-filter-group" data-i18n-title="lib.filterWidthTip">
+        <input type="number" id="lib-filter-minw" class="lib-dim" data-i18n-placeholder="lib.minWidthPh" placeholder="larg mín" />
+        <span class="muted">–</span>
+        <input type="number" id="lib-filter-maxw" class="lib-dim" data-i18n-placeholder="lib.maxWidthPh" placeholder="larg máx" />
+      </div>
+      <div class="lib-filter-group" data-i18n-title="lib.filterHeightTip">
+        <input type="number" id="lib-filter-minh" class="lib-dim" data-i18n-placeholder="lib.minHeightPh" placeholder="alt mín" />
+        <span class="muted">–</span>
+        <input type="number" id="lib-filter-maxh" class="lib-dim" data-i18n-placeholder="lib.maxHeightPh" placeholder="alt máx" />
+      </div>
+      <div class="lib-filter-group" data-i18n-title="lib.filterStitchesTip">
+        <input type="number" id="lib-filter-mins" class="lib-dim" data-i18n-placeholder="lib.minStitchesPh" placeholder="pts mín" />
+        <span class="muted">–</span>
+        <input type="number" id="lib-filter-maxs" class="lib-dim" data-i18n-placeholder="lib.maxStitchesPh" placeholder="pts máx" />
+      </div>
+      <label class="row check lib-fav-toggle">
+        <input type="checkbox" id="lib-filter-favorites" />
+        <span data-i18n="lib.favoritesOnly">★ Favoritos</span>
+      </label>
+      <button type="button" id="lib-filter-clear" class="tb-btn small" data-i18n="lib.clearFilters">Limpar filtros</button>
+      <span class="tb-spacer"></span>
+      <select id="lib-drive-select" class="lib-drive-select" data-i18n-title="lib.driveSelectTip"></select>
+    </div>
+
+    <div class="library-body">
+      <nav id="lib-tree" class="lib-tree"></nav>
+      <section class="lib-main">
+        <div id="lib-grid-viewport" class="lib-grid-viewport">
+          <div id="lib-grid-spacer" class="lib-grid-spacer">
+            <div id="lib-grid-inner" class="lib-grid-inner"></div>
+          </div>
+        </div>
+        <p id="lib-empty" class="hint lib-empty-msg" hidden data-i18n="lib.empty">Nenhuma matriz nesta pasta</p>
+        <p id="lib-truncated" class="hint warn lib-empty-msg" hidden data-i18n="lib.truncated">Mostrando os primeiros resultados da busca; refine para ver menos itens.</p>
+      </section>
+    </div>
+
+    <div class="library-footer">
+      <div id="lib-footer-open" class="lib-footer-mode">
+        <button type="button" id="lib-open-external" class="tb-btn" data-i18n="lib.openExternal">Abrir do computador…</button>
+      </div>
+      <div id="lib-footer-save" class="lib-footer-mode" hidden>
+        <span class="muted" data-i18n="lib.saveIn">Salvar em:</span>
+        <span id="lib-save-target" class="mono lib-save-target"></span>
+        <input type="text" id="lib-save-name" class="lib-save-name" data-i18n-placeholder="lib.fileNamePlaceholder" placeholder="nome do arquivo" />
+        <select id="lib-save-format"></select>
+        <span class="tb-spacer"></span>
+        <button type="button" id="lib-save-external" class="tb-btn" data-i18n="lib.saveExternal">Salvar fora…</button>
+        <button type="button" id="lib-save-confirm" class="tb-btn accent" data-i18n="lib.saveConfirm">Salvar</button>
+      </div>
+    </div>
+  </dialog>
+
+  <dialog id="dlg-lib-rename">
+    <form method="dialog" id="lib-rename-form">
+      <h2 data-i18n="lib.renameTitle">Renomear</h2>
+      <p class="hint mono" id="lib-rename-current"></p>
+      <label class="row">
+        <span data-i18n="lib.renameLabel">Novo nome</span>
+        <input type="text" id="lib-rename-input" />
+      </label>
+      <div class="dlg-actions">
+        <button value="cancel" class="tb-btn" data-i18n="set.cancel">Cancelar</button>
+        <button value="ok" class="tb-btn accent" data-i18n="lib.renameConfirm">Renomear</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="dlg-lib-move">
+    <div class="lib-move-body">
+      <h2 data-i18n="lib.moveTitle">Mover para pasta</h2>
+      <p class="hint mono" id="lib-move-current"></p>
+      <nav id="lib-move-tree" class="lib-tree"></nav>
+      <div class="dlg-actions">
+        <button type="button" id="lib-move-cancel" class="tb-btn" data-i18n="set.cancel">Cancelar</button>
+        <button type="button" id="lib-move-confirm" class="tb-btn accent" data-i18n="lib.moveConfirm">Mover</button>
+      </div>
+    </div>
+  </dialog>
+
   <dialog id="dlg-digitize">
     <form method="dialog" id="digitize-form">
       <h2 data-i18n="dig.title">Digitalizar imagem</h2>

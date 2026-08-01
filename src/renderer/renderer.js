@@ -56,6 +56,33 @@ const state = {
   },
   svgImport: null, // { path, text, name } aguardando os parâmetros do dialog
   lettering: { fonts: [], lastResult: null }, // ferramenta de texto (issue #7)
+  // Gestão de biblioteca (issue #17): navegador por pastas com busca,
+  // filtros, favoritos e cache de miniaturas. Ver seção dedicada mais abaixo.
+  library: {
+    root: null,
+    mode: 'open', // 'open' | 'save'
+    currentRelDir: '', // pasta selecionada na árvore (raiz = '')
+    treeExpanded: new Set(['']),
+    treeChildren: new Map(), // relDir -> [{name, relDir}] (subpastas já carregadas)
+    moveTreeExpanded: new Set(['']),
+    moveTreeChildren: new Map(),
+    moveTarget: null,
+    moveChosenRelDir: '',
+    renameTarget: null,
+    searching: false,
+    truncated: false,
+    baseItems: [], // itens da pasta/busca antes dos filtros de dimensão/pontos
+    items: [], // itens já filtrados, exibidos na grade
+    filters: { format: '', minW: null, maxW: null, minH: null, maxH: null, minS: null, maxS: null, favoritesOnly: false },
+    favorites: new Set(),
+    thumbCache: new Map(), // "caminho::mtime" -> Promise<dataURL|null>
+    drives: [],
+    selectedDriveMount: null,
+    driveRefreshTimer: null,
+    searchDebounce: null,
+    filterDebounce: null,
+    loadToken: 0, // evita corrida ao trocar de pasta/busca rapidamente
+  },
 };
 
 function bumpArt() {
@@ -1207,7 +1234,15 @@ function scaleDesignWithDensity(factor) {
 
 // --------------------------------------------------------------- salvar/exportar
 
-async function saveAs() {
+// "Salvar como" (issue #17): por padrão abre a biblioteca (escolher subpasta
+// e nome); saveAsExternal (o fluxo antigo, diálogo do sistema) fica atrás do
+// botão "Salvar fora..." dentro do modal da biblioteca.
+function saveAs() {
+  if (!state.design) return;
+  openLibrarySaveDialog();
+}
+
+async function saveAsExternal() {
   if (!state.design) return;
   const base = (state.design.name || 'matriz').replace(/\.[^.]+$/, '');
   const filePath = await window.api.saveDialog({ defaultName: base + '.xxx' });
@@ -1265,9 +1300,19 @@ async function exportPng() {
   }
 }
 
+// "Abrir" (issue #17): por padrão abre a biblioteca; openViaDialogExternal (o
+// fluxo antigo, diálogo do sistema) fica atrás do botão "Abrir do computador..."
+// dentro do modal da biblioteca.
 async function openViaDialog() {
+  await openLibraryDialog();
+}
+
+async function openViaDialogExternal() {
   const design = await window.api.openDialog();
-  if (design) setDesign(design);
+  if (design) {
+    setDesign(design);
+    closeLibraryDialog(); // se veio do botão "Abrir do computador..." dentro da biblioteca
+  }
   refreshEmptyRecents();
 }
 
@@ -1457,13 +1502,13 @@ function countStitches(design) {
 // principal (drawStitches: moveTo só no primeiro ponto após a pena levantada
 // por salto/corte/parada/troca de cor, o resto encadeia com lineTo) — só que
 // operando sobre um "design" qualquer, não o state.design global.
-function drawDesignThumbnail(canvas, design) {
-  drawDesignInto(canvas, design, 72, 72, 6);
+function drawDesignThumbnail(canvas, design, size = 72) {
+  drawDesignInto(canvas, design, size, size, 6);
 }
 
 // Desenha um "design" qualquer num canvas de tamanho arbitrário (miniaturas
-// do pendrive, prévia da digitalização), com a mesma lógica de polilinha do
-// desenho principal.
+// do pendrive e da biblioteca, prévia da digitalização), com a mesma lógica
+// de polilinha do desenho principal.
 function drawDesignInto(canvas, design, cssW, cssH, margin) {
   const localDpr = window.devicePixelRatio || 1;
   canvas.width = Math.max(1, Math.round(cssW * localDpr));
@@ -1811,6 +1856,731 @@ function bindDrivesDialog() {
     state.settings.library = { path: chosen };
     $('set-librarypath').value = chosen;
   });
+}
+
+// --------------------------------------------------------------- gestão de biblioteca (issue #17)
+//
+// Navegador de biblioteca para catálogos grandes (10-15 mil arquivos):
+// - Árvore de pastas à esquerda (carregada sob demanda, uma pasta por vez) +
+//   grade com o conteúdo da pasta selecionada (requisito 1).
+// - Busca por nome atravessando toda a árvore, com o caminho relativo de
+//   cada resultado (requisito 2).
+// - "Abrir" (menu/Cmd+O/toolbar) e "Salvar como" passam a abrir este modal
+//   por padrão; os fluxos antigos (diálogo do sistema) viram os botões
+//   "Abrir do computador..."/"Salvar fora..." (requisitos 3 e 4).
+// - Miniaturas: reaproveita peekDriveDesign (cache por caminho+mtime, já
+//   usado pelo gestor de pendrive) + drawDesignThumbnail para desenhar, com
+//   um cache em disco (userData/thumbs) por trás de uma fila com throttle.
+// - Grade virtualizada (só os itens visíveis são criados no DOM).
+
+// ---- fila com throttle para geração de miniaturas (peek + desenho + cache em disco) ----
+const LIB_THUMB_CONCURRENCY = 4;
+let libThumbActive = 0;
+const libThumbQueue = [];
+
+function scheduleThumbJob(job) {
+  return new Promise((resolve) => {
+    libThumbQueue.push({ job, resolve });
+    pumpThumbQueue();
+  });
+}
+
+function pumpThumbQueue() {
+  while (libThumbActive < LIB_THUMB_CONCURRENCY && libThumbQueue.length) {
+    const { job, resolve } = libThumbQueue.shift();
+    libThumbActive++;
+    Promise.resolve()
+      .then(job)
+      .catch(() => null)
+      .then((result) => {
+        libThumbActive--;
+        pumpThumbQueue();
+        resolve(result);
+      });
+  }
+}
+
+function libraryThumbCacheKey(item) {
+  return `${item.path}::${item.mtime}`;
+}
+
+// Cache em disco primeiro (rápido: só lê um PNG); se não houver, faz o peek
+// (reaproveitando o cache de pontos do gestor de pendrive), desenha num
+// canvas fora de tela com drawDesignThumbnail e grava o PNG resultante no
+// cache do processo principal (invalidado por mtime — ver src/main/library.js).
+async function loadOrBuildLibraryThumb(item) {
+  const disk = await window.api.libraryThumbGet(item.path, item.mtime);
+  if (disk) return disk;
+  const peeked = await peekDriveDesign(item);
+  if (!peeked.ok) return null;
+  const off = document.createElement('canvas');
+  drawDesignThumbnail(off, peeked.design, 84);
+  const dataURL = off.toDataURL('image/png');
+  window.api.libraryThumbSave(item.path, item.mtime, dataURL); // best-effort, não bloqueia a UI
+  return dataURL;
+}
+
+function paintLibraryThumb(canvasEl, dataURL) {
+  const img = new Image();
+  img.onload = () => {
+    if (!canvasEl.isConnected) return; // item já saiu da janela virtualizada
+    const dpr = window.devicePixelRatio || 1;
+    canvasEl.width = 84 * dpr;
+    canvasEl.height = 84 * dpr;
+    const c = canvasEl.getContext('2d');
+    c.clearRect(0, 0, canvasEl.width, canvasEl.height);
+    c.drawImage(img, 0, 0, canvasEl.width, canvasEl.height);
+  };
+  img.src = dataURL;
+}
+
+function ensureLibraryThumb(canvasEl, item) {
+  const key = libraryThumbCacheKey(item);
+  let entry = state.library.thumbCache.get(key);
+  if (!entry) {
+    entry = scheduleThumbJob(() => loadOrBuildLibraryThumb(item));
+    state.library.thumbCache.set(key, entry);
+  }
+  entry.then((dataURL) => {
+    if (dataURL) paintLibraryThumb(canvasEl, dataURL);
+  });
+}
+
+// ---- árvore de pastas (carregamento preguiçoso, reaproveitada pelo picker de mover) ----
+
+// relPath vem do processo principal com separador nativo do SO (path.join);
+// para achar a pasta-mãe (mostrada como caminho relativo nos resultados de
+// busca) não dá pra usar o módulo 'path' (preload sandboxed não expõe Node
+// ao renderer), daí este pequeno helper.
+function libRelDirParent(relPath) {
+  const idx = Math.max(relPath.lastIndexOf('/'), relPath.lastIndexOf('\\'));
+  return idx === -1 ? '' : relPath.slice(0, idx);
+}
+
+// opts: { expanded: Set, childrenCache: Map, selectedRelDir, onSelect(relDir), rerender() }
+async function renderLibraryTree(containerEl, opts) {
+  containerEl.innerHTML = '';
+  containerEl.appendChild(buildLibTreeRow('', tr('lib.root'), 0, opts));
+  if (opts.expanded.has('')) {
+    const wrap = document.createElement('div');
+    wrap.className = 'lib-tree-children';
+    containerEl.appendChild(wrap);
+    await renderLibTreeChildrenInto(wrap, '', 1, opts);
+  }
+}
+
+async function renderLibTreeChildrenInto(containerEl, relDir, depth, opts) {
+  let subs = opts.childrenCache.get(relDir);
+  if (subs === undefined) {
+    containerEl.innerHTML = `<div class="lib-tree-empty">${tr('lib.loadingFolders')}</div>`;
+    subs = await window.api.libraryListSubfolders(relDir);
+    opts.childrenCache.set(relDir, subs);
+  }
+  containerEl.innerHTML = '';
+  if (!subs.length) {
+    const empty = document.createElement('div');
+    empty.className = 'lib-tree-empty';
+    empty.textContent = tr('lib.emptyFolder');
+    containerEl.appendChild(empty);
+    return;
+  }
+  for (const sub of subs) {
+    containerEl.appendChild(buildLibTreeRow(sub.relDir, sub.name, depth, opts));
+    if (opts.expanded.has(sub.relDir)) {
+      const wrap = document.createElement('div');
+      wrap.className = 'lib-tree-children';
+      containerEl.appendChild(wrap);
+      await renderLibTreeChildrenInto(wrap, sub.relDir, depth + 1, opts);
+    }
+  }
+}
+
+function buildLibTreeRow(relDir, label, depth, opts) {
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'lib-tree-node' + (relDir === opts.selectedRelDir ? ' selected' : '');
+  btn.style.paddingLeft = 8 + depth * 14 + 'px';
+  const twisty = document.createElement('span');
+  twisty.className = 'twisty';
+  twisty.textContent = opts.expanded.has(relDir) ? '▾' : '▸';
+  twisty.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    if (opts.expanded.has(relDir)) opts.expanded.delete(relDir);
+    else opts.expanded.add(relDir);
+    await opts.rerender();
+  });
+  const name = document.createElement('span');
+  name.className = 'name';
+  name.textContent = label;
+  btn.append(twisty, name);
+  btn.addEventListener('click', () => opts.onSelect(relDir));
+  return btn;
+}
+
+function invalidateLibraryTreeCache() {
+  state.library.treeChildren.clear();
+  state.library.moveTreeChildren.clear();
+}
+
+const mainLibTreeOpts = {
+  expanded: state.library.treeExpanded,
+  childrenCache: state.library.treeChildren,
+  get selectedRelDir() {
+    return state.library.currentRelDir;
+  },
+  onSelect: async (relDir) => {
+    state.library.treeExpanded.add(relDir);
+    state.library.currentRelDir = relDir;
+    $('lib-search').value = '';
+    state.library.searching = false;
+    await renderLibraryTree($('lib-tree'), mainLibTreeOpts);
+    await loadLibraryFolder();
+    if (state.library.mode === 'save') updateLibrarySaveTarget();
+  },
+  rerender: () => renderLibraryTree($('lib-tree'), mainLibTreeOpts),
+};
+
+const moveLibTreeOpts = {
+  expanded: state.library.moveTreeExpanded,
+  childrenCache: state.library.moveTreeChildren,
+  get selectedRelDir() {
+    return state.library.moveChosenRelDir;
+  },
+  onSelect: async (relDir) => {
+    state.library.moveTreeExpanded.add(relDir);
+    state.library.moveChosenRelDir = relDir;
+    await renderLibraryTree($('lib-move-tree'), moveLibTreeOpts);
+  },
+  rerender: () => renderLibraryTree($('lib-move-tree'), moveLibTreeOpts),
+};
+
+// ---- carregar pasta / busca ----
+
+async function loadLibraryFolder() {
+  const token = ++state.library.loadToken;
+  const relDir = state.library.currentRelDir;
+  const { files } = await window.api.libraryListFolder(relDir);
+  if (token !== state.library.loadToken) return;
+  state.library.searching = false;
+  state.library.truncated = false;
+  await setLibraryBaseItems(files);
+}
+
+async function runLibrarySearch(query) {
+  const token = ++state.library.loadToken;
+  state.library.searching = true;
+  const { items, truncated } = await window.api.librarySearch(query);
+  if (token !== state.library.loadToken) return;
+  state.library.truncated = truncated;
+  await setLibraryBaseItems(items);
+}
+
+async function setLibraryBaseItems(rawItems) {
+  state.library.baseItems = rawItems;
+  await applyLibraryFilters();
+}
+
+function scheduleLibrarySearch() {
+  clearTimeout(state.library.searchDebounce);
+  state.library.searchDebounce = setTimeout(async () => {
+    const q = $('lib-search').value.trim();
+    if (q) await runLibrarySearch(q);
+    else await loadLibraryFolder();
+  }, 180);
+}
+
+async function reloadLibraryView() {
+  invalidateLibraryTreeCache();
+  await renderLibraryTree($('lib-tree'), mainLibTreeOpts);
+  const q = $('lib-search').value.trim();
+  if (q) await runLibrarySearch(q);
+  else await loadLibraryFolder();
+}
+
+// ---- filtros (formato instantâneo; dimensões/pontos exigem peek do conjunto atual) ----
+
+function readLibraryFiltersFromForm() {
+  const num = (id) => {
+    const v = $(id).value;
+    return v === '' ? null : Number(v);
+  };
+  state.library.filters = {
+    format: $('lib-filter-format').value,
+    minW: num('lib-filter-minw'),
+    maxW: num('lib-filter-maxw'),
+    minH: num('lib-filter-minh'),
+    maxH: num('lib-filter-maxh'),
+    minS: num('lib-filter-mins'),
+    maxS: num('lib-filter-maxs'),
+    favoritesOnly: $('lib-filter-favorites').checked,
+  };
+}
+
+function scheduleLibraryFilterChange() {
+  readLibraryFiltersFromForm();
+  clearTimeout(state.library.filterDebounce);
+  state.library.filterDebounce = setTimeout(applyLibraryFilters, 250);
+}
+
+function clearLibraryFilters() {
+  $('lib-filter-format').value = '';
+  $('lib-filter-minw').value = '';
+  $('lib-filter-maxw').value = '';
+  $('lib-filter-minh').value = '';
+  $('lib-filter-maxh').value = '';
+  $('lib-filter-mins').value = '';
+  $('lib-filter-maxs').value = '';
+  $('lib-filter-favorites').checked = false;
+  scheduleLibraryFilterChange();
+}
+
+// Filtros de dimensão/pontos exigem metadado de cabeçalho (peekDesign), que
+// não existe em massa sem parsear cada arquivo — viável aqui porque o
+// conjunto já está limitado a uma pasta ou a um resultado de busca com teto
+// (nunca ao catálogo inteiro de 10-15 mil arquivos).
+async function applyLibraryFilters() {
+  const f = state.library.filters;
+  let items = state.library.baseItems;
+  if (f.format) items = items.filter((it) => it.ext === f.format);
+  if (f.favoritesOnly) items = items.filter((it) => state.library.favorites.has(it.path));
+
+  const needsPeek = f.minW != null || f.maxW != null || f.minH != null || f.maxH != null || f.minS != null || f.maxS != null;
+  if (needsPeek) {
+    const token = state.library.loadToken;
+    const peeked = await Promise.all(items.map((it) => Promise.resolve(peekDriveDesign(it)).then((r) => ({ it, r }))));
+    if (token !== state.library.loadToken) return;
+    items = peeked
+      .filter(({ r }) => r.ok)
+      .filter(({ r }) => {
+        const b = designBounds(r.design);
+        const wMm = (b.maxX - b.minX) / 10;
+        const hMm = (b.maxY - b.minY) / 10;
+        const stitches = countStitches(r.design);
+        if (f.minW != null && wMm < f.minW) return false;
+        if (f.maxW != null && wMm > f.maxW) return false;
+        if (f.minH != null && hMm < f.minH) return false;
+        if (f.maxH != null && hMm > f.maxH) return false;
+        if (f.minS != null && stitches < f.minS) return false;
+        if (f.maxS != null && stitches > f.maxS) return false;
+        return true;
+      })
+      .map(({ it }) => it);
+  }
+
+  state.library.items = items;
+  updateLibraryEmptyState();
+  requestLibraryGridRender();
+}
+
+function updateLibraryEmptyState() {
+  const empty = state.library.items.length === 0;
+  $('lib-empty').hidden = !empty;
+  $('lib-empty').textContent = state.library.searching ? tr('lib.emptySearch') : tr('lib.empty');
+  $('lib-truncated').hidden = !state.library.truncated;
+}
+
+// ---- grade virtualizada ----
+
+const LIB_ITEM_WIDTH = 108;
+const LIB_ITEM_HEIGHT = 172;
+const LIB_GRID_GAP = 10;
+const LIB_BUFFER_ROWS = 2;
+
+function libraryGridCols() {
+  const viewport = $('lib-grid-viewport');
+  const width = Math.max(0, viewport.clientWidth - 20);
+  return Math.max(1, Math.floor((width + LIB_GRID_GAP) / (LIB_ITEM_WIDTH + LIB_GRID_GAP)));
+}
+
+function renderLibraryGrid() {
+  const viewport = $('lib-grid-viewport');
+  const items = state.library.items;
+  const cols = libraryGridCols();
+  const rowHeight = LIB_ITEM_HEIGHT + LIB_GRID_GAP;
+  const rows = Math.ceil(items.length / cols);
+  $('lib-grid-spacer').style.height = Math.max(rows * rowHeight, 1) + 'px';
+
+  const inner = $('lib-grid-inner');
+  inner.style.gridTemplateColumns = `repeat(${cols}, ${LIB_ITEM_WIDTH}px)`;
+  inner.style.gap = LIB_GRID_GAP + 'px';
+
+  const scrollTop = viewport.scrollTop;
+  const viewHeight = viewport.clientHeight;
+  const firstRow = Math.max(0, Math.floor(scrollTop / rowHeight) - LIB_BUFFER_ROWS);
+  const lastRow = Math.min(rows - 1, Math.ceil((scrollTop + viewHeight) / rowHeight) + LIB_BUFFER_ROWS);
+
+  inner.style.transform = `translateY(${firstRow * rowHeight}px)`;
+  inner.innerHTML = '';
+  for (let r = firstRow; r <= lastRow; r++) {
+    for (let c = 0; c < cols; c++) {
+      const idx = r * cols + c;
+      if (idx >= items.length) continue;
+      inner.appendChild(buildLibraryGridItem(items[idx]));
+    }
+  }
+}
+
+let libGridRenderQueued = false;
+function requestLibraryGridRender() {
+  if (libGridRenderQueued) return;
+  libGridRenderQueued = true;
+  requestAnimationFrame(() => {
+    libGridRenderQueued = false;
+    renderLibraryGrid();
+  });
+}
+
+function buildLibAct(glyph, title, onClick, danger) {
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'lib-act' + (danger ? ' danger' : '');
+  btn.textContent = glyph;
+  btn.title = title;
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    onClick();
+  });
+  return btn;
+}
+
+function buildLibraryGridItem(item) {
+  const el = document.createElement('div');
+  el.className = 'lib-item';
+
+  const thumbWrap = document.createElement('div');
+  thumbWrap.className = 'lib-item-thumb-wrap';
+  const thumb = document.createElement('canvas');
+  thumb.className = 'lib-item-thumb';
+  const isFav = state.library.favorites.has(item.path);
+  const favBtn = document.createElement('button');
+  favBtn.type = 'button';
+  favBtn.className = 'lib-fav-btn' + (isFav ? ' active' : '');
+  favBtn.textContent = isFav ? '★' : '☆';
+  favBtn.title = tr('lib.actionFavorite');
+  favBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    toggleLibraryFavorite(item);
+  });
+  thumbWrap.append(thumb, favBtn);
+
+  const name = document.createElement('div');
+  name.className = 'lib-item-name';
+  name.textContent = item.name;
+  name.title = item.name;
+
+  const meta = document.createElement('div');
+  meta.className = 'lib-item-meta';
+  meta.textContent = state.library.searching ? libRelDirParent(item.relPath) || tr('lib.root') : fmtBytesLocal(item.sizeBytes);
+  meta.title = meta.textContent;
+
+  el.append(thumbWrap, name, meta);
+
+  if (!state.library.searching) {
+    Promise.resolve(peekDriveDesign(item)).then((entry) => {
+      if (!el.isConnected) return;
+      meta.textContent = entry.ok
+        ? `${fmtBytesLocal(item.sizeBytes)} · ${tr('status.stitches', { n: fmtNum(countStitches(entry.design)) })}`
+        : `${fmtBytesLocal(item.sizeBytes)} · ${tr('drv.parseError')}`;
+      meta.title = meta.textContent;
+    });
+  }
+
+  if (state.library.mode === 'open') {
+    const actions = document.createElement('div');
+    actions.className = 'lib-item-actions';
+    actions.append(
+      buildLibAct('▶', tr('lib.actionOpen'), () => openLibraryItem(item)),
+      buildLibAct('⌂', tr('lib.actionReveal'), () => window.api.showItemInFolder(item.path)),
+      buildLibAct('→', tr('lib.actionDrive'), () => copyLibraryItemToDrive(item)),
+      buildLibAct('✎', tr('lib.actionRename'), () => openLibraryRename(item)),
+      buildLibAct('⇒', tr('lib.actionMove'), () => openLibraryMove(item)),
+      buildLibAct('✕', tr('lib.actionDelete'), () => deleteLibraryItem(item), true)
+    );
+    el.appendChild(actions);
+    el.addEventListener('dblclick', () => openLibraryItem(item));
+  } else {
+    el.addEventListener('click', () => {
+      const base = item.name.replace(/\.[^.]+$/, '');
+      $('lib-save-name').value = base;
+      const options = [...$('lib-save-format').options];
+      if (options.some((o) => o.value === item.ext)) $('lib-save-format').value = item.ext;
+    });
+  }
+
+  ensureLibraryThumb(thumb, item);
+  return el;
+}
+
+// ---- ações por item ----
+
+async function openLibraryItem(item) {
+  await window.api.openFromDrive(item.path); // emite design:opened (mesmo canal do resto do app)
+}
+
+async function toggleLibraryFavorite(item) {
+  const list = await window.api.libraryFavoriteToggle(item.path);
+  state.library.favorites = new Set(list);
+  // Reaplica os filtros (não só repinta a grade): com "Favoritos" marcado,
+  // desmarcar a estrela de um item precisa tirá-lo da lista exibida.
+  await applyLibraryFilters();
+}
+
+async function copyLibraryItemToDrive(item) {
+  const mount = state.library.selectedDriveMount;
+  if (!mount) {
+    toast(tr('lib.toastNoDrive'), 'warn');
+    return;
+  }
+  let results = await window.api.copyDesigns([item.path], mount, false);
+  if (results[0].status === 'conflict') {
+    const ok = await confirmDialog({
+      title: tr('drv.confirmOverwriteTitle'),
+      message: tr('drv.confirmOverwriteMsg', { n: 1, names: item.name }),
+      okLabel: tr('drv.confirmOverwriteOk'),
+    });
+    if (!ok) return;
+    results = await window.api.copyDesigns([item.path], mount, true);
+  }
+  if (results[0].status === 'copied') toast(tr('lib.toastCopiedToDrive', { name: item.name }));
+  else if (results[0].status === 'error') toast(tr('lib.toastCopyError') + results[0].error, 'error', 5000);
+}
+
+async function deleteLibraryItem(item) {
+  const ok = await confirmDialog({
+    title: tr('lib.confirmDeleteTitle'),
+    message: tr('lib.confirmDeleteMsg', { name: item.name }),
+    okLabel: tr('lib.confirmDeleteOk'),
+  });
+  if (!ok) return;
+  try {
+    await window.api.libraryTrash(item.path);
+    toast(tr('lib.toastDeleted', { name: item.name }));
+    await reloadLibraryView();
+  } catch (err) {
+    toast(tr('lib.toastDeleteError') + err.message, 'error', 5000);
+  }
+}
+
+function openLibraryRename(item) {
+  state.library.renameTarget = item;
+  $('lib-rename-current').textContent = item.relPath || item.name;
+  $('lib-rename-input').value = item.name;
+  $('dlg-lib-rename').showModal();
+  $('lib-rename-input').focus();
+  $('lib-rename-input').select();
+}
+
+async function confirmLibraryRename() {
+  const item = state.library.renameTarget;
+  if (!item) return;
+  const newName = $('lib-rename-input').value.trim();
+  if (!newName || newName === item.name) return;
+  try {
+    await window.api.libraryRename(item.path, newName);
+    toast(tr('lib.toastRenamed', { name: newName }));
+    await reloadLibraryView();
+  } catch (err) {
+    toast(tr('lib.toastRenameError') + err.message, 'error', 5000);
+  }
+}
+
+async function openLibraryMove(item) {
+  state.library.moveTarget = item;
+  state.library.moveChosenRelDir = libRelDirParent(item.relPath);
+  $('lib-move-current').textContent = item.relPath || item.name;
+  $('dlg-lib-move').showModal();
+  await renderLibraryTree($('lib-move-tree'), moveLibTreeOpts);
+}
+
+async function confirmLibraryMove() {
+  const item = state.library.moveTarget;
+  if (!item) return;
+  try {
+    await window.api.libraryMove(item.path, state.library.moveChosenRelDir);
+    toast(tr('lib.toastMoved', { name: item.name }));
+    $('dlg-lib-move').close();
+    await reloadLibraryView();
+  } catch (err) {
+    toast(tr('lib.toastMoveError') + err.message, 'error', 5000);
+  }
+}
+
+// ---- pendrive (dropdown local, independente do modal de gestão de pendrive) ----
+
+async function refreshLibraryDriveSelect() {
+  const list = await window.api.listDrives();
+  state.library.drives = list;
+  const sel = $('lib-drive-select');
+  const prevMount = state.library.selectedDriveMount;
+  sel.innerHTML = '';
+  if (!list.length) {
+    const opt = document.createElement('option');
+    opt.value = '';
+    opt.textContent = tr('lib.noDriveOption');
+    sel.appendChild(opt);
+    sel.disabled = true;
+    state.library.selectedDriveMount = null;
+    return;
+  }
+  sel.disabled = false;
+  for (const d of list) {
+    const opt = document.createElement('option');
+    opt.value = d.mount;
+    opt.textContent = d.name || d.mount;
+    sel.appendChild(opt);
+  }
+  const stillThere = prevMount && list.some((d) => d.mount === prevMount);
+  state.library.selectedDriveMount = stillThere ? prevMount : list[0].mount;
+  sel.value = state.library.selectedDriveMount;
+}
+
+// ---- abrir modal (modo "abrir" ou "salvar") ----
+
+function populateLibraryFormatFilterSelect() {
+  const sel = $('lib-filter-format');
+  sel.innerHTML = '';
+  const first = document.createElement('option');
+  first.value = '';
+  first.textContent = tr('lib.filterFormatAll');
+  sel.appendChild(first);
+  // Formatos suportados para leitura (core/io não é acessível no renderer
+  // sandboxed; mesma lista usada pelos filtros do diálogo "Abrir" no main).
+  for (const ext of ['xxx', 'dst', 'pes', 'pec', 'jef', 'exp']) {
+    const opt = document.createElement('option');
+    opt.value = ext;
+    opt.textContent = ext.toUpperCase();
+    sel.appendChild(opt);
+  }
+}
+
+function populateLibrarySaveFormatSelect() {
+  const sel = $('lib-save-format');
+  if (sel.options.length) return; // lista estática (extensões graváveis): só precisa popular uma vez
+  for (const ext of ['xxx', 'dst', 'pes', 'pec', 'jef', 'exp', 'svg']) {
+    const opt = document.createElement('option');
+    opt.value = ext;
+    opt.textContent = ext.toUpperCase();
+    sel.appendChild(opt);
+  }
+}
+
+function updateLibrarySaveTarget() {
+  const relDir = state.library.currentRelDir;
+  $('lib-save-target').textContent = relDir ? relDir : tr('lib.root');
+}
+
+function closeLibraryDialog() {
+  const dlg = $('dlg-library');
+  if (dlg.open) dlg.close();
+}
+
+async function openLibraryCommon() {
+  const rootInfo = await window.api.libraryRoot();
+  state.library.root = rootInfo.path;
+  state.library.currentRelDir = '';
+  const favs = await window.api.libraryFavoritesList();
+  state.library.favorites = new Set(favs);
+  $('lib-search').value = '';
+  state.library.searching = false;
+  invalidateLibraryTreeCache();
+  await renderLibraryTree($('lib-tree'), mainLibTreeOpts);
+  await loadLibraryFolder();
+  await refreshLibraryDriveSelect();
+  if (state.library.driveRefreshTimer) clearInterval(state.library.driveRefreshTimer);
+  state.library.driveRefreshTimer = setInterval(refreshLibraryDriveSelect, 4000);
+  $('dlg-library').showModal();
+}
+
+async function openLibraryDialog() {
+  state.library.mode = 'open';
+  $('dlg-library').classList.remove('mode-save');
+  $('library-title').textContent = tr('lib.titleOpen');
+  $('lib-footer-open').hidden = false;
+  $('lib-footer-save').hidden = true;
+  populateLibraryFormatFilterSelect();
+  await openLibraryCommon();
+}
+
+async function openLibrarySaveDialog() {
+  state.library.mode = 'save';
+  $('dlg-library').classList.add('mode-save');
+  $('library-title').textContent = tr('lib.titleSave');
+  $('lib-footer-open').hidden = true;
+  $('lib-footer-save').hidden = false;
+  populateLibraryFormatFilterSelect();
+  populateLibrarySaveFormatSelect();
+  const base = (state.design && state.design.name ? state.design.name : 'matriz').replace(/\.[^.]+$/, '');
+  $('lib-save-name').value = base;
+  const currentExt = state.design && state.design.format ? state.design.format : 'xxx';
+  if ([...$('lib-save-format').options].some((o) => o.value === currentExt)) $('lib-save-format').value = currentExt;
+  await openLibraryCommon();
+  updateLibrarySaveTarget();
+}
+
+async function confirmLibrarySave() {
+  if (!state.design) return;
+  const nameRaw = $('lib-save-name').value.trim();
+  if (!nameRaw) {
+    toast(tr('lib.toastNameRequired'), 'warn');
+    return;
+  }
+  const ext = $('lib-save-format').value;
+  const fileName = nameRaw.toLowerCase().endsWith('.' + ext) ? nameRaw : `${nameRaw}.${ext}`;
+  try {
+    const result = await window.api.libraryWriteDesign(state.library.currentRelDir, fileName, {
+      stitches: state.design.stitches,
+      threads: state.design.threads,
+      metadata: state.design.metadata || {},
+    });
+    state.dirty = false;
+    state.design.path = result.path;
+    state.design.format = result.format;
+    state.design.name = fileName;
+    updateStatusbar();
+    document.title = state.design.name + ' — Bastidor';
+    toast(tr('lib.toastSaved', { name: fileName }));
+    closeLibraryDialog();
+  } catch (err) {
+    toast(tr('lib.toastSaveError') + err.message, 'error', 5000);
+  }
+}
+
+function bindLibraryDialog() {
+  $('library-close').addEventListener('click', closeLibraryDialog);
+  $('dlg-library').addEventListener('close', () => {
+    if (state.library.driveRefreshTimer) {
+      clearInterval(state.library.driveRefreshTimer);
+      state.library.driveRefreshTimer = null;
+    }
+  });
+
+  $('lib-search').addEventListener('input', scheduleLibrarySearch);
+  $('lib-filter-format').addEventListener('change', scheduleLibraryFilterChange);
+  for (const id of ['lib-filter-minw', 'lib-filter-maxw', 'lib-filter-minh', 'lib-filter-maxh', 'lib-filter-mins', 'lib-filter-maxs']) {
+    $(id).addEventListener('input', scheduleLibraryFilterChange);
+  }
+  $('lib-filter-favorites').addEventListener('change', scheduleLibraryFilterChange);
+  $('lib-filter-clear').addEventListener('click', clearLibraryFilters);
+  $('lib-drive-select').addEventListener('change', (e) => {
+    state.library.selectedDriveMount = e.target.value || null;
+  });
+
+  $('lib-grid-viewport').addEventListener('scroll', requestLibraryGridRender);
+  new ResizeObserver(requestLibraryGridRender).observe($('lib-grid-viewport'));
+
+  $('lib-open-external').addEventListener('click', openViaDialogExternal);
+  $('lib-save-external').addEventListener('click', async () => {
+    closeLibraryDialog();
+    await saveAsExternal();
+  });
+  $('lib-save-confirm').addEventListener('click', confirmLibrarySave);
+
+  $('lib-rename-form').addEventListener('submit', (e) => {
+    if (e.submitter && e.submitter.value === 'ok') confirmLibraryRename();
+  });
+
+  $('lib-move-cancel').addEventListener('click', () => $('dlg-lib-move').close());
+  $('lib-move-confirm').addEventListener('click', confirmLibraryMove);
 }
 
 // --------------------------------------------------------------- lettering (texto)
@@ -2410,6 +3180,7 @@ function bindMenuAndKeys() {
   window.api.onDesignOpened((design) => {
     setDesign(design);
     closeDrivesDialog(); // abrir uma matriz (Recentes/Finder/gestor de pendrive) tira o modal do caminho
+    closeLibraryDialog(); // idem para o navegador de biblioteca (issue #17)
   });
 
   window.addEventListener('keydown', (e) => {
@@ -2707,6 +3478,7 @@ async function boot() {
   bindDragDrop();
   bindDrivesDialog();
   bindDigitizeDialog();
+  bindLibraryDialog();
   resizeCanvas();
   refreshEmptyRecents();
   requestRender();
@@ -2722,6 +3494,12 @@ async function boot() {
   if (launch.dialog === 'digitize') $('dlg-digitize').showModal();
   if (launch.digitizeImage) await openDigitizeWith(launch.digitizeImage);
   if (launch.svgImport) handleSvgPicked(launch.svgImport);
+  if (launch.dialog === 'library') await openLibraryDialog();
+  if (launch.dialog === 'library-save' && state.design) await openLibrarySaveDialog();
+  if (launch.librarySearch) {
+    $('lib-search').value = launch.librarySearch;
+    await runLibrarySearch(launch.librarySearch);
+  }
 
   // Sinaliza para o modo screenshot que a primeira pintura aconteceu.
   requestAnimationFrame(() => requestAnimationFrame(() => window.api.notifyRenderReady()));

@@ -13,6 +13,7 @@ const raster = require('../core/digitize/raster');
 const { SettingsStore, HOOP_PRESETS } = require('./settings');
 const { STRINGS, resolveLang, makeT } = require('../i18n');
 const drives = require('./drives');
+const library = require('./library');
 
 const FONTS_DIR = path.join(__dirname, '..', '..', 'fonts');
 
@@ -37,6 +38,13 @@ if (argUserData) app.setPath('userData', path.resolve(argUserData));
 const argDigitizeImage = getArgValue('--digitize-image');
 // --svg-import=arquivo: abre o dialog de importar SVG já com o arquivo (autoteste).
 const argSvgImport = getArgValue('--svg-import');
+// --library=pasta: aponta a biblioteca para uma pasta específica só nesta
+// execução (não grava em settings.json) — útil para telas/capturas de tela
+// automatizadas, sem mexer na configuração real do usuário.
+const argLibrary = getArgValue('--library');
+// --library-search=termo: pré-preenche e dispara a busca da biblioteca ao
+// abrir --dialog=library, só para telas/capturas de tela automatizadas.
+const argLibrarySearch = getArgValue('--library-search');
 
 function currentLang() {
   if (argLang) return resolveLang(argLang, 'en');
@@ -92,6 +100,26 @@ function peekDesign(filePath) {
   } catch (err) {
     return { ok: false, error: err.message };
   }
+}
+
+// Raiz efetiva da biblioteca: --library= (automação/telas) tem prioridade
+// sobre a preferência salva, sem alterá-la.
+function libraryRootPath() {
+  return argLibrary ? path.resolve(argLibrary) : settings.get().library.path;
+}
+
+// Núcleo da gravação de matriz, compartilhado pelo "Salvar fora..." (diálogo
+// nativo, design:write) e por "Salvar" dentro da biblioteca (library:write-design).
+function writeDesignCore(filePath, design) {
+  const ext = io.extOf(filePath);
+  const pattern = designToPattern(design);
+  if (!pattern.getMetadata('name')) {
+    pattern.metadata('name', path.basename(filePath, path.extname(filePath)));
+  }
+  const buf = io.writeBuffer(pattern, ext, writeSettingsFromPrefs());
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, buf);
+  return { path: filePath, bytes: buf.length, format: ext };
 }
 
 function writeSettingsFromPrefs() {
@@ -165,6 +193,7 @@ function setupIpc() {
     svgImport: argSvgImport
       ? { path: path.resolve(argSvgImport), text: fs.readFileSync(argSvgImport, 'utf8'), name: path.basename(argSvgImport) }
       : null,
+    librarySearch: argLibrarySearch,
     hoopPresets: HOOP_PRESETS,
     version: app.getVersion(),
     lang: currentLang(),
@@ -284,16 +313,10 @@ function setupIpc() {
   });
 
   ipcMain.handle('design:write', (e, { filePath, design }) => {
-    const ext = io.extOf(filePath);
-    const pattern = designToPattern(design);
-    if (!pattern.getMetadata('name')) {
-      pattern.metadata('name', path.basename(filePath, path.extname(filePath)));
-    }
-    const buf = io.writeBuffer(pattern, ext, writeSettingsFromPrefs());
-    fs.writeFileSync(filePath, buf);
+    const result = writeDesignCore(filePath, design);
     settings.addRecent(filePath);
     rebuildMenu();
-    return { path: filePath, bytes: buf.length, format: ext };
+    return result;
   });
 
   ipcMain.handle('png:write', (e, { filePath, dataURL }) => {
@@ -339,6 +362,49 @@ function setupIpc() {
   ipcMain.handle('drives:delete', (e, { paths, root }) => drives.deleteWithinRoot(paths, root));
   ipcMain.handle('drives:clean-hidden', (e, driveRoot) => drives.cleanHiddenFiles(driveRoot));
   ipcMain.handle('drives:open-design', (e, filePath) => openPathIntoRenderer(filePath));
+
+  // -------------------------------------------------------- gestão de biblioteca (issue #17)
+  // Navegação por pastas (não recursiva: uma pasta de cada vez, mesmo com
+  // 10-15 mil arquivos no catálogo) + busca por nome (recursiva, com teto).
+  // Miniaturas e contagem de pontos reaproveitam peekDesign (drives:peek-design,
+  // já registrado acima) item a item, sob demanda, do lado do renderer.
+  ipcMain.handle('library:root', () => {
+    const root = libraryRootPath();
+    drives.ensureDir(root);
+    return { path: root };
+  });
+  ipcMain.handle('library:list-folder', (e, relDir) => library.listFolderContents(libraryRootPath(), relDir || ''));
+  ipcMain.handle('library:list-subfolders', (e, relDir) => library.listSubfolders(libraryRootPath(), relDir || ''));
+  ipcMain.handle('library:search', (e, query) => library.searchDesigns(libraryRootPath(), query));
+
+  ipcMain.handle('library:favorites-list', () => library.loadFavorites(app.getPath('userData')));
+  ipcMain.handle('library:favorites-toggle', (e, filePath) => library.toggleFavorite(app.getPath('userData'), filePath));
+
+  ipcMain.handle('library:thumb-get', (e, { filePath, mtime }) => library.readCachedThumb(app.getPath('userData'), filePath, mtime));
+  ipcMain.handle('library:thumb-save', (e, { filePath, mtime, dataURL }) => {
+    library.writeCachedThumb(app.getPath('userData'), filePath, mtime, dataURL);
+    return { ok: true };
+  });
+
+  ipcMain.handle('library:rename', (e, { filePath, newName }) => library.renameEntry(libraryRootPath(), filePath, newName));
+  ipcMain.handle('library:move', (e, { filePath, destRelDir }) => library.moveEntry(libraryRootPath(), filePath, destRelDir));
+  ipcMain.handle('library:trash', async (e, filePath) => {
+    if (!library.isWithinRoot(libraryRootPath(), filePath)) {
+      throw new Error('Arquivo fora da raiz da biblioteca');
+    }
+    await shell.trashItem(filePath);
+    return { ok: true };
+  });
+
+  // "Salvar" dentro da biblioteca: escolhe subpasta + nome (sem diálogo do
+  // sistema). Reaproveita o mesmo núcleo de gravação do "Salvar fora...".
+  ipcMain.handle('library:write-design', (e, { relDir, fileName, design }) => {
+    const root = libraryRootPath();
+    const destDir = library.resolveWithinRoot(root, relDir || '.');
+    const filePath = library.resolveWithinRoot(root, path.join(relDir || '.', fileName));
+    fs.mkdirSync(destDir, { recursive: true });
+    return writeDesignCore(filePath, design);
+  });
 
   // Digitalização: gera o Pattern no núcleo e publica pelo mesmo canal de
   // "design:opened" usado pela abertura normal de arquivos.
