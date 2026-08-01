@@ -549,7 +549,11 @@
     </div>
 
     <div class="library-body">
-      <nav id="lib-tree" class="lib-tree"></nav>
+      <div class="lib-tree-pane">
+        <nav id="lib-tree" class="lib-tree"></nav>
+        <!-- Criar pasta (issue #28, item 1): dentro da pasta selecionada na árvore acima. -->
+        <button type="button" id="lib-tree-newfolder" class="tb-btn small wide" data-i18n="lib.newFolderBtn">+ Nova pasta</button>
+      </div>
       <section class="lib-main">
         <div id="lib-indexing" class="lib-indexing" hidden>
           <div class="lib-indexing-bar"><div id="lib-indexing-fill" class="lib-indexing-fill"></div></div>
@@ -603,11 +607,32 @@
     </form>
   </dialog>
 
+  <!-- Criar pasta (issue #28, item 1): mesmo formulário atende tanto o
+       picker de "Salvar em" (árvore principal) quanto o de "Mover para"
+       (renderer.js decide o alvo antes de abrir, via openLibraryNewFolder). -->
+  <dialog id="dlg-lib-newfolder">
+    <form method="dialog" id="lib-newfolder-form">
+      <h2 data-i18n="lib.newFolderTitle">Nova pasta</h2>
+      <p class="hint mono" id="lib-newfolder-parent"></p>
+      <label class="row">
+        <span data-i18n="lib.newFolderLabel">Nome da pasta</span>
+        <input type="text" id="lib-newfolder-input" />
+      </label>
+      <div class="dlg-actions">
+        <button value="cancel" class="tb-btn" id="lib-newfolder-cancel" data-i18n="set.cancel">Cancelar</button>
+        <button value="ok" class="tb-btn accent" id="lib-newfolder-confirm" data-i18n="lib.newFolderConfirm">Criar</button>
+      </div>
+    </form>
+  </dialog>
+
   <dialog id="dlg-lib-move">
     <div class="lib-move-body">
       <h2 data-i18n="lib.moveTitle">Mover para pasta</h2>
       <p class="hint mono" id="lib-move-current"></p>
-      <nav id="lib-move-tree" class="lib-tree"></nav>
+      <div class="lib-tree-pane">
+        <nav id="lib-move-tree" class="lib-tree"></nav>
+        <button type="button" id="lib-move-newfolder" class="tb-btn small wide" data-i18n="lib.newFolderBtn">+ Nova pasta</button>
+      </div>
       <div class="dlg-actions">
         <button type="button" id="lib-move-cancel" class="tb-btn" data-i18n="set.cancel">Cancelar</button>
         <button type="button" id="lib-move-confirm" class="tb-btn accent" data-i18n="lib.moveConfirm">Mover</button>
@@ -703,6 +728,7 @@
   <script src="../core/library-view.js"></script>
   <script src="../core/colorblocks.js"></script>
   <script src="objects.js"></script>
+  <script src="../core/lru.js"></script>
   <script src="renderer.js"></script>
 </body>
 </html>

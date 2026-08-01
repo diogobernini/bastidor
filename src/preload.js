@@ -81,6 +81,7 @@ contextBridge.exposeInMainWorld('api', {
   libraryIndexBatch: (items) => ipcRenderer.invoke('library:index-batch', items),
   libraryRename: (filePath, newName) => ipcRenderer.invoke('library:rename', { filePath, newName }),
   libraryMove: (filePath, destRelDir) => ipcRenderer.invoke('library:move', { filePath, destRelDir }),
+  libraryCreateFolder: (relDir, name) => ipcRenderer.invoke('library:create-folder', { relDir, name }),
   libraryTrash: (filePath) => ipcRenderer.invoke('library:trash', filePath),
   libraryWriteDesign: (relDir, fileName, design) => ipcRenderer.invoke('library:write-design', { relDir, fileName, design }),
 });

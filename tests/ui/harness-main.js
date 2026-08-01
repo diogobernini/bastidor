@@ -412,6 +412,34 @@ const SCENARIOS = {
     );
   },
 
+  // Criar pasta no picker da biblioteca (issue #28, item 1): raiz fixture
+  // própria e vazia (não a de 'library-dialog', pra não depender de ordem
+  // entre cenários); clica "+ Nova pasta" (#lib-tree-newfolder), preenche o
+  // nome no dialog e confirma — a árvore deve navegar pra dentro da pasta
+  // recém-criada (selecionada, grade vazia).
+  async 'library-newfolder'(ctx) {
+    ctx.assert('boot vazio sinalizou pronto', ctx.bootReady);
+    await ctx.page("__ui.click('#btn-open')");
+    ctx.assert('diálogo de biblioteca abriu', await ctx.waitFor("__ui.isOpen('#dlg-library')", 5000));
+    ctx.assert('raiz fixture está vazia antes de criar a pasta', await ctx.waitFor("__ui.count('#lib-grid-inner .lib-item') === 0", 5000));
+
+    await ctx.page("__ui.click('#lib-tree-newfolder')");
+    ctx.assert('diálogo de nova pasta abriu', await ctx.waitFor("__ui.isOpen('#dlg-lib-newfolder')", 5000));
+
+    await ctx.page("__ui.setValue('#lib-newfolder-input', 'Coleção Nova')");
+    await ctx.page("__ui.click('#lib-newfolder-confirm')");
+    ctx.assert('diálogo de nova pasta fechou', await ctx.waitFor("!__ui.isOpen('#dlg-lib-newfolder')", 5000));
+
+    ctx.assert(
+      'árvore navegou pra dentro da pasta recém-criada (selecionada)',
+      await ctx.waitFor(
+        "__ui.count('.lib-tree-node.selected') === 1 && (__ui.text('.lib-tree-node.selected .name') || '').indexOf('Coleção Nova') !== -1",
+        5000
+      )
+    );
+    ctx.assert('grade da pasta nova está vazia (nenhuma matriz dentro dela ainda)', await ctx.waitFor("__ui.count('#lib-grid-inner .lib-item') === 0", 5000));
+  },
+
   // Diálogo de pendrive com --fake-drive (flag de autoteste já existente em
   // main.js): a pasta fixture do run.js entra como um pendrive "FAKE" com 1
   // matriz dentro.
