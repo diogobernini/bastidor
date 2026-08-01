@@ -1,0 +1,91 @@
+name: CI
+
+# Runs the test suite on every push to main and on every pull request, plus a
+# macOS-only packaging smoke test. See docs/CI.md for the full picture,
+# including the one manual step (branch protection) that this workflow does
+# not and cannot configure by itself.
+on:
+  push:
+    branches:
+      - main
+  pull_request: {}
+
+# Cancel older, still-running jobs for the same ref (branch or PR) when a new
+# commit is pushed, so we don't burn CI minutes on stale code.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Read-only by default; no job here needs to write to the repo or packages.
+permissions:
+  contents: read
+
+jobs:
+  # Core logic (matrix formats, digitizing, lettering, etc.) is plain Node,
+  # so it runs the full 147-test suite on both target OSes without needing a
+  # real Electron/GUI environment.
+  test:
+    name: test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run test suite
+        run: npm test
+
+  # Packaging smoke test: proves the app still builds into a runnable .app
+  # bundle. Only macOS, and only --dir (no dmg/zip, no signing/notarization)
+  # since this just needs to catch electron-builder/config breakage early,
+  # not produce a release artifact.
+  package:
+    name: package
+    needs: test
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build unsigned macOS app (--dir)
+        # No Developer ID on CI runners: without this, electron-builder tries
+        # to auto-discover a signing identity and fails.
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+        run: npx electron-builder --mac --dir
+
+      - name: Verify Bastidor.app was produced
+        shell: bash
+        run: |
+          set -e
+          shopt -s nullglob
+          matches=(dist/mac*/Bastidor.app/Contents/MacOS/Bastidor)
+          if [ ${#matches[@]} -eq 0 ]; then
+            echo "::error::Packaged binary not found at dist/mac*/Bastidor.app/Contents/MacOS/Bastidor"
+            exit 1
+          fi
+          for f in "${matches[@]}"; do
+            echo "Found: $f"
+            test -f "$f" && test -x "$f"
+          done

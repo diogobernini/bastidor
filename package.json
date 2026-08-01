@@ -2,13 +2,13 @@
   "name": "bastidor",
   "productName": "Bastidor",
   "version": "0.1.0",
-  "description": "Estúdio de bordado: visualize, converta e ajuste matrizes (Singer XXX, DST, PES, PEC, JEF, EXP, VP3, HUS, SEW, PCS)",
+  "description": "Est\u00fadio de bordado: visualize, converta e ajuste matrizes (Singer XXX, DST, PES, PEC, JEF, EXP, VP3, HUS, SEW, PCS)",
   "main": "src/main/main.js",
   "author": "Diogo Bernini",
   "license": "MIT",
   "scripts": {
     "start": "electron .",
-    "test": "node --test tests/*.test.js",
+    "test": "node --test \"tests/*.test.js\"",
     "samples": "node tools/make-samples.js",
     "dist": "electron-builder --mac --win",
     "dist:mac": "electron-builder --mac",
@@ -34,26 +34,72 @@
     },
     "mac": {
       "category": "public.app-category.graphics-design",
-      "target": ["dmg", "zip"]
+      "target": [
+        "dmg",
+        "zip"
+      ]
     },
     "win": {
-      "target": ["nsis", "portable"]
+      "target": [
+        "nsis",
+        "portable"
+      ]
     },
     "nsis": {
       "oneClick": true,
       "perMachine": false
     },
     "fileAssociations": [
-      { "ext": "xxx", "name": "Matriz Singer XXX", "role": "Viewer" },
-      { "ext": "dst", "name": "Matriz Tajima DST", "role": "Viewer" },
-      { "ext": "pes", "name": "Matriz Brother PES", "role": "Viewer" },
-      { "ext": "pec", "name": "Matriz Brother PEC", "role": "Viewer" },
-      { "ext": "jef", "name": "Matriz Janome JEF", "role": "Viewer" },
-      { "ext": "exp", "name": "Matriz Melco EXP", "role": "Viewer" },
-      { "ext": "vp3", "name": "Matriz Husqvarna/Pfaff VP3", "role": "Viewer" },
-      { "ext": "hus", "name": "Matriz Husqvarna HUS", "role": "Viewer" },
-      { "ext": "sew", "name": "Matriz Janome SEW", "role": "Viewer" },
-      { "ext": "pcs", "name": "Matriz Pfaff PCS", "role": "Viewer" }
+      {
+        "ext": "xxx",
+        "name": "Matriz Singer XXX",
+        "role": "Viewer"
+      },
+      {
+        "ext": "dst",
+        "name": "Matriz Tajima DST",
+        "role": "Viewer"
+      },
+      {
+        "ext": "pes",
+        "name": "Matriz Brother PES",
+        "role": "Viewer"
+      },
+      {
+        "ext": "pec",
+        "name": "Matriz Brother PEC",
+        "role": "Viewer"
+      },
+      {
+        "ext": "jef",
+        "name": "Matriz Janome JEF",
+        "role": "Viewer"
+      },
+      {
+        "ext": "exp",
+        "name": "Matriz Melco EXP",
+        "role": "Viewer"
+      },
+      {
+        "ext": "vp3",
+        "name": "Matriz Husqvarna/Pfaff VP3",
+        "role": "Viewer"
+      },
+      {
+        "ext": "hus",
+        "name": "Matriz Husqvarna HUS",
+        "role": "Viewer"
+      },
+      {
+        "ext": "sew",
+        "name": "Matriz Janome SEW",
+        "role": "Viewer"
+      },
+      {
+        "ext": "pcs",
+        "name": "Matriz Pfaff PCS",
+        "role": "Viewer"
+      }
     ]
   }
 }
