@@ -912,6 +912,7 @@ function scaleDesignWithDensity(factor) {
   snapshotUndo();
   const runs = detectSatinRuns(state.design.stitches);
   state.design.stitches = rescaleWithDensity(state.design.stitches, factor, { center: [cx, cy] });
+  bumpArt(); // invalida o cache do modo realista (integração dos PRs #9 e #10)
   deriveBlocks();
   deriveStats();
   updateSidebar();
