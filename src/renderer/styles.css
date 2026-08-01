@@ -1276,3 +1276,73 @@ textarea {
      coluna, flex-basis manda mais que height quando não é "auto". */
   flex: 0 0 280px;
 }
+
+/* ------------------------------------------------- toolbar com ícones */
+
+.tb-btn svg {
+  width: 15px;
+  height: 15px;
+  flex: 0 0 auto;
+}
+
+.tb-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Janela estreita: só os ícones (título/tooltip continua explicando). */
+@media (max-width: 1560px) {
+  .tb-btn .tb-txt {
+    display: none;
+  }
+}
+
+/* --------------------------------------------- prévia grande no hover */
+
+#lib-hover {
+  position: fixed;
+  z-index: 40;
+  width: 334px;
+  background: rgba(23, 23, 28, 0.96);
+  border: 1px solid #2c2c36;
+  border-radius: 10px;
+  padding: 10px;
+  pointer-events: none;
+  box-shadow: 0 14px 44px rgba(0, 0, 0, 0.55);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+#lib-hover[hidden] {
+  display: none;
+}
+
+#lib-hover-cv {
+  width: 310px;
+  height: 280px;
+  border-radius: 6px;
+}
+
+#lib-hover-name {
+  font-size: 12px;
+}
+
+#lib-hover-line {
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+
+#lib-hover-colors {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+#lib-hover-colors span {
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+}
