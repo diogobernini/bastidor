@@ -577,6 +577,11 @@ function buildMenuTemplate() {
           accelerator: 'CmdOrCtrl+Z',
           click: () => sendToRenderer('menu', 'undo'),
         },
+        {
+          label: t('menu.redo'),
+          accelerator: 'CmdOrCtrl+Shift+Z',
+          click: () => sendToRenderer('menu', 'redo'),
+        },
         { type: 'separator' },
         { label: t('menu.center'), click: () => sendToRenderer('menu', 'center') },
         { label: t('menu.resize'), accelerator: 'CmdOrCtrl+R', click: () => sendToRenderer('menu', 'scale') },

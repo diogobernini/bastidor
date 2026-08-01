@@ -110,7 +110,10 @@
             <button id="t-flip-h" class="tb-btn small" data-i18n="t.flipH" data-i18n-title="t.flipHTip">⇋ Horizontal</button>
             <button id="t-flip-v" class="tb-btn small" data-i18n="t.flipV" data-i18n-title="t.flipVTip">⇵ Vertical</button>
           </div>
-          <button id="t-undo" class="tb-btn small wide" disabled data-i18n="t.undo" data-i18n-title="t.undoTip">Desfazer</button>
+          <div class="transform-grid undo-redo-grid">
+            <button id="t-undo" class="tb-btn small" disabled data-i18n="t.undo" data-i18n-title="t.undoTip">Desfazer</button>
+            <button id="t-redo" class="tb-btn small" disabled data-i18n="t.redo" data-i18n-title="t.redoTip">Refazer</button>
+          </div>
         </section>
         <section id="warnings-section" hidden>
           <h2 data-i18n="side.warnings">Avisos</h2>
@@ -679,6 +682,7 @@
   <script src="../core/spatial.js"></script>
   <script src="../core/viewportclamp.js"></script>
   <script src="../core/sewtime.js"></script>
+  <script src="../core/history.js"></script>
   <script src="renderer.js"></script>
 </body>
 </html>
