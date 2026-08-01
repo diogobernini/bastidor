@@ -5,11 +5,11 @@
 // biblioteca e gestor de pendrive (fmtMm/fmtNum/fmtBytesLocal).
 //
 // Consome (globais definidos em renderer.js): state (strings/lang/settings),
-// $, populateHoopPresets (re-rotula os presets de bastidor, chamado no fim
-// de applyI18n). A ordem dos <script> não é exigida pela correção (tudo
-// aqui só roda dentro de funções, chamadas depois que boot() executa ao
-// final da lista de módulos), mas este é o primeiro módulo do index.html,
-// por ser o mais consumido pelos demais.
+// $; Dialogs.populateHoopPresets (re-rotula os presets de bastidor, chamado
+// no fim de applyI18n). A ordem dos <script> não é exigida pela correção
+// (tudo aqui só roda dentro de funções, chamadas depois que boot() executa
+// ao final da lista de módulos), mas este é o primeiro módulo do
+// index.html, por ser o mais consumido pelos demais.
 window.I18n = (function () {
 
 function tr(key, vars) {
@@ -49,7 +49,7 @@ function applyI18n() {
     speedSel.appendChild(opt);
   }
   if (current) speedSel.value = current;
-  populateHoopPresets();
+  Dialogs.populateHoopPresets();
 }
 
 // --------------------------------------------------------------- utilidades
