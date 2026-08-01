@@ -49,8 +49,8 @@ The app is bilingual (English and Brazilian Portuguese) and follows your system 
 | XXX | Singer Futura / Compucon | ✓ | ✓ |
 | DST | Tajima and most industrial machines | ✓ | ✓ |
 | EXP | Melco / Bernina | ✓ | ✓ |
-| PES / PEC | Brother / Babylock | ✓ | · |
-| JEF | Janome / Elna | ✓ | · |
+| PES / PEC | Brother / Babylock | ✓ | ✓ |
+| JEF | Janome / Elna | ✓ | ✓ |
 | SVG / PNG | vector and image | · | ✓ |
 
 The parsers are cross-validated against [pystitch](https://github.com/inkstitch/pystitch):
@@ -114,7 +114,7 @@ dependency, so the parsers can be reused in a CLI or server.
 4. Individual stitch editing (move, delete, insert)
 5. Density recalculation when resizing
 6. Realistic thread rendering (thread texture)
-7. PES and JEF writing; VP3, HUS, SEW and PCS support
+7. VP3, HUS, SEW and PCS support
 8. USB drive manager: library-style load and unload of designs, with safe eject and macOS hidden-file cleanup
 
 ## Credits and thanks

@@ -248,6 +248,51 @@ class Pattern {
     }
   }
 
+  // Blocos de ponto corrido separados por qualquer outro comando; troca de
+  // fio só avança em COLOR_CHANGE (usado pelas miniaturas do PEC).
+  getAsStitchblock() {
+    const blocks = [];
+    let stitchblock = [];
+    let thread = this.getThreadOrFiller(0);
+    let threadIndex = 1;
+    for (const st of this.stitches) {
+      const flags = st[2] & C.COMMAND_MASK;
+      if (flags === C.STITCH) {
+        stitchblock.push(st);
+      } else {
+        if (stitchblock.length > 0) {
+          blocks.push([stitchblock, thread]);
+          stitchblock = [];
+        }
+        if (flags === C.COLOR_CHANGE) {
+          thread = this.getThreadOrFiller(threadIndex++);
+        }
+      }
+    }
+    if (stitchblock.length > 0) blocks.push([stitchblock, thread]);
+    return blocks;
+  }
+
+  // Blocos de pontos consecutivos com o mesmo comando bruto (sem máscara),
+  // usado para reconstituir os segmentos vetoriais do PES (CSewSeg).
+  getAsCommandBlocks() {
+    const blocks = [];
+    let lastPos = 0;
+    let lastCommand = C.NO_COMMAND;
+    for (let pos = 0; pos < this.stitches.length; pos++) {
+      const command = this.stitches[pos][2] & C.COMMAND_MASK;
+      if (command === lastCommand || lastCommand === C.NO_COMMAND) {
+        lastCommand = command;
+        continue;
+      }
+      lastCommand = command;
+      blocks.push(this.stitches.slice(lastPos, pos));
+      lastPos = pos;
+    }
+    blocks.push(this.stitches.slice(lastPos));
+    return blocks;
+  }
+
   // Cores duplicadas consecutivas viram STOP (aplique) — usado pelo PES/PEC.
   interpolateDuplicateColorAsStop() {
     let threadIndex = 0;
@@ -273,6 +318,25 @@ class Pattern {
       } else if (data === C.COLOR_CHANGE || data === C.COLOR_BREAK || data === C.NEEDLE_SET) {
         initColor = true;
         lastChange = position;
+      }
+    }
+  }
+
+  // Inverso da anterior: STOP passa a ser uma troca de cor duplicada (usado
+  // ao gravar PEC/PES, que não têm o conceito de parada, só cores repetidas).
+  interpolateStopAsDuplicateColor(threadChangeCommand = C.COLOR_CHANGE) {
+    let threadIndex = 0;
+    for (let position = 0; position < this.stitches.length; position++) {
+      const data = this.stitches[position][2] & C.COMMAND_MASK;
+      if (data === C.STITCH || data === C.SEW_TO || data === C.NEEDLE_AT) {
+        continue;
+      } else if (data === C.COLOR_CHANGE || data === C.COLOR_BREAK || data === C.NEEDLE_SET) {
+        threadIndex++;
+      } else if (data === C.STOP) {
+        if (threadIndex >= this.threadlist.length) return; // sem fio para duplicar
+        this.threadlist.splice(threadIndex, 0, this.threadlist[threadIndex]);
+        this.stitches[position][2] = threadChangeCommand;
+        threadIndex++;
       }
     }
   }
@@ -366,4 +430,4 @@ function threadsEqual(a, b) {
   return a.color === b.color && a.description === b.description && a.catalogNumber === b.catalogNumber;
 }
 
-module.exports = { Pattern, Thread, FILLER_COLORS, parseHexColor };
+module.exports = { Pattern, Thread, FILLER_COLORS, parseHexColor, threadsEqual };

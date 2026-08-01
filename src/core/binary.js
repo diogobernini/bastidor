@@ -141,12 +141,30 @@ class BinWriter {
     this.bytes.push((v >> 24) & 0xff, (v >> 16) & 0xff, (v >> 8) & 0xff, v & 0xff);
   }
 
+  // Float IEEE754 32 bits (usado nas matrizes de transformação do PES).
+  f32le(v) {
+    const b = Buffer.alloc(4);
+    b.writeFloatLE(v, 0);
+    for (const byte of b) this.bytes.push(byte);
+  }
+
   str(s, encoding = 'utf8') {
     for (const b of Buffer.from(s, encoding)) this.bytes.push(b);
   }
 
   fill(n, v = 0) {
     for (let i = 0; i < n; i++) this.bytes.push(v & 0xff);
+  }
+
+  patchU16le(pos, v) {
+    this.bytes[pos] = v & 0xff;
+    this.bytes[pos + 1] = (v >> 8) & 0xff;
+  }
+
+  patchU24le(pos, v) {
+    this.bytes[pos] = v & 0xff;
+    this.bytes[pos + 1] = (v >> 8) & 0xff;
+    this.bytes[pos + 2] = (v >> 16) & 0xff;
   }
 
   patchU32le(pos, v) {

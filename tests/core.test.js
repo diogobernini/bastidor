@@ -113,12 +113,97 @@ test('roundtrip EXP preserva geometria', () => {
   assertBoundsClose(readBack.bounds(), normalized.bounds());
 });
 
+// PEC/PES(v1)/JEF gravam a cor como índice numa paleta de fábrica fixa (65
+// cores Brother, 79 Janome): a cor final é a mais próxima disponível, não a
+// original exata. Os hex abaixo foram conferidos contra a leitura do
+// pystitch de referência (ver relatório da tarefa).
+test('roundtrip PEC preserva geometria e casa cores com a paleta de fábrica', () => {
+  const original = buildRosacea();
+  const normalized = original.getNormalizedPattern({
+    max_jump: 2047,
+    max_stitch: 2047,
+    round: true,
+    full_jump: true,
+    sequin_contingency: C.CONTINGENCY_SEQUIN_JUMP,
+  });
+  const buf = io.writeBuffer(original, 'pec');
+  const readBack = io.readBuffer(buf, 'pec');
+
+  assert.deepEqual(readBack.threadlist.map((t) => t.hex()), ['#c70156', '#fe9e32', '#4f5556']);
+  const a = stats(normalized);
+  const b = stats(readBack);
+  assert.equal(b.stitches, a.stitches);
+  assert.equal(b.colorChanges, a.colorChanges);
+  assertBoundsClose(readBack.bounds(), normalized.bounds());
+});
+
+test('roundtrip PES (v1, padrão) preserva geometria — mesmo bloco PEC embutido', () => {
+  const original = buildRosacea();
+  const normalized = original.getNormalizedPattern({
+    max_jump: 2047,
+    max_stitch: 2047,
+    round: true,
+    full_jump: true,
+    sequin_contingency: C.CONTINGENCY_SEQUIN_JUMP,
+  });
+  const buf = io.writeBuffer(original, 'pes');
+  assert.equal(buf.toString('utf8', 0, 8), '#PES0001', 'versão padrão do pystitch é a 1');
+  const readBack = io.readBuffer(buf, 'pes');
+
+  assert.deepEqual(readBack.threadlist.map((t) => t.hex()), ['#c70156', '#fe9e32', '#4f5556']);
+  const a = stats(normalized);
+  const b = stats(readBack);
+  assert.equal(b.stitches, a.stitches);
+  assert.equal(b.colorChanges, a.colorChanges);
+  assertBoundsClose(readBack.bounds(), normalized.bounds());
+});
+
+test('PES versão 6 (settings.version) grava a lista de fios própria e preserva as cores exatas', () => {
+  const original = buildRosacea();
+  const buf = io.writeBuffer(original, 'pes', { version: 6 });
+  assert.equal(buf.toString('utf8', 0, 8), '#PES0060');
+  const readBack = io.readBuffer(buf, 'pes');
+  assert.equal(readBack.getMetadata('version'), 6);
+  assert.deepEqual(readBack.threadlist.map((t) => t.hex()), ['#8c1d2f', '#e8a13d', '#2f6f6a']);
+});
+
+test('roundtrip JEF preserva geometria e casa cores com a paleta de fábrica', () => {
+  const original = buildRosacea();
+  const normalized = original.getNormalizedPattern({
+    max_jump: 127,
+    max_stitch: 127,
+    round: true,
+    full_jump: true,
+    sequin_contingency: C.CONTINGENCY_SEQUIN_JUMP,
+  });
+  const buf = io.writeBuffer(original, 'jef');
+  const readBack = io.readBuffer(buf, 'jef');
+
+  assert.deepEqual(readBack.threadlist.map((t) => t.hex()), ['#970533', '#fcb257', '#386a91']);
+  const a = stats(normalized);
+  const b = stats(readBack);
+  assert.equal(b.stitches, a.stitches);
+  assert.equal(b.colorChanges, a.colorChanges);
+  assertBoundsClose(readBack.bounds(), normalized.bounds());
+});
+
 test('pontos longos são divididos em saltos dentro do limite', () => {
   const original = buildLongStitchTest();
   for (const ext of ['xxx', 'dst', 'exp']) {
     const buf = io.writeBuffer(original, ext);
     const readBack = io.readBuffer(buf, ext);
     const limit = { xxx: 124, dst: 121, exp: 127 }[ext];
+    assert.ok(maxDelta(readBack) <= limit, `${ext}: delta máximo ${maxDelta(readBack)}`);
+    assertBoundsClose(readBack.bounds(), original.bounds(), 2);
+  }
+});
+
+test('pontos longos em PEC/PES/JEF são divididos dentro do limite de cada formato', () => {
+  const original = buildLongStitchTest();
+  for (const ext of ['pec', 'pes', 'jef']) {
+    const buf = io.writeBuffer(original, ext);
+    const readBack = io.readBuffer(buf, ext);
+    const limit = { pec: 2047, pes: 2047, jef: 127 }[ext];
     assert.ok(maxDelta(readBack) <= limit, `${ext}: delta máximo ${maxDelta(readBack)}`);
     assertBoundsClose(readBack.bounds(), original.bounds(), 2);
   }

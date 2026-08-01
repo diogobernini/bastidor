@@ -11,15 +11,16 @@ const dst = require('./dst');
 const exp = require('./exp');
 const jef = require('./jef');
 const pes = require('./pes');
+const pec = require('./pec');
 const svg = require('./svg');
 
 const FORMATS = {
   xxx: { name: 'Singer XXX', read: xxx.read, write: xxx.write, writeSettings: xxx.WRITE_SETTINGS },
   dst: { name: 'Tajima DST', read: dst.read, write: dst.write, writeSettings: dst.WRITE_SETTINGS },
   exp: { name: 'Melco EXP', read: exp.read, write: exp.write, writeSettings: exp.WRITE_SETTINGS },
-  jef: { name: 'Janome JEF', read: jef.read },
-  pes: { name: 'Brother PES', read: pes.read },
-  pec: { name: 'Brother PEC', read: pes.read },
+  jef: { name: 'Janome JEF', read: jef.read, write: jef.write, writeSettings: jef.WRITE_SETTINGS },
+  pes: { name: 'Brother PES', read: pes.read, write: pes.write, writeSettings: pes.WRITE_SETTINGS },
+  pec: { name: 'Brother PEC', read: pes.read, write: pec.write, writeSettings: pec.WRITE_SETTINGS },
   svg: { name: 'SVG (vetor)', write: svg.write, plain: true },
 };
 
@@ -69,6 +70,9 @@ function writeBuffer(pattern, ext, userSettings) {
   if (user.tie_off !== undefined) settings.tie_off = user.tie_off;
   if (user.explicit_trim !== undefined) settings.explicit_trim = user.explicit_trim;
   if (user.trim_at !== undefined) settings.trim_at = user.trim_at;
+  if (user.version !== undefined) settings.version = user.version; // PES: 1 (padrão) ou 6
+  if (user.trims !== undefined) settings.trims = user.trims; // JEF: grava corte explícito
+  if (user.date !== undefined) settings.date = user.date; // JEF: data do cabeçalho
 
   const normalized = pattern.getNormalizedPattern(settings);
   return format.write(normalized, settings);
