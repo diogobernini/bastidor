@@ -889,8 +889,16 @@ const STRINGS = {
   },
 };
 
+// Backlog #28 item 4: "--lang=pt" (e qualquer variante "pt-*", ex.: pt-PT,
+// pt_BR com underscore) deve resolver para 'pt-BR' — hoje só o valor exato
+// 'pt-BR' era reconhecido, então "--lang=pt" caía no fallback de
+// systemLocale (podendo virar inglês numa máquina com locale não-pt).
 function resolveLang(preference, systemLocale) {
-  if (preference === 'en' || preference === 'pt-BR') return preference;
+  const pref = String(preference || '')
+    .toLowerCase()
+    .replace('_', '-');
+  if (pref === 'en') return 'en';
+  if (pref === 'pt' || pref.startsWith('pt-')) return 'pt-BR';
   return String(systemLocale || '').toLowerCase().startsWith('pt') ? 'pt-BR' : 'en';
 }
 
