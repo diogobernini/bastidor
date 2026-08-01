@@ -110,10 +110,11 @@ dependency, so the parsers can be reused in a CLI or server.
 
 1. Digitizing: import SVG vector files as stitches
 2. Digitizing: PNG to vector tool (posterize by color count, with preview)
-3. Individual stitch editing (move, delete, insert)
-4. Density recalculation when resizing
-5. Realistic thread rendering (thread texture)
-6. PES and JEF writing; VP3, HUS, SEW and PCS support
+3. Lettering tool: type text as embroidery (single-line fonts, satin, TTF fill)
+4. Individual stitch editing (move, delete, insert)
+5. Density recalculation when resizing
+6. Realistic thread rendering (thread texture)
+7. PES and JEF writing; VP3, HUS, SEW and PCS support
 
 ## Credits and thanks
 

@@ -110,10 +110,11 @@ então os parsers podem ser reaproveitados em CLI ou servidor.
 
 1. Digitalização: importar arquivo vetorial SVG como pontos
 2. Digitalização: ferramenta de PNG para vetor (posterizar por quantidade de cores, com preview)
-3. Edição de pontos individuais (mover, apagar, inserir)
-4. Recalcular densidade ao redimensionar
-5. Modo de visualização realista (textura de fio)
-6. Gravação de PES e JEF; suporte a VP3, HUS, SEW e PCS
+3. Ferramenta de escrita: digite um texto e vire bordado (fontes de linha única, ponto cheio, preenchimento TTF)
+4. Edição de pontos individuais (mover, apagar, inserir)
+5. Recalcular densidade ao redimensionar
+6. Modo de visualização realista (textura de fio)
+7. Gravação de PES e JEF; suporte a VP3, HUS, SEW e PCS
 
 ## Créditos e agradecimentos
 
