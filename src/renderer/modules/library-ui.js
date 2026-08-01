@@ -87,8 +87,11 @@ async function loadOrBuildLibraryThumb(item) {
 
 // Cache de Image já decodificada: repintar um card que voltou à janela
 // virtualizada é síncrono (sem o pisca de esperar decode/IPC a cada scroll).
+// Teto reduzido na issue #57: cada Image de 84 px decodificada em tela retina
+// custa ~113 KB (168² × 4 B), então 4000 eram ~440 MB no pior caso; 1000
+// (~110 MB, uns 25 ecrãs de grade) cobre o scroll de volta com folga.
 const libThumbImages = new Map();
-const LIB_THUMB_IMG_CAP = 4000;
+const LIB_THUMB_IMG_CAP = 1000;
 // Teto do cache de promessas de miniatura (state.library.thumbCache) —
 // issue #28, item 3. libThumbImages (acima) já usava o mesmo mecanismo de
 // teto manualmente; ambos agora passam por LruCap.setWithCap (src/core/lru.js).
