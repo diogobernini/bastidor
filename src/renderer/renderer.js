@@ -29,26 +29,67 @@ const state = {
   stats: null,
   settings: null,
   hoopPresets: {},
+  lang: 'pt-BR',
+  strings: {},
   view: { scale: 1, tx: 0, ty: 0 },
   sim: { playing: false, pos: Infinity, lastT: 0 },
   undoStack: [],
   dirty: false,
-  screenshotMode: false,
   renderQueued: false,
 };
+
+// --------------------------------------------------------------- i18n
+
+function tr(key, vars) {
+  const table = state.strings[state.lang] || {};
+  const en = state.strings.en || {};
+  let s = table[key] !== undefined ? table[key] : en[key] !== undefined ? en[key] : key;
+  if (vars) {
+    for (const [k, v] of Object.entries(vars)) s = s.replaceAll('{' + k + '}', String(v));
+  }
+  return s;
+}
+
+function locale() {
+  return state.lang === 'pt-BR' ? 'pt-BR' : 'en-US';
+}
+
+// Aplica as strings estáticas marcadas com data-i18n / data-i18n-title.
+function applyI18n() {
+  document.documentElement.lang = state.lang;
+  document.querySelectorAll('[data-i18n]').forEach((el) => {
+    el.textContent = tr(el.dataset.i18n);
+  });
+  document.querySelectorAll('[data-i18n-title]').forEach((el) => {
+    el.title = tr(el.dataset.i18nTitle);
+  });
+  const speedSel = $('sim-speed');
+  const current = speedSel.value;
+  speedSel.innerHTML = '';
+  for (const v of [150, 300, 600, 1200, 2500]) {
+    const opt = document.createElement('option');
+    opt.value = String(v);
+    opt.textContent = `${v} ${tr('unit.sps')}`;
+    speedSel.appendChild(opt);
+  }
+  if (current) speedSel.value = current;
+  populateHoopPresets();
+}
 
 // --------------------------------------------------------------- utilidades
 
 function fmtMm(units01mm, decimals = 1) {
   const mm = units01mm / 10;
   if (state.settings && state.settings.units === 'in') {
-    return (mm / 25.4).toFixed(Math.max(decimals, 2)).replace('.', ',') + ' pol';
+    const v = (mm / 25.4).toLocaleString(locale(), { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    return `${v} ${tr('unit.in')}`;
   }
-  return mm.toFixed(decimals).replace('.', ',') + ' mm';
+  const v = mm.toLocaleString(locale(), { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
+  return `${v} ${tr('unit.mm')}`;
 }
 
 function fmtNum(n) {
-  return n.toLocaleString('pt-BR');
+  return n.toLocaleString(locale());
 }
 
 function toast(msg, kind = '', ms = 3200) {
@@ -66,11 +107,12 @@ function threadColor(i) {
 
 function threadLabel(i) {
   const t = state.design.threads[i];
-  if (!t) return 'Cor ' + (i + 1);
+  const fallback = tr('colors.fallback', { n: i + 1 });
+  if (!t) return fallback;
   const parts = [];
   if (t.description) parts.push(t.description);
-  if (t.catalog) parts.push('nº ' + t.catalog);
-  return parts.length ? parts.join(' · ') : 'Cor ' + (i + 1);
+  if (t.catalog) parts.push(tr('colors.catalog', { n: t.catalog }));
+  return parts.length ? parts.join(' · ') : fallback;
 }
 
 // --------------------------------------------------------------- design
@@ -181,10 +223,10 @@ function setDesign(design, opts = {}) {
   if (!opts.silent) {
     const w = [];
     if (state.stats.longCount > 0) {
-      w.push(`${fmtNum(state.stats.longCount)} pontos acima de ${fmtMm(state.settings.warnings.longStitchMm * 10)}`);
+      w.push(tr('warn.longShort', { n: fmtNum(state.stats.longCount), len: fmtMm(state.settings.warnings.longStitchMm * 10) }));
     }
-    if (hoopExceeded()) w.push('a matriz excede o bastidor configurado');
-    if (w.length) toast('Atenção: ' + w.join(' e '), 'warn', 4200);
+    if (hoopExceeded()) w.push(tr('warn.hoopShort'));
+    if (w.length) toast(tr('warn.prefix') + w.join(tr('warn.and')), 'warn', 4200);
   }
 }
 
@@ -224,18 +266,18 @@ function updateSidebar() {
   const s = state.stats;
   const info = $('info-list');
   const rows = [
-    ['Dimensões', `${fmtMm(s.width)} × ${fmtMm(s.height)}`],
-    ['Pontos', fmtNum(s.stitches)],
-    ['Trocas de cor', fmtNum(s.colorChanges)],
-    ['Saltos', fmtNum(s.jumps)],
-    ['Cortes', fmtNum(s.trims)],
+    [tr('info.dimensions'), `${fmtMm(s.width)} × ${fmtMm(s.height)}`],
+    [tr('info.stitches'), fmtNum(s.stitches)],
+    [tr('info.colorChanges'), fmtNum(s.colorChanges)],
+    [tr('info.jumps'), fmtNum(s.jumps)],
+    [tr('info.trims'), fmtNum(s.trims)],
   ];
-  if (s.stops > 0) rows.push(['Paradas', fmtNum(s.stops)]);
-  rows.push(['Ponto médio', fmtMm(s.avgLen)]);
-  rows.push(['Ponto máximo', fmtMm(s.maxLen)]);
-  if (s.density > 0) rows.push(['Densidade', `${Math.round(s.density)} pts/cm²`]);
+  if (s.stops > 0) rows.push([tr('info.stops'), fmtNum(s.stops)]);
+  rows.push([tr('info.avgStitch'), fmtMm(s.avgLen)]);
+  rows.push([tr('info.maxStitch'), fmtMm(s.maxLen)]);
+  if (s.density > 0) rows.push([tr('info.density'), `${Math.round(s.density)} ${tr('unit.density')}`]);
   const fmt = state.design.format ? state.design.format.toUpperCase() : null;
-  if (fmt) rows.push(['Formato', fmt]);
+  if (fmt) rows.push([tr('info.format'), fmt]);
   info.innerHTML = '';
   for (const [k, v] of rows) {
     const dt = document.createElement('dt');
@@ -254,7 +296,7 @@ function updateSidebar() {
     sw.type = 'color';
     sw.className = 'swatch';
     sw.value = threadColor(block.threadIndex);
-    sw.title = 'Trocar a cor deste bloco';
+    sw.title = tr('colors.tip');
     sw.addEventListener('change', () => {
       snapshotUndo();
       const t = state.design.threads[block.threadIndex];
@@ -275,11 +317,11 @@ function updateSidebar() {
 
   const warnings = [];
   if (state.stats.longCount > 0) {
-    warnings.push(`${fmtNum(state.stats.longCount)} pontos acima de ${fmtMm(state.settings.warnings.longStitchMm * 10)} (serão divididos ao gravar)`);
+    warnings.push(tr('warn.long', { n: fmtNum(state.stats.longCount), len: fmtMm(state.settings.warnings.longStitchMm * 10) }));
   }
   if (hoopExceeded()) {
     const h = state.settings.hoop;
-    warnings.push(`Excede o bastidor de ${h.width} × ${h.height} mm`);
+    warnings.push(tr('warn.hoop', { w: h.width, h: h.height }));
   }
   $('warnings-section').hidden = warnings.length === 0;
   const wl = $('warning-list');
@@ -293,15 +335,15 @@ function updateSidebar() {
 
 function updateStatusbar() {
   if (!state.design) {
-    $('st-file').textContent = 'Nenhum arquivo aberto';
+    $('st-file').textContent = tr('status.noFile');
     $('st-size').textContent = '';
     $('st-stitches').textContent = '';
     return;
   }
-  const name = state.design.name || 'sem nome';
+  const name = state.design.name || '·';
   $('st-file').textContent = (state.dirty ? '● ' : '') + name + (state.design.path ? ' · ' + state.design.path : '');
   $('st-size').textContent = `${fmtMm(state.stats.width)} × ${fmtMm(state.stats.height)}`;
-  $('st-stitches').textContent = `${fmtNum(state.stats.stitches)} pontos`;
+  $('st-stitches').textContent = tr('status.stitches', { n: fmtNum(state.stats.stitches) });
 }
 
 function updateToolbarEnabled() {
@@ -641,7 +683,7 @@ function centerToOrigin() {
   const [cx, cy] = designCenter();
   applyToStitches((x, y) => [Math.round(x - cx), Math.round(y - cy)]);
   fitView();
-  toast('Matriz centralizada na origem');
+  toast(tr('toast.centered'));
 }
 
 function rotate90(clockwise) {
@@ -664,7 +706,7 @@ function scaleDesign(factor) {
   applyToStitches((x, y) => [cx + (x - cx) * factor, cy + (y - cy) * factor]);
   fitView();
   if (Math.abs(factor - 1) > 0.2) {
-    toast('Escala acima de ±20%: a densidade do bordado não é recalculada', 'warn', 4600);
+    toast(tr('toast.scaleWarn'), 'warn', 4600);
   }
 }
 
@@ -689,11 +731,12 @@ async function saveAs() {
     document.title = state.design.name + ' — Bastidor';
     const upper = result.format.toUpperCase();
     let extra = '';
-    if (result.format === 'dst') extra = ' (DST não guarda cores)';
-    if (result.format === 'exp') extra = ' (EXP não guarda cores)';
-    toast(`Salvo em ${upper}: ${state.design.name}${extra}`);
+    if (result.format === 'dst' || result.format === 'exp') {
+      extra = tr('toast.noColors', { fmt: upper });
+    }
+    toast(tr('toast.saved', { fmt: upper, name: state.design.name }) + extra);
   } catch (err) {
-    toast('Erro ao salvar: ' + err.message, 'error', 5000);
+    toast(tr('toast.saveError') + err.message, 'error', 5000);
   }
 }
 
@@ -720,9 +763,9 @@ async function exportPng() {
       minLineWidth: 1,
     });
     await window.api.writePng(filePath, off.toDataURL('image/png'));
-    toast('PNG exportado: ' + filePath.split('/').pop());
+    toast(tr('toast.exported') + filePath.split('/').pop());
   } catch (err) {
-    toast('Erro ao exportar: ' + err.message, 'error', 5000);
+    toast(tr('toast.exportError') + err.message, 'error', 5000);
   }
 }
 
@@ -737,7 +780,7 @@ async function openPath(p) {
     const design = await window.api.readDesign(p);
     setDesign(design);
   } catch (err) {
-    toast('Não foi possível abrir: ' + err.message, 'error', 5000);
+    toast(tr('toast.openError') + err.message, 'error', 5000);
   }
   refreshEmptyRecents();
 }
@@ -746,17 +789,20 @@ async function openPath(p) {
 
 function populateHoopPresets() {
   const sel = $('set-hooppreset');
+  const current = sel.value;
   sel.innerHTML = '';
   for (const [key, preset] of Object.entries(state.hoopPresets)) {
     const opt = document.createElement('option');
     opt.value = key;
-    opt.textContent = preset.label;
+    opt.textContent = preset.labelKey ? tr(preset.labelKey) : preset.label;
     sel.appendChild(opt);
   }
+  if (current) sel.value = current;
 }
 
 function settingsToForm() {
   const s = state.settings;
+  $('set-language').value = s.language || 'auto';
   $('set-units').value = s.units;
   $('set-background').value = s.view.background;
   $('set-threadwidth').value = s.view.threadWidthMm;
@@ -787,6 +833,7 @@ function formToSettings() {
     height = preset.height;
   }
   return {
+    language: $('set-language').value,
     units: $('set-units').value,
     view: {
       background: $('set-background').value,
@@ -833,13 +880,17 @@ function openSettings() {
 }
 
 async function applySettingsFromForm() {
-  state.settings = await window.api.setSettings(formToSettings());
+  const result = await window.api.setSettings(formToSettings());
+  state.settings = result.settings;
+  const langChanged = result.lang !== state.lang;
+  state.lang = result.lang;
+  if (langChanged) applyI18n();
   $('sim-speed').value = String(nearestSimOption(state.settings.sim.stitchesPerSecond));
   if (state.design) {
     deriveStats();
     updateSidebar();
-    updateStatusbar();
   }
+  updateStatusbar();
   requestRender();
 }
 
@@ -876,7 +927,9 @@ function bindCanvas() {
   canvas.addEventListener('pointermove', (e) => {
     const rect = canvas.getBoundingClientRect();
     const [dx, dy] = toDesign(e.clientX - rect.left, e.clientY - rect.top);
-    $('st-pos').textContent = `x ${(dx / 10).toFixed(1).replace('.', ',')}  y ${(dy / 10).toFixed(1).replace('.', ',')} mm`;
+    const opts = { minimumFractionDigits: 1, maximumFractionDigits: 1 };
+    $('st-pos').textContent =
+      `x ${(dx / 10).toLocaleString(locale(), opts)}  y ${(dy / 10).toLocaleString(locale(), opts)} mm`;
     if (!panning) return;
     state.view.tx += e.clientX - lastX;
     state.view.ty += e.clientY - lastY;
@@ -1077,15 +1130,17 @@ function bindMenuAndKeys() {
 async function boot() {
   if (!window.api) {
     // Aberto fora do Electron (ex.: prévia de estilo no navegador).
-    document.querySelector('#empty-state p').textContent = 'Execute com npm start para abrir matrizes.';
+    document.querySelector('#empty-state p').textContent =
+      'Run with npm start · Execute com npm start';
     return;
   }
   state.settings = await window.api.getSettings();
   const launch = await window.api.launchOptions();
   state.hoopPresets = launch.hoopPresets;
-  state.screenshotMode = launch.screenshotMode;
+  state.lang = launch.lang;
+  state.strings = launch.strings;
 
-  populateHoopPresets();
+  applyI18n();
   syncToggleButtons();
   $('sim-speed').value = String(nearestSimOption(state.settings.sim.stitchesPerSecond));
 

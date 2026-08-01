@@ -198,9 +198,8 @@ class Pattern {
   getThreadOrFiller(index) {
     const t = this.threadlist.length > index ? this.threadlist[index] : null;
     if (t) return t;
-    const filler = new Thread(FILLER_COLORS[index % FILLER_COLORS.length]);
-    filler.description = 'Cor indefinida';
-    return filler;
+    // Sem descrição: o rótulo localizado fica por conta da interface.
+    return new Thread(FILLER_COLORS[index % FILLER_COLORS.length]);
   }
 
   // Gera blocos de cor: [fatiaDePontos, fio]. Blocos delimitados por

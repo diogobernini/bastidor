@@ -1,3 +1,8 @@
+Bastidor's format parsers (src/core) are a JavaScript port of pystitch
+(https://github.com/inkstitch/pystitch), the fork maintained by the Ink/Stitch
+team from pyembroidery (https://github.com/EmbroidePy/pyembroidery), created by
+Tatarize and contributors. The original license follows below.
+
 Os parsers de formato do Bastidor (src/core) são um port para JavaScript do
 pystitch (https://github.com/inkstitch/pystitch), fork mantido pela equipe do
 Ink/Stitch a partir do pyembroidery (https://github.com/EmbroidePy/pyembroidery),

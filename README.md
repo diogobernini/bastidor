@@ -1,128 +1,135 @@
 <p align="center">
-  <img src="docs/icone.png" width="110" alt="Ícone do Bastidor" />
+  <img src="docs/icon.png" width="110" alt="Bastidor icon" />
 </p>
 
 <h1 align="center">Bastidor</h1>
 
 <p align="center">
-  Estúdio de bordado para Windows e macOS: visualize, converta, simule e ajuste
-  matrizes de bordado. Foco em <strong>Singer XXX</strong>, com suporte a DST, PES, PEC, JEF e EXP.
+  An open source embroidery studio for Windows and macOS: view, convert, simulate and
+  adjust embroidery designs. Built around <strong>Singer XXX</strong>, with DST, PES, PEC, JEF and EXP support.
 </p>
 
 <p align="center">
-  <img src="docs/tela-principal.png" alt="Bastidor com uma matriz Singer XXX aberta" width="900" />
+  <a href="README.pt-BR.md">Leia em português 🇧🇷</a>
 </p>
 
-## Por quê
+<p align="center">
+  <img src="docs/en/main.png" alt="Bastidor with a Singer XXX design open" width="900" />
+</p>
 
-Os softwares de bordado do mercado são caros, presos a dongles ou pararam no tempo.
-O Bastidor é uma alternativa aberta, leve e moderna para o dia a dia de quem trabalha
-com matrizes: abrir, conferir, converter entre formatos, simular o caminho da agulha
-e aplicar as regulagens certas na hora de gravar.
+## Why
 
-## Recursos
+Commercial embroidery software is expensive, dongle-locked or stuck in the past.
+Bastidor is an open, lightweight and modern alternative for everyday design work:
+open, inspect, convert between formats, simulate the needle path and apply the right
+machine adjustments when saving.
 
-- **Visualização em canvas** com zoom, pan, grade em mm e bastidor configurável
-- **Simulador de bordado**: reproduz o caminho da agulha ponto a ponto, com velocidade ajustável e barra de progresso
-- **Informações da matriz**: dimensões, pontos, trocas de cor, saltos, cortes, ponto médio/máximo e densidade
-- **Edição de cores** por bloco (as cores são gravadas nos formatos que as suportam, como o XXX)
-- **Transformações**: centralizar, girar 90°, espelhar e redimensionar, com desfazer
-- **Conversão entre formatos** com regulagens de gravação:
-  - divisão automática de pontos longos respeitando o limite de cada formato
-  - limite de comprimento de ponto configurável (aperta além do limite do formato)
-  - arremates automáticos (tie-on e tie-off)
-  - corte após N saltos seguidos (DST)
-- **Exportação SVG e PNG** para aprovação de cliente
-- **Avisos**: pontos longos demais e matriz maior que o bastidor
-- Arrastar e soltar, arquivos recentes, atalhos de teclado, interface em português
+The app is bilingual (English and Brazilian Portuguese) and follows your system language.
 
-## Formatos
+## Features
 
-| Formato | Máquinas | Leitura | Gravação |
+- **Canvas viewer** with zoom, pan, millimeter grid and configurable hoop
+- **Stitch-by-stitch simulator**: plays back the needle path with adjustable speed and a scrubber
+- **Design details**: dimensions, stitches, color changes, jumps, trims, average/longest stitch and density
+- **Per-block color editing** (colors are written to formats that store them, like XXX)
+- **Transforms**: center, rotate 90°, mirror and resize, with undo
+- **Format conversion** with saving adjustments:
+  - automatic splitting of long stitches, always respecting each format's limit
+  - configurable maximum stitch length (tightens beyond the format limit)
+  - automatic lock stitches (tie-on and tie-off)
+  - trim after N consecutive jumps (DST)
+- **SVG and PNG export** for client approval
+- **Warnings**: stitches too long and designs larger than the hoop
+- Drag and drop, recent files, keyboard shortcuts
+
+## Formats
+
+| Format | Machines | Read | Write |
 |---|---|:---:|:---:|
 | XXX | Singer Futura / Compucon | ✓ | ✓ |
-| DST | Tajima e a maioria das industriais | ✓ | ✓ |
+| DST | Tajima and most industrial machines | ✓ | ✓ |
 | EXP | Melco / Bernina | ✓ | ✓ |
 | PES / PEC | Brother / Babylock | ✓ | · |
 | JEF | Janome / Elna | ✓ | · |
-| SVG / PNG | vetor e imagem | · | ✓ |
+| SVG / PNG | vector and image | · | ✓ |
 
-Os parsers foram validados de forma cruzada contra o [pystitch](https://github.com/inkstitch/pystitch):
-os arquivos gravados pelo Bastidor são lidos pela biblioteca de referência com geometria
-e cores idênticas, e vice-versa (suíte em `tests/`).
+The parsers are cross-validated against [pystitch](https://github.com/inkstitch/pystitch):
+files written by Bastidor are read back by the reference library with identical geometry
+and colors, and vice versa (see `tests/`).
 
-## Mais telas
+## More screens
 
-| Configurações (regulagens de gravação, bastidor, grade) | Tela inicial |
+| Settings (saving adjustments, hoop, grid) | Welcome |
 |---|---|
-| ![Configurações](docs/configuracoes.png) | ![Tela inicial](docs/tela-inicial.png) |
+| ![Settings](docs/en/settings.png) | ![Welcome screen](docs/en/welcome.png) |
 
-## Rodando
+## Running
 
-Requisitos: [Node.js](https://nodejs.org) 18 ou superior.
+Requires [Node.js](https://nodejs.org) 18 or newer.
 
 ```bash
 npm install
 npm start
 ```
 
-Há matrizes de exemplo em `samples/` (a rosácea desta página, em todos os formatos).
+Sample designs live in `samples/` (the rosette from this page, in every format).
 
 ```bash
-npm test         # suíte de ida-e-volta dos formatos
-npm run samples  # regenera as matrizes de exemplo
+npm test         # format round-trip test suite
+npm run samples  # regenerates the sample designs
 ```
 
-## Empacotando (instaladores)
+## Packaging (installers)
 
 ```bash
-npm run dist:mac   # .dmg e .zip
-npm run dist:win   # instalador NSIS e portátil
-npm run dist       # ambos
+npm run dist:mac   # .dmg and .zip
+npm run dist:win   # NSIS installer and portable
+npm run dist       # both
 ```
 
-Os instaladores saem em `dist/` com associação de arquivos (.xxx, .dst, .pes, .pec, .jef, .exp).
+Installers land in `dist/` with file associations (.xxx, .dst, .pes, .pec, .jef, .exp).
 
-## Arquitetura
+## Architecture
 
 ```
 src/
-  core/            # núcleo puro Node, sem Electron (testável isoladamente)
-    pattern.js     # modelo da matriz (pontos, fios, transformações)
-    encoder.js     # normalizador de gravação (pontos longos, arremates, cortes)
-    palettes.js    # paletas de fábrica Brother (PEC) e Janome (JEF)
-    io/            # um módulo por formato + registro central
-  main/            # processo principal do Electron (janela, menu, IPC, preferências)
-  renderer/        # interface (canvas, simulador, painéis)
+  core/            # pure Node core, no Electron (testable in isolation)
+    pattern.js     # design model (stitches, threads, transforms)
+    encoder.js     # save-time normalizer (long stitches, lock stitches, trims)
+    palettes.js    # factory thread charts: Brother (PEC) and Janome (JEF)
+    io/            # one module per format + central registry
+  main/            # Electron main process (window, menu, IPC, preferences)
+  renderer/        # UI (canvas, simulator, panels)
+  i18n.js          # English / Portuguese strings
 ```
 
-Unidade interna: 0,1 mm (padrão da indústria). O `core` não depende do Electron,
-então os parsers podem ser reaproveitados em CLI ou servidor.
+Internal unit: 0.1 mm (the industry standard). The `core` has no Electron
+dependency, so the parsers can be reused in a CLI or server.
 
 ## Roadmap
 
-- Gravação de PES (bloco PEC com miniaturas) e JEF
-- Edição de pontos individuais (mover, apagar, inserir)
-- Recalcular densidade ao redimensionar
-- Modo de visualização realista (textura de fio)
-- Digitalização: converter vetor/imagem em pontos (preenchimentos e sinuosos)
-- Suporte a VP3, HUS, SEW e PCS
+1. Digitizing: import SVG vector files as stitches
+2. Digitizing: PNG to vector tool (posterize by color count, with preview)
+3. Individual stitch editing (move, delete, insert)
+4. Density recalculation when resizing
+5. Realistic thread rendering (thread texture)
+6. PES and JEF writing; VP3, HUS, SEW and PCS support
 
-## Créditos e agradecimentos
+## Credits and thanks
 
-O coração deste projeto, o conhecimento dos formatos binários de bordado, existe graças
-ao trabalho generoso de código aberto de outras pessoas:
+The heart of this project, the knowledge of binary embroidery formats, exists thanks
+to the generous open source work of others:
 
-- **[pystitch](https://github.com/inkstitch/pystitch)**, mantido pela equipe do
-  **[Ink/Stitch](https://inkstitch.org)**: a biblioteca de referência da qual os
-  parsers do Bastidor foram portados para JavaScript, e contra a qual são validados.
-- **[pyembroidery](https://github.com/EmbroidePy/pyembroidery)**, de **Tatarize**
-  e colaboradores (EmbroidePy): o projeto original que documentou e implementou
-  esses formatos, base do pystitch.
+- **[pystitch](https://github.com/inkstitch/pystitch)**, maintained by the
+  **[Ink/Stitch](https://inkstitch.org)** team: the reference library the Bastidor
+  parsers were ported from (to JavaScript), and validated against.
+- **[pyembroidery](https://github.com/EmbroidePy/pyembroidery)**, by **Tatarize**
+  and contributors (EmbroidePy): the original project that documented and implemented
+  these formats, and the foundation of pystitch.
 
-Muito obrigado! A licença MIT original está preservada em
+Thank you! The original MIT license is preserved in
 [`LICENSES/pystitch-LICENSE.txt`](LICENSES/pystitch-LICENSE.txt).
 
-## Licença
+## License
 
 [MIT](LICENSE) © Diogo Bernini

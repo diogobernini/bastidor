@@ -8,15 +8,27 @@ const path = require('path');
 const io = require('../core/io');
 const { patternToDesign, designToPattern } = require('../core/design');
 const { SettingsStore, HOOP_PRESETS } = require('./settings');
+const { STRINGS, resolveLang, makeT } = require('../i18n');
 
 let win = null;
 let settings = null;
 let pendingOpenPath = null; // arquivo aberto via Finder/associação antes da janela existir
 
-// Flags de automação (autoteste): --open=arquivo --screenshot=saida.png --dialog=settings
+// Flags de automação (autoteste): --open=arquivo --screenshot=saida.png --dialog=settings --lang=en
 const argOpen = getArgValue('--open');
 const argScreenshot = getArgValue('--screenshot');
 const argDialog = getArgValue('--dialog');
+const argLang = getArgValue('--lang');
+
+function currentLang() {
+  if (argLang) return resolveLang(argLang, 'en');
+  const pref = settings ? settings.get().language : 'auto';
+  return resolveLang(pref, app.getLocale());
+}
+
+function t(key, vars) {
+  return makeT(currentLang())(key, vars);
+}
 
 function getArgValue(name) {
   for (const arg of process.argv) {
@@ -101,10 +113,16 @@ function setupIpc() {
     dialog: argDialog,
     hoopPresets: HOOP_PRESETS,
     version: app.getVersion(),
+    lang: currentLang(),
+    strings: STRINGS,
   }));
 
   ipcMain.handle('settings:get', () => settings.get());
-  ipcMain.handle('settings:set', (e, patch) => settings.set(patch));
+  ipcMain.handle('settings:set', (e, patch) => {
+    const data = settings.set(patch);
+    rebuildMenu(); // idioma ou recentes podem ter mudado
+    return { settings: data, lang: currentLang() };
+  });
 
   ipcMain.handle('recent:list', () => settings.get().recent.filter((p) => fs.existsSync(p)));
   ipcMain.handle('recent:clear', () => {
@@ -116,16 +134,16 @@ function setupIpc() {
   ipcMain.handle('dialog:open', async () => {
     const exts = io.supportedReadExtensions();
     const result = await dialog.showOpenDialog(win, {
-      title: 'Abrir matriz de bordado',
+      title: t('dlg.openTitle'),
       properties: ['openFile'],
       filters: [
-        { name: 'Matrizes de bordado', extensions: exts },
+        { name: t('dlg.filterAll'), extensions: exts },
         { name: 'Singer XXX', extensions: ['xxx'] },
         { name: 'Tajima DST', extensions: ['dst'] },
         { name: 'Brother PES/PEC', extensions: ['pes', 'pec'] },
         { name: 'Janome JEF', extensions: ['jef'] },
         { name: 'Melco EXP', extensions: ['exp'] },
-        { name: 'Todos os arquivos', extensions: ['*'] },
+        { name: t('dlg.filterAny'), extensions: ['*'] },
       ],
     });
     if (result.canceled || result.filePaths.length === 0) return null;
@@ -136,13 +154,13 @@ function setupIpc() {
 
   ipcMain.handle('dialog:save', async (e, { defaultName }) => {
     const result = await dialog.showSaveDialog(win, {
-      title: 'Salvar matriz como',
+      title: t('dlg.saveTitle'),
       defaultPath: defaultName,
       filters: [
         { name: 'Singer XXX', extensions: ['xxx'] },
         { name: 'Tajima DST', extensions: ['dst'] },
         { name: 'Melco EXP', extensions: ['exp'] },
-        { name: 'SVG (vetor)', extensions: ['svg'] },
+        { name: 'SVG', extensions: ['svg'] },
       ],
     });
     if (result.canceled || !result.filePath) return null;
@@ -151,9 +169,9 @@ function setupIpc() {
 
   ipcMain.handle('dialog:export-png', async (e, { defaultName }) => {
     const result = await dialog.showSaveDialog(win, {
-      title: 'Exportar PNG',
+      title: t('dlg.exportPngTitle'),
       defaultPath: defaultName,
-      filters: [{ name: 'Imagem PNG', extensions: ['png'] }],
+      filters: [{ name: 'PNG', extensions: ['png'] }],
     });
     if (result.canceled || !result.filePath) return null;
     return result.filePath;
@@ -216,12 +234,12 @@ function buildMenuTemplate() {
           click: () => openPathIntoRenderer(p),
         })),
         { type: 'separator' },
-        { label: 'Limpar recentes', click: () => {
+        { label: t('menu.clearRecent'), click: () => {
             settings.clearRecent();
             rebuildMenu();
           } },
       ]
-    : [{ label: 'Nenhum arquivo recente', enabled: false }];
+    : [{ label: t('menu.noRecent'), enabled: false }];
 
   return [
     ...(isMac
@@ -229,40 +247,40 @@ function buildMenuTemplate() {
           {
             label: app.name,
             submenu: [
-              { role: 'about', label: 'Sobre o Bastidor' },
+              { role: 'about', label: t('menu.about') },
               { type: 'separator' },
               {
-                label: 'Configurações…',
+                label: t('menu.settings'),
                 accelerator: 'CmdOrCtrl+,',
                 click: () => sendToRenderer('menu', 'settings'),
               },
               { type: 'separator' },
-              { role: 'hide', label: 'Ocultar Bastidor' },
-              { role: 'hideOthers', label: 'Ocultar outros' },
-              { role: 'unhide', label: 'Mostrar tudo' },
+              { role: 'hide', label: t('menu.hide') },
+              { role: 'hideOthers', label: t('menu.hideOthers') },
+              { role: 'unhide', label: t('menu.unhide') },
               { type: 'separator' },
-              { role: 'quit', label: 'Encerrar Bastidor' },
+              { role: 'quit', label: t('menu.quit') },
             ],
           },
         ]
       : []),
     {
-      label: 'Arquivo',
+      label: t('menu.file'),
       submenu: [
         {
-          label: 'Abrir…',
+          label: t('menu.open'),
           accelerator: 'CmdOrCtrl+O',
           click: () => sendToRenderer('menu', 'open'),
         },
-        { label: 'Abrir recente', submenu: recentItems },
+        { label: t('menu.openRecent'), submenu: recentItems },
         { type: 'separator' },
         {
-          label: 'Salvar como…',
+          label: t('menu.saveAs'),
           accelerator: 'CmdOrCtrl+Shift+S',
           click: () => sendToRenderer('menu', 'save-as'),
         },
         {
-          label: 'Exportar PNG…',
+          label: t('menu.exportPng'),
           accelerator: 'CmdOrCtrl+E',
           click: () => sendToRenderer('menu', 'export-png'),
         },
@@ -270,70 +288,70 @@ function buildMenuTemplate() {
           ? [
               { type: 'separator' },
               {
-                label: 'Configurações…',
+                label: t('menu.settings'),
                 accelerator: 'CmdOrCtrl+,',
                 click: () => sendToRenderer('menu', 'settings'),
               },
               { type: 'separator' },
-              { role: 'quit', label: 'Sair' },
+              { role: 'quit', label: t('menu.exit') },
             ]
           : []),
       ],
     },
     {
-      label: 'Editar',
+      label: t('menu.edit'),
       submenu: [
         {
-          label: 'Desfazer',
+          label: t('menu.undo'),
           accelerator: 'CmdOrCtrl+Z',
           click: () => sendToRenderer('menu', 'undo'),
         },
         { type: 'separator' },
-        { label: 'Centralizar na origem', click: () => sendToRenderer('menu', 'center') },
-        { label: 'Redimensionar…', accelerator: 'CmdOrCtrl+R', click: () => sendToRenderer('menu', 'scale') },
-        { label: 'Girar 90° horário', click: () => sendToRenderer('menu', 'rotate-cw') },
-        { label: 'Girar 90° anti-horário', click: () => sendToRenderer('menu', 'rotate-ccw') },
-        { label: 'Espelhar horizontal', click: () => sendToRenderer('menu', 'flip-h') },
-        { label: 'Espelhar vertical', click: () => sendToRenderer('menu', 'flip-v') },
+        { label: t('menu.center'), click: () => sendToRenderer('menu', 'center') },
+        { label: t('menu.resize'), accelerator: 'CmdOrCtrl+R', click: () => sendToRenderer('menu', 'scale') },
+        { label: t('menu.rotateCw'), click: () => sendToRenderer('menu', 'rotate-cw') },
+        { label: t('menu.rotateCcw'), click: () => sendToRenderer('menu', 'rotate-ccw') },
+        { label: t('menu.flipH'), click: () => sendToRenderer('menu', 'flip-h') },
+        { label: t('menu.flipV'), click: () => sendToRenderer('menu', 'flip-v') },
       ],
     },
     {
-      label: 'Exibir',
+      label: t('menu.view'),
       submenu: [
-        { label: 'Ajustar à tela', accelerator: 'CmdOrCtrl+0', click: () => sendToRenderer('menu', 'fit') },
-        { label: 'Aproximar', accelerator: 'CmdOrCtrl+=', click: () => sendToRenderer('menu', 'zoom-in') },
-        { label: 'Afastar', accelerator: 'CmdOrCtrl+-', click: () => sendToRenderer('menu', 'zoom-out') },
+        { label: t('menu.fit'), accelerator: 'CmdOrCtrl+0', click: () => sendToRenderer('menu', 'fit') },
+        { label: t('menu.zoomIn'), accelerator: 'CmdOrCtrl+=', click: () => sendToRenderer('menu', 'zoom-in') },
+        { label: t('menu.zoomOut'), accelerator: 'CmdOrCtrl+-', click: () => sendToRenderer('menu', 'zoom-out') },
         { type: 'separator' },
-        { label: 'Grade', click: () => sendToRenderer('menu', 'toggle-grid') },
-        { label: 'Bastidor', click: () => sendToRenderer('menu', 'toggle-hoop') },
-        { label: 'Saltos', click: () => sendToRenderer('menu', 'toggle-jumps') },
+        { label: t('menu.grid'), click: () => sendToRenderer('menu', 'toggle-grid') },
+        { label: t('menu.hoop'), click: () => sendToRenderer('menu', 'toggle-hoop') },
+        { label: t('menu.jumps'), click: () => sendToRenderer('menu', 'toggle-jumps') },
         { type: 'separator' },
         ...(process.env.BASTIDOR_DEV
-          ? [{ role: 'toggleDevTools', label: 'Ferramentas de desenvolvimento' }]
+          ? [{ role: 'toggleDevTools', label: t('menu.devtools') }]
           : []),
-        { role: 'togglefullscreen', label: 'Tela cheia' },
+        { role: 'togglefullscreen', label: t('menu.fullscreen') },
       ],
     },
     {
-      label: 'Simulação',
+      label: t('menu.sim'),
       submenu: [
-        { label: 'Reproduzir/Pausar', click: () => sendToRenderer('menu', 'sim-toggle') },
-        { label: 'Reiniciar', click: () => sendToRenderer('menu', 'sim-reset') },
+        { label: t('menu.simToggle'), click: () => sendToRenderer('menu', 'sim-toggle') },
+        { label: t('menu.simReset'), click: () => sendToRenderer('menu', 'sim-reset') },
       ],
     },
     {
-      label: 'Janela',
+      label: t('menu.window'),
       submenu: [
-        { role: 'minimize', label: 'Minimizar' },
-        { role: 'zoom', label: 'Zoom' },
-        ...(isMac ? [{ role: 'front', label: 'Trazer tudo para frente' }] : [{ role: 'close', label: 'Fechar' }]),
+        { role: 'minimize', label: t('menu.minimize') },
+        { role: 'zoom', label: t('menu.zoom') },
+        ...(isMac ? [{ role: 'front', label: t('menu.front') }] : [{ role: 'close', label: t('menu.close') }]),
       ],
     },
     {
-      label: 'Ajuda',
+      label: t('menu.help'),
       submenu: [
         {
-          label: 'Formatos suportados',
+          label: t('menu.formats'),
           click: () => sendToRenderer('menu', 'formats'),
         },
       ],
@@ -350,17 +368,11 @@ function openPathIntoRenderer(filePath) {
     const design = readDesignFromPath(filePath);
     sendToRenderer('design:opened', design);
   } catch (err) {
-    dialog.showErrorBox('Não foi possível abrir', `${filePath}\n\n${err.message}`);
+    dialog.showErrorBox(t('dlg.openError'), `${filePath}\n\n${err.message}`);
   }
 }
 
 // ------------------------------------------------------------------ App
-
-app.setAboutPanelOptions({
-  applicationName: 'Bastidor',
-  applicationVersion: app.getVersion(),
-  copyright: 'Estúdio de bordado · matrizes Singer XXX, DST, PES, JEF, EXP',
-});
 
 // Arquivo aberto via Finder (macOS) antes ou depois da janela existir.
 app.on('open-file', (event, filePath) => {
@@ -371,6 +383,11 @@ app.on('open-file', (event, filePath) => {
 
 app.whenReady().then(() => {
   settings = new SettingsStore(app.getPath('userData'));
+  app.setAboutPanelOptions({
+    applicationName: 'Bastidor',
+    applicationVersion: app.getVersion(),
+    copyright: t('about.copyright'),
+  });
   setupIpc();
   rebuildMenu();
   createWindow();

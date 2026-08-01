@@ -5,6 +5,7 @@ const fs = require('fs');
 const path = require('path');
 
 const DEFAULTS = {
+  language: 'auto', // 'auto' | 'en' | 'pt-BR'
   units: 'mm', // 'mm' | 'in'
   grid: { show: true, spacingMm: 10 },
   hoop: { show: true, preset: '130x180', width: 130, height: 180 },
@@ -30,11 +31,11 @@ const DEFAULTS = {
 const HOOP_PRESETS = {
   '100x100': { width: 100, height: 100, label: '100 × 100 mm' },
   '130x180': { width: 130, height: 180, label: '130 × 180 mm' },
-  '160x260': { width: 160, height: 260, label: '160 × 260 mm (Futura grande)' },
-  '102x102': { width: 102, height: 102, label: '102 × 102 mm (Futura pequeno)' },
+  '160x260': { width: 160, height: 260, labelKey: 'hoop.futuraLarge' },
+  '102x102': { width: 102, height: 102, labelKey: 'hoop.futuraSmall' },
   '200x280': { width: 200, height: 280, label: '200 × 280 mm' },
   '300x200': { width: 300, height: 200, label: '300 × 200 mm' },
-  custom: { label: 'Personalizado' },
+  custom: { labelKey: 'hoop.custom' },
 };
 
 class SettingsStore {
