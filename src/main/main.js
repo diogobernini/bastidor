@@ -9,11 +9,14 @@ const io = require('../core/io');
 const { patternToDesign, designToPattern } = require('../core/design');
 const digitize = require('../core/digitize');
 const lettering = require('../core/lettering');
+const raster = require('../core/digitize/raster');
 const { SettingsStore, HOOP_PRESETS } = require('./settings');
 const { STRINGS, resolveLang, makeT } = require('../i18n');
 const drives = require('./drives');
 
 const FONTS_DIR = path.join(__dirname, '..', '..', 'fonts');
+
+const IMAGE_MIME = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp' };
 
 let win = null;
 let settings = null;
@@ -123,6 +126,17 @@ function createWindow() {
     shell.openExternal(url);
     return { action: 'deny' };
   });
+
+  // DEBUG TEMPORÁRIO: encaminha console/erros do renderer pro stdout do smoke test.
+  win.webContents.on('console-message', (e, level, message, line, sourceId) => {
+    console.log('[renderer]', level, message, sourceId + ':' + line);
+  });
+  win.webContents.on('render-process-gone', (e, details) => {
+    console.log('[renderer] gone', details);
+  });
+  win.webContents.on('did-fail-load', (e, errorCode, errorDescription) => {
+    console.log('[renderer] did-fail-load', errorCode, errorDescription);
+  });
 }
 
 // ------------------------------------------------------------------ IPC
@@ -173,6 +187,46 @@ function setupIpc() {
   });
 
   ipcMain.handle('design:read', (e, filePath) => readDesignFromPath(filePath));
+
+  // Digitalização PNG -> vetor (issue #2): escolhe o arquivo e devolve como
+  // data URL (o renderer decodifica com Image/canvas do próprio navegador —
+  // o processo principal não tem decodificador de imagem embutido).
+  ipcMain.handle('dialog:open-image', async () => {
+    const result = await dialog.showOpenDialog(win, {
+      title: t('dlg.openImageTitle'),
+      properties: ['openFile'],
+      filters: [{ name: t('dlg.filterImages'), extensions: ['png', 'jpg', 'jpeg', 'webp'] }],
+    });
+    if (result.canceled || result.filePaths.length === 0) return null;
+    const filePath = result.filePaths[0];
+    const ext = io.extOf(filePath);
+    const mime = IMAGE_MIME[ext] || 'application/octet-stream';
+    const base64 = fs.readFileSync(filePath).toString('base64');
+    return { path: filePath, name: path.basename(filePath), dataURL: `data:${mime};base64,${base64}` };
+  });
+
+  // Reposteriza (só quantize) para o preview ao vivo do modal de digitalização.
+  ipcMain.handle('digitize:posterize', (e, { image, colors }) => {
+    const { palette, indexed } = raster.quantize(image, colors);
+    const data = new Uint8ClampedArray(image.width * image.height * 4);
+    for (let i = 0; i < indexed.length; i++) {
+      const pi = indexed[i];
+      if (pi === 255) continue; // mantém alpha 0 (transparente)
+      const [r, g, b] = palette[pi];
+      data[i * 4] = r;
+      data[i * 4 + 1] = g;
+      data[i * 4 + 2] = b;
+      data[i * 4 + 3] = 255;
+    }
+    return { width: image.width, height: image.height, data };
+  });
+
+  // Pipeline completa da digitalização: imagem -> contornos -> Pattern -> design.
+  ipcMain.handle('digitize:generate', (e, { image, opts }) => {
+    const paths = raster.rasterToPaths(image, { colors: opts.colors, simplifyTol: opts.simplifyTol });
+    const pattern = raster.pathsToPattern(paths, { scale: opts.scale, stitchLenMm: opts.stitchLenMm });
+    return patternToDesign(pattern, { name: opts.name || 'digitalizado', format: null, path: null });
+  });
 
   ipcMain.handle('dialog:save', async (e, { defaultName }) => {
     const result = await dialog.showSaveDialog(win, {
@@ -359,6 +413,12 @@ function buildMenuTemplate() {
         {
           label: t('menu.importSvg'),
           click: () => importSvgFlow(),
+        },
+        { type: 'separator' },
+        {
+          label: t('menu.digitize'),
+          accelerator: 'CmdOrCtrl+Shift+I',
+          click: () => sendToRenderer('menu', 'digitize-image'),
         },
         { type: 'separator' },
         {

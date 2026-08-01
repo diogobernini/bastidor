@@ -2174,8 +2174,9 @@ function bindMenuAndKeys() {
       'sim-toggle': () => simSetPlaying(!state.sim.playing),
       'sim-reset': simReset,
       formats: () => $('dlg-formats').showModal(),
+      'digitize-image': openDigitizeDialog,
     };
-    if (state.design || ['open', 'settings', 'formats'].includes(action)) {
+    if (state.design || ['open', 'settings', 'formats', 'digitize-image'].includes(action)) {
       const fn = actions[action];
       if (fn) fn();
     }
@@ -2229,6 +2230,154 @@ function bindMenuAndKeys() {
   });
 }
 
+// --------------------------------------------------------------- digitalizar imagem (PNG -> vetor)
+// Fluxo: Arquivo > Digitalizar imagem… -> escolhe PNG/JPG/WEBP -> preview
+// lado a lado (original · posterizada) com reposterização ao vivo numa
+// versão reduzida (~256 px) -> confirma -> gera o Pattern (só o contorno em
+// ponto corrido; preenchimento tatami fica para a issue #1) e abre como o
+// design atual, do mesmo jeito que abrir um arquivo (setDesign).
+
+const digitize = {
+  full: null, // { width, height, data } na resolução original (usado só ao confirmar)
+  work: null, // { width, height, data } reduzido a ~256 px (preview ao vivo)
+  name: '',
+  previewTimer: null,
+  previewToken: 0,
+};
+
+function loadImageEl(src) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error('decode'));
+    img.src = src;
+  });
+}
+
+// Desenha a imagem num canvas fora de tela e devolve os pixels crus.
+function imageToImageData(img, maxSide) {
+  const scale = maxSide ? Math.min(1, maxSide / Math.max(img.naturalWidth, img.naturalHeight)) : 1;
+  const w = Math.max(1, Math.round(img.naturalWidth * scale));
+  const h = Math.max(1, Math.round(img.naturalHeight * scale));
+  const off = document.createElement('canvas');
+  off.width = w;
+  off.height = h;
+  const octx = off.getContext('2d');
+  octx.drawImage(img, 0, 0, w, h);
+  const d = octx.getImageData(0, 0, w, h);
+  return { width: w, height: h, data: d.data };
+}
+
+function paintImageData(canvasEl, imgData) {
+  canvasEl.width = imgData.width;
+  canvasEl.height = imgData.height;
+  canvasEl.getContext('2d').putImageData(new ImageData(imgData.data, imgData.width, imgData.height), 0, 0);
+}
+
+function digitizeColorsLabel() {
+  $('dig-colors-value').textContent = $('dig-colors').value;
+}
+
+function updateDigitizeSummary() {
+  if (!digitize.full) return;
+  const widthMm = clampNum($('dig-width').value, 5, 600, 80);
+  const heightMm = widthMm * (digitize.full.height / digitize.full.width);
+  $('dig-summary').textContent = `${widthMm.toFixed(0)} × ${heightMm.toFixed(0)} mm`;
+}
+
+// digitize:posterize roda por IPC no processo principal (o preload é
+// sandboxed e não tem 'fs'/núcleo direto), então a resposta é assíncrona;
+// o token evita pintar uma resposta antiga se o slider já mudou de novo.
+function runDigitizePreview() {
+  if (!digitize.work) return;
+  const colors = Number($('dig-colors').value);
+  const token = ++digitize.previewToken;
+  window.api.digitizePosterize(digitize.work, colors).then((posterized) => {
+    if (token !== digitize.previewToken) return;
+    paintImageData($('dig-cv-posterized'), posterized);
+  });
+}
+
+function queueDigitizePreview() {
+  clearTimeout(digitize.previewTimer);
+  digitize.previewTimer = setTimeout(runDigitizePreview, 60);
+}
+
+async function openDigitizeDialog() {
+  let picked;
+  try {
+    picked = await window.api.openImageDialog();
+  } catch (err) {
+    toast(tr('dig.openError') + err.message, 'error', 5000);
+    return;
+  }
+  if (!picked) return;
+  try {
+    const img = await loadImageEl(picked.dataURL);
+    digitize.full = imageToImageData(img, null);
+    digitize.work = imageToImageData(img, 256);
+    digitize.name = picked.name;
+    paintImageData($('dig-cv-original'), digitize.work);
+    $('dig-colors').value = 4;
+    digitizeColorsLabel();
+    $('dig-width').value = 80;
+    $('dig-tolerance').value = 0.3;
+    $('dig-stitchlen').value = 2.5;
+    updateDigitizeSummary();
+    runDigitizePreview();
+    $('dlg-digitize').showModal();
+  } catch (err) {
+    toast(tr('dig.openError') + err.message, 'error', 5000);
+  }
+}
+
+// Devolve true se gerou e aplicou o design (para o chamador decidir se fecha
+// o modal); false se o usuário desistiu na confirmação de substituição ou se
+// a geração falhou — nesses casos o modal continua aberto com os ajustes.
+async function confirmDigitize() {
+  if (!digitize.full) return false;
+  if (state.design && !window.confirm(tr('dig.confirmReplace'))) return false;
+  const colors = Number($('dig-colors').value);
+  const widthMm = clampNum($('dig-width').value, 5, 600, 80);
+  const toleranceMm = clampNum($('dig-tolerance').value, 0, 5, 0.3);
+  const stitchLenMm = clampNum($('dig-stitchlen').value, 0.5, 6, 2.5);
+  const scale = (widthMm * 10) / digitize.full.width; // px -> unidade nativa (0,1 mm)
+  const simplifyTol = (toleranceMm * digitize.full.width) / widthMm; // mm -> px equivalente na imagem cheia
+  try {
+    const design = await window.api.digitizeGenerate(digitize.full, {
+      colors,
+      simplifyTol,
+      scale,
+      stitchLenMm,
+      name: digitize.name,
+    });
+    setDesign(design);
+    toast(tr('toast.digitized', { n: fmtNum(state.stats.stitches), c: fmtNum(state.blocks.length) }));
+    return true;
+  } catch (err) {
+    toast(tr('dig.openError') + err.message, 'error', 5000);
+    return false;
+  }
+}
+
+function bindDigitizeDialog() {
+  $('dig-colors').addEventListener('input', () => {
+    digitizeColorsLabel();
+    queueDigitizePreview();
+  });
+  $('dig-width').addEventListener('input', updateDigitizeSummary);
+  // Não deixa o <form method="dialog"> fechar o modal por conta própria: se o
+  // usuário desistir da confirmação de substituição, os ajustes continuam ali.
+  $('digitize-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    if (e.submitter && e.submitter.value === 'confirm') {
+      if (await confirmDigitize()) $('dlg-digitize').close();
+    } else {
+      $('dlg-digitize').close();
+    }
+  });
+}
+
 // --------------------------------------------------------------- boot
 
 async function boot() {
@@ -2258,6 +2407,7 @@ async function boot() {
   bindMenuAndKeys();
   bindDragDrop();
   bindDrivesDialog();
+  bindDigitizeDialog();
   resizeCanvas();
   refreshEmptyRecents();
   requestRender();
@@ -2270,6 +2420,7 @@ async function boot() {
   if (launch.dialog === 'formats') $('dlg-formats').showModal();
   if (launch.dialog === 'drives') await openDrivesDialog();
   if (launch.dialog === 'text') openTextDialog();
+  if (launch.dialog === 'digitize') $('dlg-digitize').showModal();
 
   // Sinaliza para o modo screenshot que a primeira pintura aconteceu.
   requestAnimationFrame(() => requestAnimationFrame(() => window.api.notifyRenderReady()));

@@ -264,6 +264,23 @@ const STRINGS = {
     'svgimport.apply': 'Import',
     'toast.svgImported': 'SVG imported: {name}',
     'toast.svgImportError': 'Error importing SVG: ',
+
+    // Digitizing: PNG to vector (roadmap item 2).
+    'menu.digitize': 'Digitize image…',
+    'dlg.openImageTitle': 'Open image',
+    'dlg.filterImages': 'Images',
+    'dig.title': 'Digitize image',
+    'dig.hint': 'Posterizes the image into a chosen number of colors and traces a running stitch around each color’s outline. Fill stitching for closed shapes arrives with the SVG digitizing tool.',
+    'dig.original': 'Original',
+    'dig.posterized': 'Posterized',
+    'dig.colors': 'Colors',
+    'dig.width': 'Final width (mm)',
+    'dig.tolerance': 'Simplify tolerance (mm)',
+    'dig.stitchLen': 'Stitch length (mm)',
+    'dig.generate': 'Generate stitches',
+    'dig.confirmReplace': 'Replace the open design with the digitized image?',
+    'dig.openError': 'Could not open image: ',
+    'toast.digitized': 'Image digitized: {n} stitches, {c} colors',
   },
 
   'pt-BR': {
@@ -528,6 +545,23 @@ const STRINGS = {
     'svgimport.apply': 'Importar',
     'toast.svgImported': 'SVG importado: {name}',
     'toast.svgImportError': 'Erro ao importar SVG: ',
+
+    // Digitalização: PNG para vetor (item 2 do roadmap).
+    'menu.digitize': 'Digitalizar imagem…',
+    'dlg.openImageTitle': 'Abrir imagem',
+    'dlg.filterImages': 'Imagens',
+    'dig.title': 'Digitalizar imagem',
+    'dig.hint': 'Posteriza a imagem numa quantidade de cores à sua escolha e costura ponto corrido pelo contorno de cada cor. O preenchimento de áreas fechadas chega junto com a ferramenta de digitalização de SVG.',
+    'dig.original': 'Original',
+    'dig.posterized': 'Posterizada',
+    'dig.colors': 'Cores',
+    'dig.width': 'Largura final (mm)',
+    'dig.tolerance': 'Tolerância de simplificação (mm)',
+    'dig.stitchLen': 'Comprimento do ponto (mm)',
+    'dig.generate': 'Gerar pontos',
+    'dig.confirmReplace': 'Substituir a matriz aberta pela imagem digitalizada?',
+    'dig.openError': 'Não foi possível abrir a imagem: ',
+    'toast.digitized': 'Imagem digitalizada: {n} pontos, {c} cores',
   },
 };
 
