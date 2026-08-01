@@ -727,8 +727,25 @@
   <script src="../core/minspacing.js"></script>
   <script src="../core/library-view.js"></script>
   <script src="../core/colorblocks.js"></script>
-  <script src="objects.js"></script>
   <script src="../core/lru.js"></script>
+  <!--
+    Módulos extraídos de renderer.js (issue #33): scripts clássicos, cada um
+    numa IIFE expondo um único namespace global (mesmo padrão de
+    ../core/spatial.js e ../core/densityscale.js). A ordem abaixo segue a
+    direção de dependência "documentada" (comentário no topo de cada
+    arquivo), mas não é estritamente exigida pela correção: toda referência
+    cruzada acontece dentro de corpos de função, chamados só depois que
+    renderer.js roda boot() ao final desta lista — a essa altura todo
+    window.<Namespace> já existe.
+  -->
+  <script src="modules/i18n-ui.js"></script>
+  <script src="modules/render-canvas.js"></script>
+  <script src="modules/sim.js"></script>
+  <script src="modules/edit.js"></script>
+  <script src="modules/dialogs.js"></script>
+  <script src="modules/drives-ui.js"></script>
+  <script src="modules/library-ui.js"></script>
+  <script src="objects.js"></script>
   <script src="renderer.js"></script>
 </body>
 </html>
