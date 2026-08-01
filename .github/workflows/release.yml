@@ -49,7 +49,14 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: npx electron-builder --mac dmg zip --publish never
+        # Sem os secrets configurados, o GitHub injeta as variáveis VAZIAS (e
+        # não ausentes); o electron-builder trata CSC_LINK vazio como caminho
+        # de certificado e quebra ("not a file"). Removê-las quando vazias
+        # devolve o comportamento de build sem assinatura.
+        run: |
+          [ -z "$CSC_LINK" ] && unset CSC_LINK CSC_KEY_PASSWORD
+          [ -z "$APPLE_ID" ] && unset APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID
+          npx electron-builder --mac dmg zip --publish never
 
       - uses: actions/upload-artifact@v4
         with:
