@@ -17,6 +17,7 @@ const DEFAULTS = {
   fillStitchMm: 3,
   outlineStitchMm: 2.5,
   outline: true,
+  fill: true,
 };
 
 // Escala toda a geometria para a largura final pedida ANTES de costurar:
@@ -55,7 +56,7 @@ function importSvg(svgText, opts = {}) {
   const pattern = new Pattern();
   let started = false;
 
-  for (const { color, rings } of groups.fills) {
+  for (const { color, rings } of cfg.fill === false ? [] : groups.fills) {
     const runs = fill.fillPolygonsTatami(rings, {
       angleDeg: cfg.fillAngleDeg,
       rowSpacing: cfg.fillSpacingMm * MM,

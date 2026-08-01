@@ -1509,13 +1509,37 @@ function drawDesignThumbnail(canvas, design, size = 72) {
 // Desenha um "design" qualquer num canvas de tamanho arbitrário (miniaturas
 // do pendrive e da biblioteca, prévia da digitalização), com a mesma lógica
 // de polilinha do desenho principal.
-function drawDesignInto(canvas, design, cssW, cssH, margin) {
+function drawDesignInto(canvas, design, cssW, cssH, margin, opts = {}) {
   const localDpr = window.devicePixelRatio || 1;
   canvas.width = Math.max(1, Math.round(cssW * localDpr));
   canvas.height = Math.max(1, Math.round(cssH * localDpr));
   const c = canvas.getContext('2d');
   c.setTransform(localDpr, 0, 0, localDpr, 0, 0);
   c.clearRect(0, 0, cssW, cssH);
+  if (opts.autoBg) {
+    // Fundo com contraste automático: linhas escuras pedem prévia clara (um
+    // logo azul-marinho some no painel escuro) e vice-versa. A luminância é
+    // ponderada pelos pontos de cada bloco: um detalhe branco pequeno não
+    // pode vencer um preenchimento escuro dominante.
+    const counts = [];
+    let bi = 0;
+    for (const st of design.stitches) {
+      const cmd = st[2] & COMMAND_MASK;
+      if (cmd === COLOR_CHANGE) bi++;
+      else if (cmd === STITCH) counts[bi] = (counts[bi] || 0) + 1;
+    }
+    let lum = 0;
+    let n = 0;
+    (design.threads || []).forEach((t, i) => {
+      if (!t || typeof t.color !== 'string' || t.color[0] !== '#') return;
+      const v = parseInt(t.color.slice(1), 16);
+      const weight = counts[i] || 0;
+      lum += (0.2126 * (v >> 16) + 0.7152 * ((v >> 8) & 255) + 0.0722 * (v & 255)) * weight;
+      n += weight;
+    });
+    c.fillStyle = n && lum / n < 110 ? '#e9e9ee' : '#141419';
+    c.fillRect(0, 0, cssW, cssH);
+  }
 
   const stitches = design.stitches;
   const b = designBounds(design);
@@ -3072,6 +3096,7 @@ function svgImportOpts() {
     fillStitchMm: clampNum($('svgimport-fillstitch').value, 1, 8, 3),
     outlineStitchMm: clampNum($('svgimport-outlinestitch').value, 0.5, 8, 2.5),
     outline: $('svgimport-outline').checked,
+    fill: $('svgimport-fill').checked,
   };
   const w = Number($('svgimport-width').value);
   if (w > 0) opts.targetWidthMm = Math.max(5, Math.min(600, w));
@@ -3095,7 +3120,7 @@ function runSvgPreview() {
       }
       const cv = $('svgimport-cv');
       const rect = cv.getBoundingClientRect();
-      if (rect.width > 0) drawDesignInto(cv, res.design, rect.width, rect.height, 10);
+      if (rect.width > 0) drawDesignInto(cv, res.design, rect.width, rect.height, 10, { autoBg: true });
       let n = 0;
       for (const st of res.design.stitches) {
         if ((st[2] & COMMAND_MASK) === STITCH) n++;
@@ -3144,6 +3169,7 @@ function bindSvgImportDialog() {
     $(id).addEventListener('input', queueSvgPreview);
   }
   $('svgimport-outline').addEventListener('change', queueSvgPreview);
+  $('svgimport-fill').addEventListener('change', queueSvgPreview);
 }
 
 function bindMenuAndKeys() {
@@ -3322,7 +3348,7 @@ function runDigitizeStitchPreview() {
       if (token !== digitize.stitchToken) return;
       const cv = $('dig-cv-stitches');
       const rect = cv.getBoundingClientRect();
-      if (rect.width > 0) drawDesignInto(cv, design, rect.width, rect.height, 10);
+      if (rect.width > 0) drawDesignInto(cv, design, rect.width, rect.height, 10, { autoBg: true });
       updateDigitizeSummary(design);
     })
     .catch(() => {});
