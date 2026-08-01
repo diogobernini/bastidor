@@ -21,6 +21,8 @@ const FILLER_COLORS = [
   '#4fc4c9', '#c94f9e', '#7dc94f', '#5e5ec9', '#8a6f52', '#4f9ac9',
 ];
 
+const EDIT_PICK_RADIUS_PX = 8; // raio de seleção de ponto no modo de edição (em px de tela)
+
 const $ = (id) => document.getElementById(id);
 
 const state = {
@@ -33,6 +35,7 @@ const state = {
   strings: {},
   view: { scale: 1, tx: 0, ty: 0 },
   sim: { playing: false, pos: Infinity, lastT: 0 },
+  edit: { active: false, selected: -1 }, // modo "Editar pontos" (issue #3)
   undoStack: [],
   dirty: false,
   renderQueued: false,
@@ -120,6 +123,20 @@ function threadLabel(i) {
   if (t.description) parts.push(t.description);
   if (t.catalog) parts.push(tr('colors.catalog', { n: t.catalog }));
   return parts.length ? parts.join(' · ') : fallback;
+}
+
+const CMD_LABEL_KEYS = {
+  [STITCH]: 'cmd.stitch',
+  [JUMP]: 'cmd.jump',
+  [TRIM]: 'cmd.trim',
+  [STOP]: 'cmd.stop',
+  [END]: 'cmd.end',
+  [COLOR_CHANGE]: 'cmd.colorChange',
+};
+
+function cmdLabel(cmd) {
+  const key = CMD_LABEL_KEYS[cmd & COMMAND_MASK];
+  return tr(key || 'cmd.other');
 }
 
 // --------------------------------------------------------------- design
@@ -213,6 +230,10 @@ function setDesign(design, opts = {}) {
   state.sim.playing = false;
   state.sim.pos = Infinity;
   bumpArt();
+  state.edit.active = false;
+  state.edit.selected = -1;
+  $('btn-edit').classList.remove('on');
+  canvas.classList.remove('edit-mode');
   if (!opts.keepUndo) {
     state.undoStack = [];
     state.dirty = false;
@@ -261,6 +282,7 @@ function undo() {
   state.design.stitches = snap.stitches;
   state.design.threads = snap.threads;
   bumpArt();
+  state.edit.selected = -1; // o array foi substituído: o índice selecionado não é confiável
   if (state.undoStack.length === 0) $('t-undo').disabled = true;
   deriveBlocks();
   deriveStats();
@@ -348,18 +370,37 @@ function updateStatusbar() {
     $('st-file').textContent = tr('status.noFile');
     $('st-size').textContent = '';
     $('st-stitches').textContent = '';
+    $('st-edit').textContent = '';
     return;
   }
   const name = state.design.name || '·';
   $('st-file').textContent = (state.dirty ? '● ' : '') + name + (state.design.path ? ' · ' + state.design.path : '');
   $('st-size').textContent = `${fmtMm(state.stats.width)} × ${fmtMm(state.stats.height)}`;
   $('st-stitches').textContent = tr('status.stitches', { n: fmtNum(state.stats.stitches) });
+
+  const sel = state.edit.active && state.edit.selected >= 0 && state.edit.selected < state.design.stitches.length
+    ? state.edit.selected
+    : -1;
+  if (sel >= 0) {
+    const st = state.design.stitches[sel];
+    $('st-edit').textContent = tr('status.editPoint', {
+      n: fmtNum(sel),
+      cmd: cmdLabel(st[2]),
+      x: fmtMm(st[0]),
+      y: fmtMm(st[1]),
+    });
+  } else {
+    $('st-edit').textContent = '';
+  }
 }
 
 function updateToolbarEnabled() {
   const has = !!state.design;
-  for (const id of ['btn-save', 'btn-export', 'btn-sim']) $(id).disabled = !has;
-  $('sim-progress').disabled = !has;
+  for (const id of ['btn-save', 'btn-export', 'btn-edit']) $(id).disabled = !has;
+  // Simulação e edição de pontos são mutuamente exclusivas.
+  const simEnabled = has && !state.edit.active;
+  $('btn-sim').disabled = !simEnabled;
+  $('sim-progress').disabled = !simEnabled;
 }
 
 // --------------------------------------------------------------- canvas
@@ -778,8 +819,10 @@ function render() {
     const limit = simming ? Math.floor(state.sim.pos) : state.design.stitches.length;
     const realistic = !!state.settings.view.realistic;
     let needle = null;
-    if (realistic && !simming) {
-      // Fora da simulação dá pra cachear a arte (ver ensureRealisticCache).
+    if (realistic && !simming && !state.edit.active) {
+      // Fora da simulação e da edição dá pra cachear a arte. No modo de
+      // edição desenha ao vivo: arrastar um ponto muda a arte a cada frame
+      // e o blit do cache mostraria o fio parado com o marcador andando.
       renderRealisticCached();
     } else {
       needle = drawStitches(ctx, toScreen, state.view.scale, limit, {
@@ -802,6 +845,18 @@ function render() {
       ctx.arc(needle[0], needle[1], 4.2, 0, Math.PI * 2);
       ctx.stroke();
     }
+    // Marcador do ponto selecionado no modo de edição.
+    if (state.edit.active && state.edit.selected >= 0 && state.edit.selected < state.design.stitches.length) {
+      const st = state.design.stitches[state.edit.selected];
+      const [px, py] = toScreen(st[0], st[1]);
+      ctx.fillStyle = 'rgba(232,161,61,0.3)';
+      ctx.strokeStyle = '#e8a13d';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(px, py, 7, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+    }
   }
 }
 
@@ -809,6 +864,7 @@ function render() {
 
 function simSetPlaying(playing) {
   if (!state.design) return;
+  if (playing && state.edit.active) setEditMode(false); // mutuamente exclusivo com a edição
   state.sim.playing = playing;
   $('btn-sim').textContent = playing ? '⏸' : '▶';
   if (playing) {
@@ -846,6 +902,76 @@ function simReset() {
   $('btn-sim').textContent = '▶';
   $('sim-progress').value = 1000;
   requestRender();
+}
+
+// --------------------------------------------------------------- edição de pontos (issue #3)
+
+// Liga/desliga o modo "Editar pontos". Mutuamente exclusivo com a simulação:
+// entrar em edição pausa e reseta a simulação em andamento.
+function setEditMode(active) {
+  active = !!active && !!state.design;
+  state.edit.active = active;
+  $('btn-edit').classList.toggle('on', active);
+  canvas.classList.toggle('edit-mode', active);
+  if (active) simReset();
+  updateToolbarEnabled();
+  setSelectedStitch(-1);
+}
+
+function toggleEditMode() {
+  if (!state.design) return;
+  setEditMode(!state.edit.active);
+}
+
+function setSelectedStitch(index) {
+  const valid = state.design && index >= 0 && index < state.design.stitches.length;
+  state.edit.selected = valid ? index : -1;
+  updateStatusbar();
+  requestRender();
+}
+
+function selectedStitch() {
+  if (!state.design || state.edit.selected < 0) return null;
+  return state.design.stitches[state.edit.selected] || null;
+}
+
+// Chamado depois de qualquer mutação de ponto (mover, apagar, inserir).
+function afterPointMutation() {
+  bumpArt(); // invalida o cache do modo realista
+  deriveStats();
+  updateSidebar();
+  updateStatusbar();
+  requestRender();
+}
+
+function deleteSelectedStitch() {
+  const i = state.edit.selected;
+  if (!state.design || i < 0 || i >= state.design.stitches.length) return;
+  snapshotUndo();
+  state.design.stitches.splice(i, 1);
+  state.edit.selected = -1;
+  afterPointMutation();
+}
+
+// Insere um ponto STITCH no meio do segmento entre o ponto selecionado e o
+// próximo (tecla I ou duplo clique). O novo ponto passa a ser o selecionado,
+// permitindo subdividir o mesmo trecho repetidamente.
+function insertAfterSelected() {
+  const i = state.edit.selected;
+  if (!state.design || i < 0 || i >= state.design.stitches.length - 1) return;
+  snapshotUndo();
+  const newIndex = Spatial.insertMidpoint(state.design.stitches, i);
+  state.edit.selected = newIndex;
+  afterPointMutation();
+}
+
+function nudgeSelectedStitch(dx, dy) {
+  const st = selectedStitch();
+  if (!st) return;
+  snapshotUndo();
+  st[0] += dx;
+  st[1] += dy;
+  afterPointMutation();
 }
 
 // --------------------------------------------------------------- transformações
@@ -1142,7 +1268,23 @@ function bindCanvas() {
   let panning = false;
   let lastX = 0;
   let lastY = 0;
+  let dragIndex = -1; // ponto sendo arrastado no modo de edição (-1 = nenhum)
+  let dragMoved = false;
   canvas.addEventListener('pointerdown', (e) => {
+    if (state.edit.active) {
+      const rect = canvas.getBoundingClientRect();
+      const [dx, dy] = toDesign(e.clientX - rect.left, e.clientY - rect.top);
+      const maxDist = EDIT_PICK_RADIUS_PX / state.view.scale;
+      const idx = Spatial.nearestStitch(state.design.stitches, dx, dy, maxDist);
+      setSelectedStitch(idx);
+      if (idx !== -1) {
+        dragIndex = idx;
+        dragMoved = false;
+        canvas.setPointerCapture(e.pointerId);
+        return; // arrastando um ponto: não inicia o pan
+      }
+      // clique longe de qualquer ponto: desseleciona e cai no pan normal.
+    }
     panning = true;
     state.interacting = true;
     lastX = e.clientX;
@@ -1156,6 +1298,17 @@ function bindCanvas() {
     const opts = { minimumFractionDigits: 1, maximumFractionDigits: 1 };
     $('st-pos').textContent =
       `x ${(dx / 10).toLocaleString(locale(), opts)}  y ${(dy / 10).toLocaleString(locale(), opts)} mm`;
+    if (dragIndex !== -1) {
+      if (!dragMoved) {
+        snapshotUndo(); // só antes do primeiro movimento do arraste, não a cada pixel
+        dragMoved = true;
+      }
+      const st = state.design.stitches[dragIndex];
+      st[0] = Math.round(dx);
+      st[1] = Math.round(dy);
+      afterPointMutation();
+      return;
+    }
     if (!panning) return;
     state.view.tx += e.clientX - lastX;
     state.view.ty += e.clientY - lastY;
@@ -1165,6 +1318,8 @@ function bindCanvas() {
   });
   const stopPan = (e) => {
     panning = false;
+    dragIndex = -1;
+    dragMoved = false;
     canvas.classList.remove('panning');
     if (state.interacting) {
       state.interacting = false;
@@ -1173,7 +1328,10 @@ function bindCanvas() {
   };
   canvas.addEventListener('pointerup', stopPan);
   canvas.addEventListener('pointercancel', stopPan);
-  canvas.addEventListener('dblclick', fitView);
+  canvas.addEventListener('dblclick', () => {
+    if (state.edit.active) insertAfterSelected();
+    else fitView();
+  });
   canvas.addEventListener('pointerleave', () => {
     $('st-pos').textContent = '';
   });
@@ -1234,6 +1392,8 @@ function bindToolbar() {
       await window.api.setSettings(state.settings);
     });
   }
+
+  $('btn-edit').addEventListener('click', toggleEditMode);
 
   $('btn-sim').addEventListener('click', () => simSetPlaying(!state.sim.playing));
   $('sim-progress').addEventListener('input', () => {
@@ -1364,10 +1524,36 @@ function bindMenuAndKeys() {
     if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA' || e.target.isContentEditable) return;
     if (document.querySelector('dialog[open]')) return;
     const key = e.key.toLowerCase();
+
+    // Atalhos exclusivos do modo de edição de pontos (issue #3).
+    if (state.edit.active) {
+      if (key === 'escape') {
+        setSelectedStitch(-1);
+        return;
+      }
+      if (key === 'delete' || key === 'backspace') {
+        e.preventDefault();
+        deleteSelectedStitch();
+        return;
+      }
+      if (key === 'i') {
+        insertAfterSelected();
+        return;
+      }
+      if (key.startsWith('arrow')) {
+        e.preventDefault();
+        const step = e.shiftKey ? 10 : 1;
+        const deltas = { arrowup: [0, -step], arrowdown: [0, step], arrowleft: [-step, 0], arrowright: [step, 0] };
+        nudgeSelectedStitch(deltas[key][0], deltas[key][1]);
+        return;
+      }
+    }
+
     if (key === ' ') {
       e.preventDefault();
       simSetPlaying(!state.sim.playing);
-    } else if (key === 'g') $('btn-grid').click();
+    } else if (key === 'e' && !e.metaKey && !e.ctrlKey) toggleEditMode(); // Cmd/Ctrl+E é o acelerador de exportar PNG
+    else if (key === 'g') $('btn-grid').click();
     else if (key === 'b') $('btn-hoop').click();
     else if (key === 'j') $('btn-jumps').click();
     else if (key === '0') fitView();

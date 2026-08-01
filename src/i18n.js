@@ -68,6 +68,8 @@ const STRINGS = {
     'tb.hoopTip': 'Hoop (B)',
     'tb.jumps': 'Jumps',
     'tb.jumpsTip': 'Show jumps (J)',
+    'tb.edit': 'Edit',
+    'tb.editTip': 'Edit points (E) · click to select, drag to move, Delete to remove, I or double-click to insert, arrows to nudge',
     'tb.simTip': 'Simulate stitching (Space)',
     'tb.simProgressTip': 'Simulation progress',
     'tb.simSpeedTip': 'Simulation speed',
@@ -119,8 +121,17 @@ const STRINGS = {
     'warn.prefix': 'Heads up: ',
     'warn.and': ' and ',
 
+    'cmd.stitch': 'stitch',
+    'cmd.jump': 'jump',
+    'cmd.trim': 'trim',
+    'cmd.stop': 'stop',
+    'cmd.end': 'end',
+    'cmd.colorChange': 'color change',
+    'cmd.other': 'other',
+
     'status.noFile': 'No file open',
     'status.stitches': '{n} stitches',
+    'status.editPoint': 'Point {n} · {cmd} · x {x} · y {y}',
 
     'set.title': 'Settings',
     'set.tabView': 'Display',
@@ -247,6 +258,8 @@ const STRINGS = {
     'tb.hoopTip': 'Bastidor (B)',
     'tb.jumps': 'Saltos',
     'tb.jumpsTip': 'Mostrar saltos (J)',
+    'tb.edit': 'Editar',
+    'tb.editTip': 'Editar pontos (E) · clique seleciona, arraste move, Delete apaga, I ou duplo clique insere, setas ajustam',
     'tb.simTip': 'Simular bordado (Espaço)',
     'tb.simProgressTip': 'Progresso da simulação',
     'tb.simSpeedTip': 'Velocidade da simulação',
@@ -298,8 +311,17 @@ const STRINGS = {
     'warn.prefix': 'Atenção: ',
     'warn.and': ' e ',
 
+    'cmd.stitch': 'ponto',
+    'cmd.jump': 'salto',
+    'cmd.trim': 'corte',
+    'cmd.stop': 'parada',
+    'cmd.end': 'fim',
+    'cmd.colorChange': 'troca de cor',
+    'cmd.other': 'outro',
+
     'status.noFile': 'Nenhum arquivo aberto',
     'status.stitches': '{n} pontos',
+    'status.editPoint': 'Ponto {n} · {cmd} · x {x} · y {y}',
 
     'set.title': 'Configurações',
     'set.tabView': 'Visualização',
