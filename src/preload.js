@@ -27,6 +27,10 @@ contextBridge.exposeInMainWorld('api', {
   writePng: (filePath, dataURL) => ipcRenderer.invoke('png:write', { filePath, dataURL }),
   showItemInFolder: (filePath) => ipcRenderer.invoke('shell:show-item', filePath),
 
+  // Lettering (issue #7): texto -> pontos, via núcleo no processo principal.
+  letteringListFonts: () => ipcRenderer.invoke('lettering:list-fonts'),
+  letteringBuild: (opts) => ipcRenderer.invoke('lettering:build', opts),
+
   notifyRenderReady: () => ipcRenderer.send('render:ready'),
 
   onMenu: (cb) => ipcRenderer.on('menu', (e, action) => cb(action)),

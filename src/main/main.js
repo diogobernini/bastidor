@@ -8,9 +8,12 @@ const path = require('path');
 const io = require('../core/io');
 const { patternToDesign, designToPattern } = require('../core/design');
 const digitize = require('../core/digitize');
+const lettering = require('../core/lettering');
 const { SettingsStore, HOOP_PRESETS } = require('./settings');
 const { STRINGS, resolveLang, makeT } = require('../i18n');
 const drives = require('./drives');
+
+const FONTS_DIR = path.join(__dirname, '..', '..', 'fonts');
 
 let win = null;
 let settings = null;
@@ -267,6 +270,17 @@ function setupIpc() {
     });
     sendToRenderer('design:opened', design);
     return { ok: true, stitches: pattern.countStitches() };
+  });
+
+  // Lettering (issue #7): fontes de traço único em fonts/, layout e pontos
+  // rodam no núcleo (src/core/lettering) — puro Node, sem Electron.
+  ipcMain.handle('lettering:list-fonts', () => lettering.listFonts(FONTS_DIR));
+  ipcMain.handle('lettering:build', (e, opts) => {
+    try {
+      return { ok: true, ...lettering.build(FONTS_DIR, opts || {}) };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
   });
 
   // Sinal do renderer de que terminou de desenhar (usado no modo screenshot).

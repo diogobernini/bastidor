@@ -23,6 +23,7 @@
     "productName": "Bastidor",
     "files": [
       "src/**/*",
+      "fonts/**/*",
       "package.json"
     ],
     "directories": {
