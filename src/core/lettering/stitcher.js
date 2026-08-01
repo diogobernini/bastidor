@@ -1,9 +1,21 @@
 'use strict';
-// Converte texto (via layout.js) num Pattern do núcleo: cada traço de cada
-// glifo se torna ponto corrido reamostrado a cada stitchLengthMm (padrão
-// 2 mm), ponto triplo/"bean" (ida-volta-ida em cada segmento) quando
-// opts.bean, ou ponto cheio/satin (zigue-zague via satin.js — issue #19)
-// quando opts.finish === 'satin'; salto (sem costura) entre traços e entre
+// Converte texto (via layout.js) num Pattern do núcleo. Duas famílias de
+// fonte, discriminadas por font.kind (ver svgfont.js/inkstitchfont.js/
+// ttffont.js — os três produzem o mesmo "formato de fonte", só mudando o
+// conteúdo de cada glifo e esse campo):
+//
+// - font.kind === 'stroke' (fontes de traço único e Ink/Stitch): cada traço
+//   do glifo vira ponto corrido reamostrado a cada stitchLengthMm (padrão
+//   2 mm), ponto triplo/"bean" (ida-volta-ida em cada segmento) quando
+//   opts.bean, ou ponto cheio/satin (zigue-zague via satin.js — issue #19)
+//   quando opts.finish === 'satin'.
+// - font.kind === 'fill' (fontes TTF/OTF — issue #20): cada glifo é um
+//   contorno fechado (com furos em letras como "o"/"a"/"e"), preenchido com
+//   o motor de preenchimento tatami existente (src/core/digitize/fill.js) e,
+//   opcionalmente, contornado em ponto corrido (src/core/digitize/runstitch.js)
+//   — o mesmo par de mecanismos que a digitalização de SVG já usa.
+//
+// Em ambos os casos: salto (sem costura) entre traços/contornos e entre
 // letras; um único fio (preto, por padrão); termina com end(). Por padrão, o
 // resultado sai centralizado na origem (opts.center = false para desligar).
 
@@ -12,8 +24,13 @@ const C = require('../commands');
 const { layoutText } = require('./layout');
 const { resamplePolyline } = require('./resample');
 const satin = require('./satin');
+const fill = require('../digitize/fill');
+const runstitch = require('../digitize/runstitch');
 
 const DEFAULT_STITCH_LENGTH_MM = 2;
+const DEFAULT_FILL_SPACING_MM = 0.4;
+const DEFAULT_FILL_STITCH_MM = 3;
+const DEFAULT_OUTLINE_STITCH_MM = 2.5;
 
 // Costura os segmentos de uma polilinha já reamostrada. Ponto triplo (bean):
 // cada segmento é percorrido ida-volta-ida (3 agulhadas por segmento em vez
@@ -58,6 +75,40 @@ function buildSatinSequence(pts, { widthUnits, densityUnits, underlay, stepUnits
   return [...under, ...zigzag.slice().reverse()];
 }
 
+// Preenche (e, opcionalmente, contorna) UM glifo de fonte TTF/OTF já
+// posicionado no design (placed.glyph.rings ainda em unidades de fonte).
+// Devolve true se alguma agulhada foi de fato gravada (glifo com tinta).
+function emitFillGlyph(pattern, placed, opts) {
+  const rings = (placed.glyph.rings || [])
+    .map((ring) => ring.map(([x, y]) => [placed.originX + x * placed.scale, placed.originY + y * placed.scale]))
+    .filter((ring) => ring.length >= 3);
+  if (!rings.length) return false;
+
+  let emitted = false;
+  const runs = fill.fillPolygonsTatami(
+    rings.map((points) => ({ points })),
+    { angleDeg: opts.fillAngleDeg, rowSpacing: opts.fillSpacingUnits, stitchLength: opts.fillStitchUnits }
+  );
+  for (const run of runs) {
+    if (!run.length) continue;
+    pattern.moveAbs(run[0][0], run[0][1]);
+    emitted = true;
+    for (let i = 1; i < run.length; i++) pattern.stitchAbs(run[i][0], run[i][1]);
+  }
+
+  if (opts.outline) {
+    for (const ring of rings) {
+      const resampled = runstitch.resampleRunStitch(ring, opts.outlineStepUnits, true);
+      if (resampled.length < 2) continue;
+      pattern.moveAbs(resampled[0][0], resampled[0][1]);
+      emitted = true;
+      for (let i = 1; i < resampled.length; i++) pattern.stitchAbs(resampled[i][0], resampled[i][1]);
+      pattern.stitchAbs(resampled[0][0], resampled[0][1]); // fecha o contorno de volta ao início
+    }
+  }
+  return emitted;
+}
+
 function textToPattern(font, text, opts = {}) {
   const stitchLengthMm = opts.stitchLengthMm > 0 ? opts.stitchLengthMm : DEFAULT_STITCH_LENGTH_MM;
   const stepUnits = stitchLengthMm * 10; // 0,1 mm
@@ -66,6 +117,13 @@ function textToPattern(font, text, opts = {}) {
   const satinWidthUnits = (opts.satinWidthMm > 0 ? opts.satinWidthMm : satin.DEFAULT_WIDTH_MM) * 10;
   const satinDensityUnits = (opts.satinDensityMm > 0 ? opts.satinDensityMm : satin.DEFAULT_DENSITY_MM) * 10;
   const underlay = finish === 'satin' && !!opts.underlay;
+  const fillOpts = {
+    fillAngleDeg: Number.isFinite(opts.fillAngleDeg) ? opts.fillAngleDeg : 0,
+    fillSpacingUnits: (opts.fillSpacingMm > 0 ? opts.fillSpacingMm : DEFAULT_FILL_SPACING_MM) * 10,
+    fillStitchUnits: (opts.fillStitchMm > 0 ? opts.fillStitchMm : DEFAULT_FILL_STITCH_MM) * 10,
+    outline: !!opts.outline,
+    outlineStepUnits: (opts.outlineStitchMm > 0 ? opts.outlineStitchMm : DEFAULT_OUTLINE_STITCH_MM) * 10,
+  };
 
   const laid = layoutText(font, text, opts);
 
@@ -74,6 +132,10 @@ function textToPattern(font, text, opts = {}) {
 
   let hasStitches = false;
   for (const placed of laid.glyphs) {
+    if (font.kind === 'fill') {
+      if (emitFillGlyph(pattern, placed, fillOpts)) hasStitches = true;
+      continue;
+    }
     for (const strokeFontPts of placed.glyph.strokes) {
       if (strokeFontPts.length < 2) continue;
       const pts = strokeFontPts.map(([x, y]) => [

@@ -431,11 +431,30 @@ function setupIpc() {
   });
 
   // Lettering (issue #7): fontes de traço único em fonts/, layout e pontos
-  // rodam no núcleo (src/core/lettering) — puro Node, sem Electron.
+  // rodam no núcleo (src/core/lettering) — puro Node, sem Electron. Fase 3
+  // (issue #20) ampliou o catálogo com fontes TTF/OTF e Ink/Stitch.
   ipcMain.handle('lettering:list-fonts', () => lettering.listFonts(FONTS_DIR));
   ipcMain.handle('lettering:build', (e, opts) => {
     try {
       return { ok: true, ...lettering.build(FONTS_DIR, opts || {}) };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  });
+
+  // "Adicionar fonte…" (issue #20): escolhe um .ttf/.otf do usuário e copia
+  // pra fonts/ttf/ (preload roda sandboxed, sem 'fs' — a cópia acontece aqui
+  // no processo principal). Devolve o catálogo já atualizado.
+  ipcMain.handle('lettering:add-ttf-font', async () => {
+    const result = await dialog.showOpenDialog(win, {
+      title: t('text.addFontTitle'),
+      properties: ['openFile'],
+      filters: [{ name: t('text.filterTtf'), extensions: ['ttf', 'otf'] }],
+    });
+    if (result.canceled || result.filePaths.length === 0) return null;
+    try {
+      const fontId = lettering.addTtfFont(FONTS_DIR, result.filePaths[0]);
+      return { ok: true, fontId, fonts: lettering.listFonts(FONTS_DIR) };
     } catch (err) {
       return { ok: false, error: err.message };
     }

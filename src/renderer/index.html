@@ -331,36 +331,60 @@
         <textarea id="text-input" rows="3" data-i18n-placeholder="text.textPlaceholder" placeholder="Digite aqui…"></textarea>
       </div>
 
-      <label class="row">
-        <span data-i18n="text.font">Fonte</span>
+      <label class="row"><span data-i18n="text.font">Fonte</span></label>
+      <div class="row pathpick">
         <select id="text-font"></select>
-      </label>
+        <button type="button" id="text-addfont-btn" class="tb-btn small" data-i18n="text.addFont">Adicionar fonte…</button>
+      </div>
 
       <div class="row pair">
         <label><span data-i18n="text.height">Altura (mm)</span><input type="number" id="text-height" min="2" max="200" step="0.5" value="10" /></label>
-        <label><span data-i18n="text.stitchLength">Comprimento do ponto (mm)</span><input type="number" id="text-stitchlen" min="0.5" max="6" step="0.1" value="2" /></label>
+        <label><span data-i18n="text.letterSpacing">Espaçamento entre letras (%)</span><input type="number" id="text-letterspacing" min="-20" max="300" step="1" value="0" /></label>
       </div>
       <div class="row pair">
-        <label><span data-i18n="text.letterSpacing">Espaçamento entre letras (%)</span><input type="number" id="text-letterspacing" min="-20" max="300" step="1" value="0" /></label>
         <label><span data-i18n="text.lineSpacing">Espaçamento entre linhas (%)</span><input type="number" id="text-linespacing" min="-20" max="300" step="1" value="0" /></label>
       </div>
 
-      <label class="row">
-        <span data-i18n="text.finish">Acabamento</span>
-        <select id="text-finish">
-          <option value="running" data-i18n="text.finishRunning">Ponto corrido</option>
-          <option value="bean" data-i18n="text.bean">Ponto triplo (bean)</option>
-          <option value="satin" data-i18n="text.finishSatin">Ponto cheio (satin)</option>
-        </select>
-      </label>
-      <div class="row pair" id="text-satin-fields" hidden>
-        <label><span data-i18n="text.satinWidth">Largura da coluna (mm)</span><input type="number" id="text-satinwidth" min="0.8" max="5" step="0.1" value="2" /></label>
-        <label><span data-i18n="text.satinDensity">Densidade (mm)</span><input type="number" id="text-satindensity" min="0.2" max="1.5" step="0.05" value="0.4" /></label>
+      <!-- Fontes de traço único e Ink/Stitch: ponto corrido/bean/satin ao longo do traço do glifo (issue #19). -->
+      <div id="text-stroke-fields">
+        <div class="row pair">
+          <label><span data-i18n="text.stitchLength">Comprimento do ponto (mm)</span><input type="number" id="text-stitchlen" min="0.5" max="6" step="0.1" value="2" /></label>
+        </div>
+        <label class="row">
+          <span data-i18n="text.finish">Acabamento</span>
+          <select id="text-finish">
+            <option value="running" data-i18n="text.finishRunning">Ponto corrido</option>
+            <option value="bean" data-i18n="text.bean">Ponto triplo (bean)</option>
+            <option value="satin" data-i18n="text.finishSatin">Ponto cheio (satin)</option>
+          </select>
+        </label>
+        <div class="row pair" id="text-satin-fields" hidden>
+          <label><span data-i18n="text.satinWidth">Largura da coluna (mm)</span><input type="number" id="text-satinwidth" min="0.8" max="5" step="0.1" value="2" /></label>
+          <label><span data-i18n="text.satinDensity">Densidade (mm)</span><input type="number" id="text-satindensity" min="0.2" max="1.5" step="0.05" value="0.4" /></label>
+        </div>
+        <label class="row check" id="text-underlay-row" hidden>
+          <input type="checkbox" id="text-underlay" />
+          <span data-i18n="text.underlay" data-i18n-title="text.underlayTip">Underlay (base em ponto corrido)</span>
+        </label>
       </div>
-      <label class="row check" id="text-underlay-row" hidden>
-        <input type="checkbox" id="text-underlay" />
-        <span data-i18n="text.underlay" data-i18n-title="text.underlayTip">Underlay (base em ponto corrido)</span>
-      </label>
+
+      <!-- Fontes TTF/OTF: contorno preenchido (issue #20). -->
+      <div id="text-fill-fields" hidden>
+        <div class="row pair">
+          <label><span data-i18n="text.fillSpacing">Espaçamento do preenchimento (mm)</span><input type="number" id="text-fillspacing" min="0.2" max="2" step="0.05" value="0.4" /></label>
+          <label><span data-i18n="text.fillAngle">Ângulo do preenchimento (°)</span><input type="number" id="text-fillangle" min="-90" max="90" step="5" value="0" /></label>
+        </div>
+        <div class="row pair">
+          <label><span data-i18n="text.fillStitch">Comprimento do ponto do preenchimento (mm)</span><input type="number" id="text-fillstitch" min="1" max="6" step="0.1" value="3" /></label>
+        </div>
+        <label class="row check">
+          <input type="checkbox" id="text-outline" />
+          <span data-i18n="text.outline">Contorno (ponto corrido)</span>
+        </label>
+        <div class="row pair" id="text-outline-fields" hidden>
+          <label><span data-i18n="text.outlineStitch">Comprimento do ponto do contorno (mm)</span><input type="number" id="text-outlinestitch" min="0.5" max="6" step="0.1" value="2.5" /></label>
+        </div>
+      </div>
 
       <canvas id="text-preview" class="text-preview"></canvas>
       <p id="text-stats" class="hint mono"></p>

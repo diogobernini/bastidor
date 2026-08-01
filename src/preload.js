@@ -30,6 +30,9 @@ contextBridge.exposeInMainWorld('api', {
   // Lettering (issue #7): texto -> pontos, via núcleo no processo principal.
   letteringListFonts: () => ipcRenderer.invoke('lettering:list-fonts'),
   letteringBuild: (opts) => ipcRenderer.invoke('lettering:build', opts),
+  // Fase 3 (issue #20): TTF/OTF e Ink/Stitch somam-se ao catálogo; "adicionar
+  // fonte…" escolhe e copia um .ttf/.otf do usuário para fonts/ttf/.
+  letteringAddTtfFont: () => ipcRenderer.invoke('lettering:add-ttf-font'),
 
   notifyRenderReady: () => ipcRenderer.send('render:ready'),
 

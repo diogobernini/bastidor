@@ -223,8 +223,12 @@ test('sem texto (ou só espaços): não quebra, sai com fio e end(), sem pontos 
 
 // --------------------------------------------------------------- index.js (catálogo/IPC)
 
-test('listFonts encontra as três fontes bundladas com rótulo legível', () => {
-  const list = lettering.listFonts(FONTS_DIR);
+test('listFonts encontra as três fontes de traço único bundladas com rótulo legível', () => {
+  // Fase 3 (issue #20) acrescentou uma fonte TTF e uma Ink/Stitch ao mesmo
+  // fonts/ (ver tests/lettering-ttf-inkstitch.test.js); aqui checamos só o
+  // subconjunto "stroke" continua intacto, para não acoplar este teste da
+  // Fase 1 aos novos tipos.
+  const list = lettering.listFonts(FONTS_DIR).filter((f) => f.type === 'stroke');
   const labels = list.map((f) => f.label).sort();
   assert.deepEqual(labels, ['EMS Allure', 'EMS Nixish', 'Hershey Sans 1-stroke']);
   for (const f of list) assert.ok(f.glyphCount >= 26);
