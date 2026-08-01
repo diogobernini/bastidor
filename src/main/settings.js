@@ -41,7 +41,7 @@ const DEFAULTS = {
   warnings: {
     longStitchMm: 12.1,
   },
-  library: { path: defaultLibraryPath() },
+  library: { path: defaultLibraryPath(), thumbCacheCapMB: 200 }, // teto do cache de miniaturas em disco (issue #35)
   // Auto-update (issue #31): gates the startup electron-updater check in
   // src/main/main.js. Only takes effect for packaged builds; there is no
   // settings UI for this yet, just the "Check for updates…" menu item.

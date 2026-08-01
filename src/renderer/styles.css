@@ -1150,6 +1150,45 @@ textarea {
   padding: 10px 8px;
 }
 
+/* Varredura incremental com progresso (issue #35): barra fina acima da
+   grade, só visível enquanto a indexação em segundo plano ainda não
+   terminou (ver updateIndexingUI em renderer.js). */
+.lib-indexing {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 2px;
+}
+
+/* [hidden] tem a mesma especificidade de uma classe (ver .lib-footer-mode
+   acima): sem isto, o "display: flex" venceria o [hidden] do user-agent e a
+   barra continuaria visível mesmo com o atributo hidden ligado. */
+.lib-indexing[hidden] {
+  display: none;
+}
+
+.lib-indexing-bar {
+  flex: 1;
+  height: 6px;
+  border-radius: 4px;
+  background: var(--bg-inset);
+  border: 1px solid var(--line);
+  overflow: hidden;
+}
+
+.lib-indexing-fill {
+  height: 100%;
+  width: 0%;
+  background: var(--accent);
+  transition: width 0.15s linear;
+}
+
+.lib-indexing-label {
+  font-size: 11.5px;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
 .lib-item {
   display: flex;
   flex-direction: column;

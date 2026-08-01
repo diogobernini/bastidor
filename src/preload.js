@@ -35,6 +35,9 @@ contextBridge.exposeInMainWorld('api', {
   letteringAddTtfFont: () => ipcRenderer.invoke('lettering:add-ttf-font'),
 
   notifyRenderReady: () => ipcRenderer.send('render:ready'),
+  // Só para automação de medição de desempenho (--library-bench-scroll):
+  // pede pro processo principal encerrar o app em breve.
+  quitSoon: (delayMs) => ipcRenderer.send('app:quit-soon', delayMs),
 
   onMenu: (cb) => ipcRenderer.on('menu', (e, action) => cb(action)),
   onDesignOpened: (cb) => ipcRenderer.on('design:opened', (e, design) => cb(design)),
@@ -72,6 +75,10 @@ contextBridge.exposeInMainWorld('api', {
   libraryFavoriteToggle: (filePath) => ipcRenderer.invoke('library:favorites-toggle', filePath),
   libraryThumbGet: (filePath, mtime) => ipcRenderer.invoke('library:thumb-get', { filePath, mtime }),
   libraryThumbSave: (filePath, mtime, dataURL) => ipcRenderer.invoke('library:thumb-save', { filePath, mtime, dataURL }),
+  libraryThumbCacheInfo: () => ipcRenderer.invoke('library:thumb-cache-info'),
+  // Varredura incremental (issue #35): indexa um lote de {path, mtime},
+  // devolvendo largura/altura/pontos (do índice persistido ou recém-lidos).
+  libraryIndexBatch: (items) => ipcRenderer.invoke('library:index-batch', items),
   libraryRename: (filePath, newName) => ipcRenderer.invoke('library:rename', { filePath, newName }),
   libraryMove: (filePath, destRelDir) => ipcRenderer.invoke('library:move', { filePath, destRelDir }),
   libraryTrash: (filePath) => ipcRenderer.invoke('library:trash', filePath),

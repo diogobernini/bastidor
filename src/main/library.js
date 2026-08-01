@@ -22,11 +22,16 @@ const path = require('path');
 const crypto = require('crypto');
 
 const io = require('../core/io');
+const { patternToDesign } = require('../core/design');
+const { COMMAND_MASK, STITCH, JUMP, SEQUIN_EJECT } = require('../core/commands');
 
 const MAX_SEARCH_RESULTS = 500; // busca cobre a árvore inteira: teto para não travar com 10-15 mil arquivos
 const MAX_SEARCH_DEPTH = 24; // suficiente para qualquer árvore razoável de biblioteca
 const FAVORITES_FILE = 'library-favorites.json';
 const THUMBS_DIRNAME = 'thumbs';
+const INDEX_FILE = 'library-index.json'; // metadados leves (dimensão/pontos) por arquivo, issue #35
+const THUMB_ACCESS_FILE = 'thumbs-access.json'; // último acesso por miniatura, para a evicção do teto de disco
+const DEFAULT_THUMB_CACHE_CAP_BYTES = 200 * 1024 * 1024; // 200 MB, configurável (settings.library.thumbCacheCapMB)
 
 // ------------------------------------------------------------------ contenção de caminho
 
@@ -251,6 +256,123 @@ function toggleFavorite(userDataDir, filePath) {
   return list;
 }
 
+// ------------------------------------------------------------------ índice persistente (issue #35)
+//
+// Metadados leves (largura/altura/pontos) por arquivo, persistidos entre
+// sessões: a primeira varredura de uma pasta grande espia cada arquivo
+// (leitura completa do formato, mais pesada) e guarda o resultado aqui; nas
+// próximas aberturas — mesmo depois de reiniciar o app — o mtime já bate e
+// não é preciso reabrir/reparsear nada ("aberturas seguintes vêm do
+// índice"). Complementa o cache de miniaturas (que guarda o PNG já
+// desenhado): este índice guarda os números usados pelos filtros de
+// dimensão/pontos, que hoje exigem espiar cada item do conjunto visível —
+// inviável numa pasta de 10-15 mil arquivos sem esse atalho persistido.
+
+function indexFilePath(userDataDir) {
+  return path.join(userDataDir, INDEX_FILE);
+}
+
+function loadIndexFile(userDataDir) {
+  try {
+    const raw = JSON.parse(fs.readFileSync(indexFilePath(userDataDir), 'utf8'));
+    if (raw && typeof raw === 'object' && raw.entries && typeof raw.entries === 'object') {
+      return { version: 1, entries: raw.entries };
+    }
+  } catch {
+    // sem índice ainda, ou arquivo corrompido: começa do zero (tolerante, igual aos favoritos)
+  }
+  return { version: 1, entries: {} };
+}
+
+function saveIndexFile(userDataDir, indexData) {
+  try {
+    fs.mkdirSync(userDataDir, { recursive: true });
+    fs.writeFileSync(indexFilePath(userDataDir), JSON.stringify(indexData));
+  } catch (err) {
+    console.error('Falha ao salvar índice da biblioteca:', err);
+  }
+}
+
+// Uma entrada só serve se o mtime bater: qualquer edição do arquivo original
+// (mesmo fora do app) invalida o metadado guardado, do mesmo jeito que o
+// cache de miniaturas invalida por mtime no nome do arquivo.
+function isEntryFresh(entry, mtime) {
+  return !!entry && entry.mtime === mtime;
+}
+
+function pickSummary(s) {
+  return s.ok ? { ok: true, wMm: s.wMm, hMm: s.hMm, stitches: s.stitches } : { ok: false };
+}
+
+// Espiada "pesada": lê e parseia o arquivo inteiro para tirar bounding box e
+// contagem de pontos. Mesma lógica de designBounds/countStitches do
+// renderer (src/renderer/renderer.js), portada aqui para não precisar
+// mandar o design inteiro (todos os pontos) pelo IPC por arquivo — só o
+// resumo. Tolerante a erro, como peekDesign (main.js).
+function summarizeDesignFile(filePath, opts = {}) {
+  try {
+    const ext = path.extname(filePath).slice(1).toLowerCase();
+    const buf = fs.readFileSync(filePath);
+    const pattern = io.readBuffer(buf, ext, { trim_at: opts.trimAt });
+    const design = patternToDesign(pattern, { path: filePath, format: ext, name: path.basename(filePath) });
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    let stitches = 0;
+    for (const st of design.stitches) {
+      const cmd = st[2] & COMMAND_MASK;
+      if (cmd === STITCH || cmd === JUMP || cmd === SEQUIN_EJECT) {
+        if (st[0] < minX) minX = st[0];
+        if (st[0] > maxX) maxX = st[0];
+        if (st[1] < minY) minY = st[1];
+        if (st[1] > maxY) maxY = st[1];
+      }
+      if (cmd === STITCH) stitches++;
+    }
+    const wMm = isFinite(minX) ? (maxX - minX) / 10 : 0;
+    const hMm = isFinite(minY) ? (maxY - minY) / 10 : 0;
+    return { ok: true, wMm, hMm, stitches };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+}
+
+// Núcleo sem gravação: reaproveita entradas frescas do índice (nenhuma
+// leitura de arquivo, só consulta em memória) e espia só as que faltam ou
+// mudaram de mtime, mutando indexData.entries em memória. Separado de
+// indexBatch (abaixo) para o processo principal poder fatiar um lote grande
+// em pedaços menores (setImmediate entre eles, sem travar o loop de
+// eventos) e gravar o índice só uma vez ao final do lote inteiro — não uma
+// vez por pedaço, o que reescreveria o JSON do índice completo repetidas
+// vezes à toa.
+function indexItemsInto(indexData, items, opts = {}) {
+  let dirty = false;
+  const results = items.map((item) => {
+    const abs = path.resolve(item.path);
+    const cached = indexData.entries[abs];
+    if (isEntryFresh(cached, item.mtime)) {
+      return { path: item.path, fromCache: true, ...pickSummary(cached) };
+    }
+    const summary = summarizeDesignFile(abs, opts);
+    indexData.entries[abs] = { mtime: item.mtime, ...pickSummary(summary) };
+    dirty = true;
+    return { path: item.path, fromCache: false, ...pickSummary(summary) };
+  });
+  return { results, dirty };
+}
+
+// Indexa um lote de itens ({path, mtime}) e grava o índice uma vez ao final
+// (não a cada arquivo), para não martelar o disco a cada 200 itens.
+// indexData é o objeto já carregado (loadIndexFile); quem chama decide se
+// mantém em memória entre lotes — main.js faz isso, para não reler o JSON
+// do disco a cada lote indexado pela varredura incremental do renderer.
+function indexBatch(indexData, userDataDir, items, opts = {}) {
+  const { results, dirty } = indexItemsInto(indexData, items, opts);
+  if (dirty) saveIndexFile(userDataDir, indexData);
+  return results;
+}
+
 // ------------------------------------------------------------------ cache de miniaturas
 
 function thumbsDir(userDataDir) {
@@ -271,9 +393,11 @@ function thumbFileName(filePath, mtime) {
 }
 
 function readCachedThumb(userDataDir, filePath, mtime) {
-  const file = path.join(thumbsDir(userDataDir), thumbFileName(filePath, mtime));
+  const fileName = thumbFileName(filePath, mtime);
+  const file = path.join(thumbsDir(userDataDir), fileName);
   try {
     const buf = fs.readFileSync(file);
+    touchThumbAccess(userDataDir, fileName);
     return `data:image/png;base64,${buf.toString('base64')}`;
   } catch {
     return null;
@@ -282,14 +406,16 @@ function readCachedThumb(userDataDir, filePath, mtime) {
 
 // Grava a miniatura no cache e remove versões antigas do mesmo arquivo
 // (mtime diferente), para não acumular lixo indefinidamente a cada edição do
-// original.
-function writeCachedThumb(userDataDir, filePath, mtime, dataURL) {
+// original. Em seguida aplica o teto de espaço (capBytes, padrão
+// DEFAULT_THUMB_CACHE_CAP_BYTES): ver enforceThumbCacheCap.
+function writeCachedThumb(userDataDir, filePath, mtime, dataURL, capBytes) {
   const dir = thumbsDir(userDataDir);
   fs.mkdirSync(dir, { recursive: true });
   const hash = thumbHash(filePath);
   const fileName = thumbFileName(filePath, mtime);
   const base64 = String(dataURL || '').replace(/^data:image\/png;base64,/, '');
   fs.writeFileSync(path.join(dir, fileName), Buffer.from(base64, 'base64'));
+  touchThumbAccess(userDataDir, fileName);
   let entries;
   try {
     entries = fs.readdirSync(dir);
@@ -305,12 +431,125 @@ function writeCachedThumb(userDataDir, filePath, mtime, dataURL) {
       }
     }
   }
+  enforceThumbCacheCap(userDataDir, capBytes);
   return { path: path.join(dir, fileName) };
+}
+
+// ------------------------------------------------------------------ teto do cache de miniaturas (issue #35)
+//
+// O cache em disco (acima) não tinha limite: cresce um PNG por arquivo
+// visto, para sempre — ao longo de vários catálogos de 10-15 mil designs,
+// isso acumula sem parar. Aplica um teto de espaço (padrão 200 MB,
+// configurável em settings.library.thumbCacheCapMB) com evicção pelo
+// acesso mais antigo — não pela data de criação, para não descartar
+// miniaturas de designs revisitados com frequência. O acesso é rastreado
+// num manifesto pequeno ao lado dos PNGs (thumbs-access.json), já que o
+// atime do arquivo não é confiável (alguns volumes montam com noatime).
+// Complementa o cache em memória (LIB_THUMB_IMG_CAP, renderer.js): aquele
+// já limita as Image decodificadas durante a sessão; este limita os PNGs em
+// disco entre sessões — tetos independentes, sem duplicar o mesmo controle.
+
+// Fora de thumbsDir (não junto dos PNGs): código existente (e os testes de
+// mtime/limpeza abaixo) espera que thumbsDir contenha só miniaturas.
+function thumbAccessFilePath(userDataDir) {
+  return path.join(userDataDir, THUMB_ACCESS_FILE);
+}
+
+function loadThumbAccess(userDataDir) {
+  try {
+    const raw = JSON.parse(fs.readFileSync(thumbAccessFilePath(userDataDir), 'utf8'));
+    return raw && typeof raw === 'object' ? raw : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveThumbAccess(userDataDir, access) {
+  try {
+    fs.writeFileSync(thumbAccessFilePath(userDataDir), JSON.stringify(access));
+  } catch {
+    // melhor esforço: perder o manifesto de acesso só piora a ordem de evicção, não corrompe miniaturas
+  }
+}
+
+// Marca uma miniatura como acessada agora (leitura ou escrita) — chamado por
+// readCachedThumb (hit) e writeCachedThumb, para a evicção achar "a que
+// ninguém pede há mais tempo" em vez de "a mais antiga gravada no disco".
+function touchThumbAccess(userDataDir, fileName) {
+  const access = loadThumbAccess(userDataDir);
+  access[fileName] = Date.now();
+  saveThumbAccess(userDataDir, access);
+}
+
+// Soma o tamanho de todas as miniaturas em disco.
+function thumbCacheUsageBytes(userDataDir) {
+  const dir = thumbsDir(userDataDir);
+  let entries;
+  try {
+    entries = fs.readdirSync(dir);
+  } catch {
+    return 0;
+  }
+  let total = 0;
+  for (const name of entries) {
+    try {
+      total += fs.statSync(path.join(dir, name)).size;
+    } catch {
+      // arquivo removido entre o readdir e o stat: ignora
+    }
+  }
+  return total;
+}
+
+// Remove as miniaturas menos recentemente acessadas até o total cair dentro
+// do teto. Arquivos sem entrada no manifesto (ex.: miniaturas gravadas antes
+// desta versão existir) são tratados como o acesso mais antigo possível
+// (0), e evictados primeiro.
+function enforceThumbCacheCap(userDataDir, capBytes) {
+  const cap = capBytes > 0 ? capBytes : DEFAULT_THUMB_CACHE_CAP_BYTES;
+  const dir = thumbsDir(userDataDir);
+  let entries;
+  try {
+    entries = fs.readdirSync(dir);
+  } catch {
+    return { evicted: 0, usageBytes: 0 };
+  }
+  const access = loadThumbAccess(userDataDir);
+  const files = [];
+  let total = 0;
+  for (const name of entries) {
+    let size;
+    try {
+      size = fs.statSync(path.join(dir, name)).size;
+    } catch {
+      continue; // removido entre o readdir e o stat
+    }
+    total += size;
+    files.push({ name, size, lastAccess: access[name] || 0 });
+  }
+  if (total <= cap) return { evicted: 0, usageBytes: total };
+
+  files.sort((a, b) => a.lastAccess - b.lastAccess); // acesso mais antigo primeiro
+  let evicted = 0;
+  for (const f of files) {
+    if (total <= cap) break;
+    try {
+      fs.unlinkSync(path.join(dir, f.name));
+      delete access[f.name];
+      total -= f.size;
+      evicted++;
+    } catch {
+      // melhor esforço
+    }
+  }
+  if (evicted) saveThumbAccess(userDataDir, access);
+  return { evicted, usageBytes: total };
 }
 
 module.exports = {
   MAX_SEARCH_RESULTS,
   MAX_SEARCH_DEPTH,
+  DEFAULT_THUMB_CACHE_CAP_BYTES,
   resolveWithinRoot,
   isWithinRoot,
   listSubfolders,
@@ -326,4 +565,13 @@ module.exports = {
   thumbFileName,
   readCachedThumb,
   writeCachedThumb,
+  thumbCacheUsageBytes,
+  enforceThumbCacheCap,
+  indexFilePath,
+  loadIndexFile,
+  saveIndexFile,
+  isEntryFresh,
+  summarizeDesignFile,
+  indexItemsInto,
+  indexBatch,
 };

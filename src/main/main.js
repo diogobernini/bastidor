@@ -46,6 +46,21 @@ const argLibrary = getArgValue('--library');
 // --library-search=termo: pré-preenche e dispara a busca da biblioteca ao
 // abrir --dialog=library, só para telas/capturas de tela automatizadas.
 const argLibrarySearch = getArgValue('--library-search');
+// --library-wait-index=1: com --dialog=library, só sinaliza "render:ready"
+// (usado pelo --screenshot) depois que a varredura incremental terminar —
+// para tirar uma captura com a biblioteca já totalmente indexada, em vez de
+// no meio do progresso. Só para verificação/automação (issue #35).
+const argLibraryWaitIndex = !!getArgValue('--library-wait-index');
+// --library-bench-scroll=ms: mede o tempo de frame durante ms milissegundos
+// de rolagem programática na grade da biblioteca (issue #35) e imprime um
+// resumo no console (repassado ao stdout pelo forward de console-message
+// abaixo); encerra o app sozinho ao final. Só para medição de desempenho.
+const argLibraryBenchScroll = getArgValue('--library-bench-scroll');
+// --library-bench-scroll-immediate=1: pula a espera pela varredura ficar
+// ociosa antes do benchmark acima — mede a rolagem com a indexação em
+// segundo plano ainda rodando (o cenário de alguém que já começa a rolar
+// antes da primeira varredura de uma pasta nova terminar).
+const argLibraryBenchScrollImmediate = !!getArgValue('--library-bench-scroll-immediate');
 
 function currentLang() {
   if (argLang) return resolveLang(argLang, 'en');
@@ -107,6 +122,23 @@ function peekDesign(filePath) {
 // sobre a preferência salva, sem alterá-la.
 function libraryRootPath() {
   return argLibrary ? path.resolve(argLibrary) : settings.get().library.path;
+}
+
+// Teto do cache de miniaturas em disco, em bytes (issue #35): configurável
+// em settings.library.thumbCacheCapMB (padrão 200 MB, ver src/main/settings.js).
+function thumbCacheCapBytes() {
+  const mb = settings.get().library.thumbCacheCapMB;
+  return (Number(mb) > 0 ? Number(mb) : 200) * 1024 * 1024;
+}
+
+// Índice persistente de metadados da biblioteca (largura/altura/pontos),
+// carregado uma vez e mantido em memória pelo resto da sessão — evita reler
+// e reparsear o JSON do índice em cada lote da varredura incremental.
+let libraryIndexCache = null;
+let libraryIndexDirty = false;
+function getLibraryIndex() {
+  if (!libraryIndexCache) libraryIndexCache = library.loadIndexFile(app.getPath('userData'));
+  return libraryIndexCache;
 }
 
 // Núcleo da gravação de matriz, compartilhado pelo "Salvar fora..." (diálogo
@@ -195,6 +227,9 @@ function setupIpc() {
       ? { path: path.resolve(argSvgImport), text: fs.readFileSync(argSvgImport, 'utf8'), name: path.basename(argSvgImport) }
       : null,
     librarySearch: argLibrarySearch,
+    libraryWaitIndex: argLibraryWaitIndex,
+    libraryBenchScrollMs: argLibraryBenchScroll ? Number(argLibraryBenchScroll) : null,
+    libraryBenchScrollImmediate: argLibraryBenchScrollImmediate,
     hoopPresets: HOOP_PRESETS,
     version: app.getVersion(),
     lang: currentLang(),
@@ -389,8 +424,40 @@ function setupIpc() {
 
   ipcMain.handle('library:thumb-get', (e, { filePath, mtime }) => library.readCachedThumb(app.getPath('userData'), filePath, mtime));
   ipcMain.handle('library:thumb-save', (e, { filePath, mtime, dataURL }) => {
-    library.writeCachedThumb(app.getPath('userData'), filePath, mtime, dataURL);
+    library.writeCachedThumb(app.getPath('userData'), filePath, mtime, dataURL, thumbCacheCapBytes());
     return { ok: true };
+  });
+  ipcMain.handle('library:thumb-cache-info', () => ({
+    usageBytes: library.thumbCacheUsageBytes(app.getPath('userData')),
+    capBytes: thumbCacheCapBytes(),
+  }));
+
+  // -------------------------------------------------------- varredura incremental (issue #35)
+  // Índice persistente (userData/library-index.json) de metadados leves
+  // (largura/altura/pontos), carregado uma vez e mantido em memória durante
+  // a sessão — getLibraryIndex() só relê o JSON do disco na primeira
+  // chamada. O renderer manda a varredura de uma pasta/busca grande em
+  // lotes (LIB_INDEX_BATCH_SIZE, renderer.js); aqui cada lote ainda é
+  // fatiado em pedaços menores com setImmediate entre eles, para o processo
+  // principal continuar respondendo a outros IPCs (ex.: ler uma miniatura
+  // visível) mesmo no meio de um lote de arquivos pesados.
+  const LIBRARY_INDEX_CHUNK = 25;
+  ipcMain.handle('library:index-batch', async (e, items) => {
+    const indexData = getLibraryIndex();
+    const trimAt = settings.get().write.trimAtJumps;
+    const out = [];
+    for (let i = 0; i < items.length; i += LIBRARY_INDEX_CHUNK) {
+      const slice = items.slice(i, i + LIBRARY_INDEX_CHUNK);
+      const { results, dirty } = library.indexItemsInto(indexData, slice, { trimAt });
+      out.push(...results);
+      if (dirty) libraryIndexDirty = true;
+      if (i + LIBRARY_INDEX_CHUNK < items.length) await new Promise((resolve) => setImmediate(resolve));
+    }
+    if (libraryIndexDirty) {
+      library.saveIndexFile(app.getPath('userData'), indexData);
+      libraryIndexDirty = false;
+    }
+    return out;
   });
 
   ipcMain.handle('library:rename', (e, { filePath, newName }) => library.renameEntry(libraryRootPath(), filePath, newName));
@@ -474,6 +541,13 @@ function setupIpc() {
       }
       app.quit();
     }, 600);
+  });
+
+  // Só para automação de medição de desempenho (--library-bench-scroll,
+  // issue #35): o renderer pede pra encerrar depois de logar o resumo da
+  // rolagem no console (repassado ao stdout pelo forward de console-message).
+  ipcMain.on('app:quit-soon', (e, delayMs) => {
+    setTimeout(() => app.quit(), Number(delayMs) > 0 ? Number(delayMs) : 200);
   });
 }
 

@@ -81,6 +81,11 @@ const state = {
     searchDebounce: null,
     filterDebounce: null,
     loadToken: 0, // evita corrida ao trocar de pasta/busca rapidamente
+    // Varredura incremental com progresso (issue #35): ver startLibraryIndexing.
+    indexData: new Map(), // "caminho absoluto" -> {ok, wMm, hMm, stitches}, espelha o índice persistido no processo principal
+    indexProgress: { active: false, done: 0, total: 0 },
+    indexShowTimer: null,
+    indexIdleWaiters: [],
   },
 };
 
@@ -1481,6 +1486,7 @@ function settingsToForm() {
   $('set-minspacing').value = s.write.minSpacingMm;
   $('set-warnlong').value = s.warnings.longStitchMm;
   $('set-librarypath').value = s.library.path;
+  $('set-thumbcachecap').value = s.library.thumbCacheCapMB;
   syncHoopCustomVisibility();
 }
 
@@ -1519,6 +1525,9 @@ function formToSettings() {
       minSpacingMm: clampNum($('set-minspacing').value, 0, 2, 0.3),
     },
     warnings: { longStitchMm: clampNum($('set-warnlong').value, 1, 30, 12.1) },
+    // library.path fica de fora: é salvo direto em "Escolher pasta…"
+    // (settings:set já roda ali), sem esperar o "Salvar" deste formulário.
+    library: { thumbCacheCapMB: Math.round(clampNum($('set-thumbcachecap').value, 10, 5000, 200)) },
   };
 }
 
@@ -2288,8 +2297,10 @@ const moveLibTreeOpts = {
 async function loadLibraryFolder() {
   const token = ++state.library.loadToken;
   const relDir = state.library.currentRelDir;
+  const t0 = performance.now();
   const { files } = await window.api.libraryListFolder(relDir);
   if (token !== state.library.loadToken) return;
+  console.log(`[perf] library folder listed: ${files.length} items in ${(performance.now() - t0).toFixed(0)}ms`);
   state.library.searching = false;
   state.library.truncated = false;
   await setLibraryBaseItems(files);
@@ -2298,8 +2309,10 @@ async function loadLibraryFolder() {
 async function runLibrarySearch(query) {
   const token = ++state.library.loadToken;
   state.library.searching = true;
+  const t0 = performance.now();
   const { items, truncated } = await window.api.librarySearch(query);
   if (token !== state.library.loadToken) return;
+  console.log(`[perf] library search: ${items.length} items in ${(performance.now() - t0).toFixed(0)}ms (truncated=${truncated})`);
   state.library.truncated = truncated;
   await setLibraryBaseItems(items);
 }
@@ -2307,6 +2320,98 @@ async function runLibrarySearch(query) {
 async function setLibraryBaseItems(rawItems) {
   state.library.baseItems = rawItems;
   await applyLibraryFilters();
+  startLibraryIndexing(rawItems);
+}
+
+// ---- varredura incremental com progresso (issue #35) ----
+//
+// Metadados de dimensão/pontos (usados pelos filtros abaixo) vêm de um
+// índice persistido no processo principal (src/main/library.js), preenchido
+// em lotes de LIB_INDEX_BATCH_SIZE sem travar o modal: cada lote é um IPC
+// (o loop entre lotes cede o laço de eventos naturalmente, por ser
+// assíncrono) que atualiza um contador "indexando N de M" na UI enquanto
+// roda. Pastas/buscas já vistas antes — mesmo em sessões anteriores, pelo
+// índice persistido em disco — resolvem quase de imediato: cada lote só
+// consulta o índice, sem reabrir nenhum arquivo.
+const LIB_INDEX_BATCH_SIZE = 200;
+const LIB_INDEX_SHOW_DELAY = 300; // só mostra a barra se não terminar rápido (evita pisca em pastas pequenas)
+
+function libraryIndexKey(item) {
+  return item.path; // consultado por caminho absoluto, igual ao índice do processo principal
+}
+
+function libraryHasNumericFilter() {
+  const f = state.library.filters;
+  return f.minW != null || f.maxW != null || f.minH != null || f.maxH != null || f.minS != null || f.maxS != null;
+}
+
+function updateIndexingUI() {
+  const p = state.library.indexProgress;
+  const el = $('lib-indexing');
+  if (!p.active) {
+    el.hidden = true;
+    return;
+  }
+  el.hidden = false;
+  $('lib-indexing-fill').style.width = (p.total ? Math.round((p.done / p.total) * 100) : 100) + '%';
+  $('lib-indexing-label').textContent = tr('lib.indexing', { n: fmtNum(p.done), m: fmtNum(p.total) });
+}
+
+// Quem espera a varredura ficar ociosa (usado só pelo benchmark de rolagem,
+// --library-bench-scroll: espera a indexação terminar antes de medir, pra
+// não misturar o custo de indexar com o custo de rolar).
+function resolveLibraryIndexIdle() {
+  const waiters = state.library.indexIdleWaiters;
+  state.library.indexIdleWaiters = [];
+  for (const resolve of waiters) resolve();
+}
+
+function waitForLibraryIndexIdle() {
+  if (!state.library.indexProgress.active) return Promise.resolve();
+  return new Promise((resolve) => state.library.indexIdleWaiters.push(resolve));
+}
+
+// Dispara a varredura em segundo plano para o conjunto de itens atual
+// (pasta ou busca). Cancelável: se a pasta/busca trocar no meio (loadToken
+// muda), os lotes ainda em voo são descartados ao voltar do IPC, sem
+// reaproveitar nem persistir progresso da corrida anterior.
+function startLibraryIndexing(items) {
+  const token = state.library.loadToken;
+  const startedAt = performance.now();
+  clearTimeout(state.library.indexShowTimer);
+
+  if (!items.length) {
+    state.library.indexProgress = { active: false, done: 0, total: 0 };
+    updateIndexingUI();
+    resolveLibraryIndexIdle();
+    return;
+  }
+
+  state.library.indexProgress = { active: true, done: 0, total: items.length };
+  state.library.indexShowTimer = setTimeout(updateIndexingUI, LIB_INDEX_SHOW_DELAY);
+
+  (async () => {
+    for (let i = 0; i < items.length; i += LIB_INDEX_BATCH_SIZE) {
+      if (token !== state.library.loadToken) return; // pasta/busca trocou: para aqui, sem tocar no progresso novo
+      const slice = items.slice(i, i + LIB_INDEX_BATCH_SIZE);
+      const results = await window.api.libraryIndexBatch(slice.map((it) => ({ path: it.path, mtime: it.mtime })));
+      if (token !== state.library.loadToken) return;
+      for (const r of results) state.library.indexData.set(r.path, r);
+      state.library.indexProgress.done = Math.min(items.length, i + slice.length);
+      updateIndexingUI();
+      // Só reaplica os filtros lote a lote se um filtro numérico estiver
+      // ativo (é o único caso em que o resultado exibido depende do índice
+      // ainda incompleto) — evita trabalho à toa numa busca/pasta sem filtro.
+      if (libraryHasNumericFilter()) applyLibraryFilters();
+    }
+    if (token === state.library.loadToken) {
+      clearTimeout(state.library.indexShowTimer);
+      state.library.indexProgress.active = false;
+      updateIndexingUI();
+      console.log(`[perf] library index complete: ${items.length} items in ${(performance.now() - startedAt).toFixed(0)}ms`);
+      resolveLibraryIndexIdle();
+    }
+  })();
 }
 
 function scheduleLibrarySearch() {
@@ -2363,37 +2468,32 @@ function clearLibraryFilters() {
   scheduleLibraryFilterChange();
 }
 
-// Filtros de dimensão/pontos exigem metadado de cabeçalho (peekDesign), que
-// não existe em massa sem parsear cada arquivo — viável aqui porque o
-// conjunto já está limitado a uma pasta ou a um resultado de busca com teto
-// (nunca ao catálogo inteiro de 10-15 mil arquivos).
-async function applyLibraryFilters() {
+// Filtros de dimensão/pontos usam o índice persistido (state.library.indexData,
+// preenchido por startLibraryIndexing) em vez de espiar cada item do
+// conjunto visível: com 10-15 mil arquivos numa pasta só, espiar (parsear) um
+// por um a cada tecla no filtro travaria o modal por segundos (issue #35).
+// Item ainda sem entrada fresca no índice (varredura em andamento, ou
+// arquivo corrompido) fica de fora por ora — reaparece sozinho quando o
+// lote correspondente da varredura chegar (startLibraryIndexing reaplica os
+// filtros a cada lote enquanto algum filtro numérico estiver ativo).
+function applyLibraryFilters() {
   const f = state.library.filters;
   let items = state.library.baseItems;
   if (f.format) items = items.filter((it) => it.ext === f.format);
   if (f.favoritesOnly) items = items.filter((it) => state.library.favorites.has(it.path));
 
-  const needsPeek = f.minW != null || f.maxW != null || f.minH != null || f.maxH != null || f.minS != null || f.maxS != null;
-  if (needsPeek) {
-    const token = state.library.loadToken;
-    const peeked = await Promise.all(items.map((it) => Promise.resolve(peekDriveDesign(it)).then((r) => ({ it, r }))));
-    if (token !== state.library.loadToken) return;
-    items = peeked
-      .filter(({ r }) => r.ok)
-      .filter(({ r }) => {
-        const b = designBounds(r.design);
-        const wMm = (b.maxX - b.minX) / 10;
-        const hMm = (b.maxY - b.minY) / 10;
-        const stitches = countStitches(r.design);
-        if (f.minW != null && wMm < f.minW) return false;
-        if (f.maxW != null && wMm > f.maxW) return false;
-        if (f.minH != null && hMm < f.minH) return false;
-        if (f.maxH != null && hMm > f.maxH) return false;
-        if (f.minS != null && stitches < f.minS) return false;
-        if (f.maxS != null && stitches > f.maxS) return false;
-        return true;
-      })
-      .map(({ it }) => it);
+  if (libraryHasNumericFilter()) {
+    items = items.filter((it) => {
+      const entry = state.library.indexData.get(libraryIndexKey(it));
+      if (!entry || !entry.ok) return false;
+      if (f.minW != null && entry.wMm < f.minW) return false;
+      if (f.maxW != null && entry.wMm > f.maxW) return false;
+      if (f.minH != null && entry.hMm < f.minH) return false;
+      if (f.maxH != null && entry.hMm > f.maxH) return false;
+      if (f.minS != null && entry.stitches < f.minS) return false;
+      if (f.maxS != null && entry.stitches > f.maxS) return false;
+      return true;
+    });
   }
 
   state.library.items = items;
@@ -2417,30 +2517,36 @@ const LIB_BUFFER_ROWS = 2;
 
 function libraryGridCols() {
   const viewport = $('lib-grid-viewport');
-  const width = Math.max(0, viewport.clientWidth - 20);
-  return Math.max(1, Math.floor((width + LIB_GRID_GAP) / (LIB_ITEM_WIDTH + LIB_GRID_GAP)));
+  return LibraryView.computeCols(viewport.clientWidth, LIB_ITEM_WIDTH, LIB_GRID_GAP, 20);
 }
 
+// Grade virtualizada: só as células visíveis (+ LIB_BUFFER_ROWS de margem)
+// ganham nó no DOM — o resto vive só na altura do "spacer", que mantém a
+// barra de rolagem do tamanho certo. O cálculo em si (linha/índice visível a
+// partir do scrollTop) é puro e mora em src/core/library-view.js, testado
+// isoladamente com até 15 mil itens (issue #35).
 function renderLibraryGrid() {
   const viewport = $('lib-grid-viewport');
   const items = state.library.items;
   const cols = libraryGridCols();
   const rowHeight = LIB_ITEM_HEIGHT + LIB_GRID_GAP;
-  const rows = Math.ceil(items.length / cols);
-  $('lib-grid-spacer').style.height = Math.max(rows * rowHeight, 1) + 'px';
+  const range = LibraryView.computeVisibleRange({
+    scrollTop: viewport.scrollTop,
+    viewHeight: viewport.clientHeight,
+    rowHeight,
+    cols,
+    itemCount: items.length,
+    bufferRows: LIB_BUFFER_ROWS,
+  });
+  $('lib-grid-spacer').style.height = Math.max(range.rows * rowHeight, 1) + 'px';
 
   const inner = $('lib-grid-inner');
   inner.style.gridTemplateColumns = `repeat(${cols}, ${LIB_ITEM_WIDTH}px)`;
   inner.style.gap = LIB_GRID_GAP + 'px';
 
-  const scrollTop = viewport.scrollTop;
-  const viewHeight = viewport.clientHeight;
-  const firstRow = Math.max(0, Math.floor(scrollTop / rowHeight) - LIB_BUFFER_ROWS);
-  const lastRow = Math.min(rows - 1, Math.ceil((scrollTop + viewHeight) / rowHeight) + LIB_BUFFER_ROWS);
-
-  inner.style.transform = `translateY(${firstRow * rowHeight}px)`;
+  inner.style.transform = `translateY(${range.firstRow * rowHeight}px)`;
   inner.innerHTML = '';
-  for (let r = firstRow; r <= lastRow; r++) {
+  for (let r = range.firstRow; r <= range.lastRow; r++) {
     for (let c = 0; c < cols; c++) {
       const idx = r * cols + c;
       if (idx >= items.length) continue;
@@ -2457,6 +2563,59 @@ function requestLibraryGridRender() {
     libGridRenderQueued = false;
     renderLibraryGrid();
   });
+}
+
+// ---- benchmark de rolagem (issue #35, só medição de desempenho) ----
+//
+// Só roda com --library-bench-scroll=ms (ver boot()): varre a grade da
+// biblioteca de ponta a ponta por "durationMs", medindo o tempo entre
+// quadros (rAF a rAF) — a mesma métrica usada na meta de aceite da issue
+// (nenhuma interação deve travar por mais de 100ms). Por padrão espera a
+// varredura incremental ficar ociosa antes de começar (mede o estado
+// estável, pós-indexação — o cenário da meta de aceite); com
+// --library-bench-scroll-immediate=1 pula essa espera e mede rolando com a
+// indexação em segundo plano ainda a todo vapor (o caso de alguém que já
+// começa a rolar antes da primeira varredura terminar). Resultado sai por
+// console.log (repassado ao stdout do smoke test pelo forward de
+// console-message em main.js).
+async function runLibraryScrollBenchmark(durationMs, immediate) {
+  if (!immediate) await waitForLibraryIndexIdle();
+  const viewport = $('lib-grid-viewport');
+  const maxScroll = Math.max(0, viewport.scrollHeight - viewport.clientHeight);
+  const frames = [];
+  const start = performance.now();
+  let last = start;
+  let pos = 0;
+
+  await new Promise((resolve) => {
+    function step() {
+      const now = performance.now();
+      frames.push(now - last);
+      last = now;
+      if (now - start >= durationMs) {
+        resolve();
+        return;
+      }
+      pos = (pos + 22) % (maxScroll || 1); // varre a lista de ponta a ponta e recomeça
+      viewport.scrollTop = pos;
+      requestAnimationFrame(step);
+    }
+    requestAnimationFrame(() => {
+      last = performance.now();
+      requestAnimationFrame(step);
+    });
+  });
+
+  frames.shift(); // 1º delta é o tempo até o primeiro rAF, não um frame de rolagem
+  const n = frames.length || 1;
+  const avg = frames.reduce((a, b) => a + b, 0) / n;
+  const max = Math.max(...frames, 0);
+  const over100 = frames.filter((f) => f > 100).length;
+  const sorted = [...frames].sort((a, b) => a - b);
+  const p95 = sorted.length ? sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * 0.95))] : 0;
+  console.log(
+    `[perf-scroll] frames=${frames.length} avgMs=${avg.toFixed(2)} p95Ms=${p95.toFixed(2)} maxMs=${max.toFixed(2)} over100ms=${over100} maxScroll=${maxScroll}`
+  );
 }
 
 function buildLibAct(glyph, title, onClick, danger) {
@@ -2791,6 +2950,13 @@ function bindLibraryDialog() {
       clearInterval(state.library.driveRefreshTimer);
       state.library.driveRefreshTimer = null;
     }
+    // Fechar o modal invalida o loadToken: a varredura em segundo plano
+    // (startLibraryIndexing) para no próximo lote, em vez de continuar
+    // batendo IPC por uma pasta que ninguém está mais olhando.
+    state.library.loadToken++;
+    clearTimeout(state.library.indexShowTimer);
+    state.library.indexProgress = { active: false, done: 0, total: 0 };
+    resolveLibraryIndexIdle();
   });
 
   $('lib-search').addEventListener('input', scheduleLibrarySearch);
@@ -3963,9 +4129,23 @@ async function boot() {
     $('lib-search').value = launch.librarySearch;
     await runLibrarySearch(launch.librarySearch);
   }
+  // --library-wait-index (issue #35, só automação): espera a varredura
+  // incremental terminar antes de sinalizar "pronto" — pra --screenshot
+  // capturar a biblioteca já totalmente indexada, em vez de no meio do
+  // progresso.
+  if (launch.libraryWaitIndex) await waitForLibraryIndexIdle();
 
   // Sinaliza para o modo screenshot que a primeira pintura aconteceu.
   requestAnimationFrame(() => requestAnimationFrame(() => window.api.notifyRenderReady()));
+
+  // --library-bench-scroll=ms (issue #35, só medição de desempenho): mede o
+  // tempo de frame durante uma rolagem programática da grade da biblioteca
+  // e encerra o app. Roda depois do notifyRenderReady acima (não deve
+  // interferir na captura de tela do modo --screenshot).
+  if (launch.libraryBenchScrollMs) {
+    await runLibraryScrollBenchmark(launch.libraryBenchScrollMs, launch.libraryBenchScrollImmediate);
+    window.api.quitSoon(300);
+  }
 }
 
 boot();
