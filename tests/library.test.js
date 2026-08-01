@@ -229,6 +229,67 @@ test('moveEntry: recusa destino fora da raiz', () => {
   }
 });
 
+// ------------------------------------------------------------------ createFolder (issue #28, item 1)
+
+test('createFolder: cria subpasta na raiz e devolve relDir/name', () => {
+  const root = makeTmpDir('bastidor-lib-newfolder-');
+  try {
+    const result = library.createFolder(root, '', 'Bordados 2025');
+    assert.equal(result.relDir, 'Bordados 2025');
+    assert.equal(result.name, 'Bordados 2025');
+    assert.ok(fs.statSync(path.join(root, 'Bordados 2025')).isDirectory());
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('createFolder: cria dentro de uma subpasta já existente (relDir aninhado)', () => {
+  const root = makeTmpDir('bastidor-lib-newfolder-nested-');
+  try {
+    fs.mkdirSync(path.join(root, 'coleção'));
+    const result = library.createFolder(root, 'coleção', '2025');
+    assert.equal(result.relDir, path.join('coleção', '2025'));
+    assert.ok(fs.statSync(path.join(root, 'coleção', '2025')).isDirectory());
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('createFolder: recusa nome vazio, com separador de caminho, "." ou ".."', () => {
+  const root = makeTmpDir('bastidor-lib-newfolder-invalid-');
+  try {
+    assert.throws(() => library.createFolder(root, '', ''));
+    assert.throws(() => library.createFolder(root, '', '   '));
+    assert.throws(() => library.createFolder(root, '', 'a/b'));
+    assert.throws(() => library.createFolder(root, '', 'a\\b'));
+    assert.throws(() => library.createFolder(root, '', '.'));
+    assert.throws(() => library.createFolder(root, '', '..'));
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('createFolder: recusa se já existir pasta ou arquivo com o mesmo nome', () => {
+  const root = makeTmpDir('bastidor-lib-newfolder-conflict-');
+  try {
+    fs.mkdirSync(path.join(root, 'flores'));
+    assert.throws(() => library.createFolder(root, '', 'flores'));
+    fs.writeFileSync(path.join(root, 'rosa.dst'), 'x');
+    assert.throws(() => library.createFolder(root, '', 'rosa.dst'));
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('createFolder: recusa destino fora da raiz', () => {
+  const root = makeTmpDir('bastidor-lib-newfolder-escape-');
+  try {
+    assert.throws(() => library.createFolder(root, '../fora', 'nova'));
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 // ------------------------------------------------------------------ favoritos
 
 test('favoritos: alterna adicionar/remover e persiste entre carregamentos', () => {

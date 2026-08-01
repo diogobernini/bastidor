@@ -500,6 +500,9 @@ function setupIpc() {
 
   ipcMain.handle('library:rename', (e, { filePath, newName }) => library.renameEntry(libraryRootPath(), filePath, newName));
   ipcMain.handle('library:move', (e, { filePath, destRelDir }) => library.moveEntry(libraryRootPath(), filePath, destRelDir));
+  // Criar pasta nos pickers de mover/salvar (issue #28, item 1): cria de fato
+  // no disco (não só na próxima gravação) para aparecer na árvore na hora.
+  ipcMain.handle('library:create-folder', (e, { relDir, name }) => library.createFolder(libraryRootPath(), relDir, name));
   ipcMain.handle('library:trash', async (e, filePath) => {
     if (!library.isWithinRoot(libraryRootPath(), filePath)) {
       throw new Error('Arquivo fora da raiz da biblioteca');

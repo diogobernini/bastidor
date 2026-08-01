@@ -143,11 +143,17 @@ function makeFakeDrive(dir) {
 function buildFixtures(tmpRoot) {
   const libraryDir = path.join(tmpRoot, 'library-fixture');
   const fakeDriveDir = path.join(tmpRoot, 'fake-drive');
+  // Raiz própria e vazia pro cenário library-newfolder (issue #28, item 1):
+  // não reaproveita libraryDir pra não depender da ordem de execução com
+  // library-dialog (que conta exatamente 2 itens na raiz).
+  const newFolderLibraryDir = path.join(tmpRoot, 'library-newfolder-fixture');
   makeLibraryFixture(libraryDir);
   makeFakeDrive(fakeDriveDir);
+  fs.mkdirSync(newFolderLibraryDir, { recursive: true });
   return {
     libraryDir,
     fakeDriveDir,
+    newFolderLibraryDir,
     resizeBefore: path.join(tmpRoot, 'resize', 'before.xxx'),
     resizeAfter: path.join(tmpRoot, 'resize', 'after.xxx'),
     roundtripPath: path.join(tmpRoot, 'roundtrip', 'saved.xxx'),
@@ -160,6 +166,7 @@ function buildScenarioDefs(fx) {
     { name: 'boot', args: ['--lang=pt-BR'] },
     { name: 'open-sample', args: [`--open=${SAMPLE_XXX}`, '--lang=pt-BR'] },
     { name: 'edit-mode', args: [`--open=${SAMPLE_XXX}`, '--lang=pt-BR'] },
+    { name: 'merge-color-blocks', args: [`--open=${SAMPLE_XXX}`, '--lang=pt-BR'] },
     {
       name: 'resize-keep-density',
       args: [`--open=${SAMPLE_XXX}`, '--lang=pt-BR', `--stub-save-paths=${fx.resizeBefore},${fx.resizeAfter}`],
@@ -179,6 +186,7 @@ function buildScenarioDefs(fx) {
       args: ['--dialog=text', '--lang=pt-BR', `--stub-project-path=${fx.projectPath}`],
     },
     { name: 'library-dialog', args: ['--lang=pt-BR', `--library=${fx.libraryDir}`] },
+    { name: 'library-newfolder', args: ['--lang=pt-BR', `--library=${fx.newFolderLibraryDir}`] },
     { name: 'drives-dialog', args: ['--lang=pt-BR', `--fake-drive=${fx.fakeDriveDir}`] },
   ];
 }

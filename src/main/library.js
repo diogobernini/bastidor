@@ -225,6 +225,23 @@ function moveEntry(root, filePath, destRelDir) {
   return { path: dest };
 }
 
+// Cria uma subpasta nova dentro de relDir (issue #28, item 1: os pickers de
+// "mover para pasta" e "salvar em pasta" só deixavam escolher pastas já
+// existentes). Mesma validação de nome de renameEntry (sem separador de
+// caminho, sem "." nem ".."), e mesma contenção de resolveWithinRoot; recusa
+// se já existir uma pasta ou arquivo com esse nome no destino.
+function createFolder(root, relDir, name) {
+  const trimmed = String(name || '').trim();
+  if (!trimmed || /[\\/]/.test(trimmed) || trimmed === '.' || trimmed === '..') {
+    throw new Error('Nome de pasta inválido');
+  }
+  const parentDir = resolveWithinRoot(root, relDir || '.');
+  const dest = path.join(parentDir, trimmed);
+  if (fs.existsSync(dest)) throw new Error('Já existe uma pasta ou arquivo com esse nome');
+  fs.mkdirSync(dest, { recursive: true });
+  return { relDir: path.join(relDir || '', trimmed), name: trimmed };
+}
+
 // ------------------------------------------------------------------ favoritos
 
 function favoritesFilePath(userDataDir) {
@@ -557,6 +574,7 @@ module.exports = {
   searchDesigns,
   renameEntry,
   moveEntry,
+  createFolder,
   loadFavorites,
   saveFavorites,
   toggleFavorite,

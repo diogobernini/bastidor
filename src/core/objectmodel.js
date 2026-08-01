@@ -28,7 +28,14 @@
 //
 // Carregado por <script> no renderer (mesma técnica de spatial.js/
 // minspacing.js/densityscale.js) E via require() nos testes/no main
-// process — por isso o duplo caminho de exportação no rodapé.
+// process — por isso o duplo caminho de exportação no rodapé. Tudo dentro de
+// uma IIFE (mesmo padrão de minspacing.js): um script clássico compartilha o
+// escopo léxico de topo da página com todos os outros carregados em
+// index.html (renderer.js, objects.js, os módulos em modules/*.js e os
+// outros núcleos em core/*.js) — uma function/const solta aqui viraria uma
+// propriedade de window e poderia colidir com qualquer nome ali. Só
+// "window.ObjectModel" escapa.
+(function () {
 
 const TYPES = {
   TEXT: 'text',
@@ -203,3 +210,4 @@ if (typeof module !== 'undefined' && module.exports) {
 if (typeof window !== 'undefined') {
   window.ObjectModel = exported;
 }
+})();

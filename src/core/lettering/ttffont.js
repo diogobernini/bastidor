@@ -3,12 +3,9 @@
 // extrair os contornos dos glifos e adapta pro mesmo "formato de fonte"
 // usado pelo resto do lettering — glyphs: Map<char, {advance, ...}>, ascent,
 // descent, unitsPerEm, defaultAdvance, kernMap, missingGlyph — o mesmo shape
-// que svgfont.js/inkstitchfont.js produzem, então layout.js não muda NADA
-// (só olha .advance/.glyphs/.kernMap). A diferença fica marcada em
-// font.kind: aqui é 'fill' (contornos fechados, preenchidos por
-// src/core/digitize/fill.js), não 'stroke' (traço único/Ink-Stitch, ponto
-// corrido/bean/satin ao longo do caminho) — stitcher.js é quem lê esse
-// campo e escolhe o pipeline certo.
+// que svgfont.js/inkstitchfont.js produzem, então layout.js não precisa saber
+// qual dos três leitores está por trás (só olha .advance/.glyphs/.kernMap e,
+// opcionalmente, o hook ensureGlyphsForText descrito abaixo).
 //
 // Cada glifo do TTF já é uma curva vetorial fechada (com furos em letras
 // como "o"/"a"/"e" — um anel por furo, regra even-odd) em unidades de fonte,
@@ -17,21 +14,29 @@
 // string "d" de SVG comum, então achatamos com o parser de path que a
 // digitalização de SVG já usa (src/core/digitize/svgpath.js), sem duplicar
 // nenhuma lógica de curva aqui.
+//
+// Carregamento sob demanda (issue #28, item 5): uma fonte TTF pode ter
+// milhares de glifos (Pacifico-Regular.ttf tem ~1500) e calcular o contorno
+// (rings) de cada um no carregamento seria desperdício quase sempre — o
+// texto digitado é sempre um subconjunto minúsculo disso. Em vez de
+// pré-carregar um intervalo fixo de código (a versão anterior varria só
+// Latin-1, 0x20-0xFF, deixando de fora Latin Extended-A, Cirílico etc. mesmo
+// quando a fonte tinha esses glifos), font.glyphs começa vazio e
+// ensureGlyphsForText(text) — chamado por layout.js antes de percorrer o
+// texto — busca em opentype.js só os caracteres realmente pedidos, com
+// resultado cacheado em font.glyphs/font._missing (idempotente: textos
+// repetidos ou prefixos já vistos não recalculam nada). O kerning segue a
+// mesma lógica: só os pares ADJACENTES que aparecem no texto pedido são
+// consultados (antes, era o produto cartesiano de todo o subconjunto ASCII
+// imprimível no carregamento — O(n²) mesmo que o texto usasse duas letras).
+// font.glyphCount (total de glifos da fonte, via opentype.js) fica disponível
+// para o catálogo (listFonts) sem precisar carregar nenhum anel.
 
 const fs = require('fs');
 const opentype = require('opentype.js');
 const svgpath = require('../digitize/svgpath');
 
 const DEFAULT_TOLERANCE_EM_FRACTION = 0.001; // 0,1% do units-per-em, igual ao svgfont.js
-
-// Cobertura de glifos: ASCII imprimível + Latin-1 Supplement (0x20-0xFF) —
-// cobre o alfabeto latino comum com acentos (pt-BR incluso) sem varrer os
-// milhares de glifos que uma TTF completa pode ter (símbolos, ligaduras,
-// outros scripts). Kerning só é calculado no subconjunto ASCII imprimível
-// (0x21-0x7E): é o caso de longe mais comum e mantém o custo baixo (a
-// combinatória de pares cresce com o quadrado da cobertura).
-const GLYPH_RANGE = [0x20, 0xff];
-const KERNING_RANGE = [0x21, 0x7e];
 
 // glyph.path.commands -> anéis fechados (arrays de [x, y], já com Y
 // invertido para baixo — mesma inversão de svgfont.js). Cada subpath vira um
@@ -59,6 +64,53 @@ function familyName(otFont, fallback) {
   return family.en || Object.values(family)[0] || fallback;
 }
 
+// Garante que "ch" está em font.glyphs (ou confirmadamente ausente da
+// fonte, em font._missing) — computa o anel/avanço uma única vez por
+// caractere, na primeira vez que algum texto pedir por ele.
+function ensureGlyph(font, ch) {
+  if (font.glyphs.has(ch) || font._missing.has(ch)) return;
+  const glyph = font._otFont.charToGlyph(ch);
+  if (!glyph || glyph.index === 0) {
+    font._missing.add(ch); // .notdef: a fonte não tem esse caractere
+    return;
+  }
+  font.glyphs.set(ch, {
+    advance: glyph.advanceWidth || font.defaultAdvance,
+    rings: glyphToRings(glyph, font._tolerance),
+  });
+}
+
+// Kerning entre um par ADJACENTE (a seguido de b) do texto pedido — nunca o
+// produto cartesiano do alfabeto. font._kernChecked evita reconsultar
+// opentype.js para o mesmo par em textos futuros (inclusive pares sem
+// kerning, que getKerningValue devolve 0 e por isso nunca entram em kernMap).
+function ensureKernPair(font, a, b) {
+  const key = a + ' ' + b;
+  if (font.kernMap.has(key) || font._kernChecked.has(key)) return;
+  font._kernChecked.add(key);
+  const ga = font._otFont.charToGlyph(a);
+  const gb = font._otFont.charToGlyph(b);
+  if (!ga || !gb || ga.index === 0 || gb.index === 0) return;
+  const k = font._otFont.getKerningValue(ga, gb);
+  if (k) font.kernMap.set(key, k);
+}
+
+// Hook chamado por layout.js antes de percorrer o texto: carrega glifos e
+// kerning só do que este texto específico precisa. Idempotente e cumulativo
+// (chamar de novo com um texto diferente só acrescenta o que faltar).
+function ensureGlyphsForText(font, text) {
+  const lines = String(text == null ? '' : text).split('\n');
+  for (const line of lines) {
+    const chars = Array.from(line);
+    let prev = null;
+    for (const ch of chars) {
+      if (ch !== ' ') ensureGlyph(font, ch); // espaço nunca desenha, só avança (ver layout.js)
+      if (prev !== null) ensureKernPair(font, prev, ch);
+      prev = ch;
+    }
+  }
+}
+
 function parseBuffer(buffer, fallbackFamily) {
   const otFont = opentype.parse(bufferToArrayBuffer(buffer));
   const unitsPerEm = otFont.unitsPerEm || 1000;
@@ -69,33 +121,7 @@ function parseBuffer(buffer, fallbackFamily) {
   const spaceGlyph = otFont.charToGlyph(' ');
   const defaultAdvance = (spaceGlyph && spaceGlyph.index !== 0 && spaceGlyph.advanceWidth) || unitsPerEm / 2;
 
-  const glyphs = new Map();
-  for (let cp = GLYPH_RANGE[0]; cp <= GLYPH_RANGE[1]; cp++) {
-    const ch = String.fromCodePoint(cp);
-    if (ch === ' ') continue; // espaço só avança; layout.js já trata sem desenhar
-    const glyph = otFont.charToGlyph(ch);
-    if (!glyph || glyph.index === 0) continue; // .notdef: a fonte não tem esse caractere
-    glyphs.set(ch, {
-      advance: glyph.advanceWidth || defaultAdvance,
-      rings: glyphToRings(glyph, tolerance),
-    });
-  }
-
-  const kernMap = new Map();
-  const kernChars = [];
-  for (let cp = KERNING_RANGE[0]; cp <= KERNING_RANGE[1]; cp++) {
-    const ch = String.fromCodePoint(cp);
-    if (glyphs.has(ch)) kernChars.push(ch);
-  }
-  const kernGlyphs = kernChars.map((ch) => otFont.charToGlyph(ch));
-  for (let i = 0; i < kernChars.length; i++) {
-    for (let j = 0; j < kernChars.length; j++) {
-      const k = otFont.getKerningValue(kernGlyphs[i], kernGlyphs[j]);
-      if (k) kernMap.set(kernChars[i] + ' ' + kernChars[j], k);
-    }
-  }
-
-  return {
+  const font = {
     id: null,
     family: familyName(otFont, fallbackFamily),
     kind: 'fill',
@@ -105,10 +131,20 @@ function parseBuffer(buffer, fallbackFamily) {
     capHeight: null,
     xHeight: null,
     defaultAdvance,
-    glyphs,
+    glyphs: new Map(), // preenchido sob demanda por ensureGlyphsForText
     missingGlyph: { advance: defaultAdvance, rings: [] },
-    kernMap,
+    kernMap: new Map(), // idem
+    glyphCount: otFont.numGlyphs || 0, // total real da fonte, sem carregar nenhum anel (catálogo)
   };
+  // Estado interno do carregamento sob demanda — não faz parte do "formato de
+  // fonte" comum a svgfont.js/inkstitchfont.js, só ttffont.js usa.
+  font._otFont = otFont;
+  font._tolerance = tolerance;
+  font._missing = new Set();
+  font._kernChecked = new Set();
+  font.ensureGlyphsForText = (text) => ensureGlyphsForText(font, text);
+
+  return font;
 }
 
 function bufferToArrayBuffer(buffer) {
@@ -121,4 +157,4 @@ function parseFile(absPath) {
   return parseBuffer(buffer, path.basename(absPath).replace(/\.(ttf|otf)$/i, ''));
 }
 
-module.exports = { parseFile, parseBuffer };
+module.exports = { parseFile, parseBuffer, ensureGlyphsForText };
