@@ -158,6 +158,7 @@ const STRINGS = {
     'scale.title': 'Resize',
     'scale.hint': 'Scaling changes stitch size, not density. Beyond ±20% the sewn result may end up too sparse or too dense.',
     'scale.label': 'Scale (%)',
+    'scale.keepDensity': 'Keep density (satin)',
     'scale.apply': 'Apply',
 
     'fmt.title': 'Supported formats',
@@ -177,6 +178,7 @@ const STRINGS = {
     'toast.openError': 'Could not open: ',
     'toast.centered': 'Design centered at origin',
     'toast.scaleWarn': 'Scale beyond ±20%: stitch density is not recalculated',
+    'toast.densityRescaled': '{n} satin runs regenerated to keep density',
   },
 
   'pt-BR': {
@@ -335,6 +337,7 @@ const STRINGS = {
     'scale.title': 'Redimensionar',
     'scale.hint': 'A escala altera o tamanho dos pontos, não a densidade. Acima de ±20% o resultado costurado pode ficar ralo ou pesado demais.',
     'scale.label': 'Escala (%)',
+    'scale.keepDensity': 'Manter densidade (ponto cheio)',
     'scale.apply': 'Aplicar',
 
     'fmt.title': 'Formatos suportados',
@@ -354,6 +357,7 @@ const STRINGS = {
     'toast.openError': 'Não foi possível abrir: ',
     'toast.centered': 'Matriz centralizada na origem',
     'toast.scaleWarn': 'Escala acima de ±20%: a densidade do bordado não é recalculada',
+    'toast.densityRescaled': '{n} corridas de ponto cheio regeneradas para manter a densidade',
   },
 };
 

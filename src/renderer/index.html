@@ -223,6 +223,10 @@
         <span data-i18n="scale.label">Escala (%)</span>
         <input type="number" id="scale-percent" min="10" max="400" step="1" value="100" />
       </label>
+      <label class="row check">
+        <input type="checkbox" id="scale-keepdensity" />
+        <span data-i18n="scale.keepDensity">Manter densidade (ponto cheio)</span>
+      </label>
       <p id="scale-preview" class="hint mono"></p>
       <div class="dlg-actions">
         <button value="cancel" class="tb-btn" data-i18n="set.cancel">Cancelar</button>
@@ -258,6 +262,7 @@
 
   <div id="toasts"></div>
 
+  <script src="../core/densityscale.js"></script>
   <script src="renderer.js"></script>
 </body>
 </html>
