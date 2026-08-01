@@ -26,6 +26,14 @@ function makeApply(design) {
       if (t) t.color = op.to;
       else design.threads[op.index] = { color: op.to };
     },
+    mergeColorBlock(op) {
+      design.stitches.splice(op.colorChangeIndex, 1);
+      design.threads.splice(op.threadIndex, 1);
+    },
+    splitColorBlock(op) {
+      design.stitches.splice(op.colorChangeIndex, 0, op.stitch.slice());
+      design.threads.splice(op.threadIndex, 0, op.thread);
+    },
     transform(op) {
       const { kind, params } = op;
       for (const st of design.stitches) {
@@ -283,6 +291,47 @@ test('recolorThread cria a entrada de thread quando ela ainda não existe', () =
   h.push({ type: 'recolorThread', index: 0, from: undefined, to: '#123456' });
   apply.recolorThread({ index: 0, to: '#123456' });
   assert.deepEqual(design.threads[0], { color: '#123456' });
+});
+
+// --------------------------------------------------------- mergeColorBlock (issue #50)
+
+test('mergeColorBlock desfaz e refaz a mesclagem de blocos de cor', () => {
+  const design = {
+    stitches: [
+      [0, 0, 0],
+      [1, 1, 0],
+      [2, 2, 5], // COLOR_CHANGE entre os dois blocos
+      [3, 3, 0],
+    ],
+    threads: [{ color: '#ff0000' }, { color: '#00ff00' }],
+  };
+  const h = History.create();
+  const apply = makeApply(design);
+
+  const removedStitch = design.stitches[2].slice();
+  const removedThread = { ...design.threads[1] };
+  const op = { type: 'mergeColorBlock', colorChangeIndex: 2, threadIndex: 1, stitch: removedStitch, thread: removedThread };
+
+  h.push(op);
+  apply.mergeColorBlock(op);
+  assert.deepEqual(design.stitches, [[0, 0, 0], [1, 1, 0], [3, 3, 0]], 'COLOR_CHANGE removido, resto da sequência intacto');
+  assert.deepEqual(design.threads, [{ color: '#ff0000' }], 'thread do bloco de baixo removida, mantém a de cima');
+
+  h.undo(apply);
+  assert.deepEqual(design.stitches, [[0, 0, 0], [1, 1, 0], [2, 2, 5], [3, 3, 0]], 'undo reinsere o COLOR_CHANGE na mesma posição');
+  assert.deepEqual(design.threads, [{ color: '#ff0000' }, { color: '#00ff00' }], 'undo reinsere a thread removida');
+
+  h.redo(apply);
+  assert.deepEqual(design.stitches, [[0, 0, 0], [1, 1, 0], [3, 3, 0]], 'redo mescla de novo');
+  assert.deepEqual(design.threads, [{ color: '#ff0000' }]);
+});
+
+test('mergeColorBlock: invert() é a splitColorBlock com os mesmos campos', () => {
+  const op = { type: 'mergeColorBlock', colorChangeIndex: 5, threadIndex: 2, stitch: [1, 2, 5], thread: { color: '#abc' } };
+  const inv = History.invert(op);
+  assert.deepEqual(inv, { type: 'splitColorBlock', colorChangeIndex: 5, threadIndex: 2, stitch: [1, 2, 5], thread: { color: '#abc' } });
+  // e a inversa da inversa volta pro tipo original (mesmo padrão de deletePoint/insertPoint)
+  assert.deepEqual(History.invert(inv), op);
 });
 
 // --------------------------------------------------------- transform

@@ -51,7 +51,7 @@ The app is bilingual (English and Brazilian Portuguese) and follows your system 
 | EXP | Melco / Bernina | ✓ | ✓ |
 | PES / PEC | Brother / Babylock | ✓ | ✓ |
 | JEF | Janome / Elna | ✓ | ✓ |
-| SVG / PNG | vector and image | · | ✓ |
+| SVG / PNG | vector and image (digitized into stitches on import) | ✓ | ✓ |
 
 The parsers are cross-validated against [pystitch](https://github.com/inkstitch/pystitch):
 files written by Bastidor are read back by the reference library with identical geometry

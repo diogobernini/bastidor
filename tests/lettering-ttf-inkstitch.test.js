@@ -33,21 +33,40 @@ function stitchCount(pattern) {
 
 // --------------------------------------------------------------- ttffont.js
 
-test('ttffont.parseFile: lê a fonte TTF bundlada, kind "fill", glifos com anéis fechados', () => {
+// Carregamento sob demanda (issue #28, item 5): font.glyphs/kernMap começam
+// vazios; ensureGlyphsForText(text) é o mesmo hook que layout.js chama
+// internamente (ver textToPattern mais abaixo), exposto aqui para testar o
+// leitor isoladamente, sem depender do layout.
+
+test('ttffont.parseFile: nada é carregado até algum texto ser pedido (sob demanda)', () => {
   const font = ttffont.parseFile(PACIFICO_TTF);
   assert.equal(font.kind, 'fill');
   assert.ok(font.unitsPerEm > 0);
   assert.ok(font.ascent > 0 && font.descent < 0);
+  assert.equal(font.glyphs.size, 0, 'nenhum anel deveria estar calculado antes do primeiro ensureGlyphsForText');
+  assert.equal(font.kernMap.size, 0);
+  assert.ok(font.glyphCount > 26, `esperava o total real de glifos da fonte, achou ${font.glyphCount}`);
+});
+
+test('ttffont.parseFile: ensureGlyphsForText carrega só os glifos do texto pedido, com anéis fechados', () => {
+  const font = ttffont.parseFile(PACIFICO_TTF);
+  font.ensureGlyphsForText('ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789');
   assert.ok(font.glyphs.size > 26, `esperava vários glifos, achou ${font.glyphs.size}`);
 
   const a = font.glyphs.get('A');
   assert.ok(a.advance > 0);
   assert.ok(a.rings.length >= 1);
   for (const ring of a.rings) assert.ok(ring.length >= 3, 'anel precisa de pelo menos 3 pontos pra fechar um polígono');
+
+  // Um segundo pedido, com um texto menor e já coberto, não deveria "perder"
+  // o que já foi carregado (cumulativo, não substitui).
+  font.ensureGlyphsForText('A');
+  assert.ok(font.glyphs.size > 26);
 });
 
 test('ttffont.parseFile: letras com contraforma (furo) viram mais de um anel', () => {
   const font = ttffont.parseFile(PACIFICO_TTF);
+  font.ensureGlyphsForText('oea');
   for (const ch of ['o', 'e', 'a']) {
     const glyph = font.glyphs.get(ch);
     assert.ok(glyph, `glifo "${ch}" ausente`);
@@ -55,15 +74,26 @@ test('ttffont.parseFile: letras com contraforma (furo) viram mais de um anel', (
   }
 });
 
-test('ttffont.parseFile: caractere fora da cobertura Latin-1 não aparece em glyphs', () => {
+test('ttffont.parseFile: cobertura vai além de Latin-1 quando o texto pede (a versão antiga varria só 0x20-0xFF)', () => {
   const font = ttffont.parseFile(PACIFICO_TTF);
+  // Latin Extended-A e Cirílico: fora de Latin-1, mas presentes na fonte.
+  font.ensureGlyphsForText('ĀāŐőЖ');
+  for (const ch of ['Ā', 'ā', 'Ő', 'ő', 'Ж']) {
+    assert.ok(font.glyphs.has(ch), `esperava glifo para "${ch}" (fora de Latin-1, mas presente na fonte)`);
+  }
+  // Caracteres que a fonte realmente não tem continuam ausentes.
+  font.ensureGlyphsForText('あ' + String.fromCodePoint(0x1f600));
   assert.equal(font.glyphs.has('あ'), false);
   assert.equal(font.glyphs.has(String.fromCodePoint(0x1f600)), false);
 });
 
-test('ttffont.parseFile: kerning (GPOS) populado quando a fonte tem', () => {
+test('ttffont.parseFile: kerning (GPOS) calculado só para os pares adjacentes do texto pedido', () => {
   const font = ttffont.parseFile(PACIFICO_TTF);
-  assert.ok(font.kernMap.size > 0, 'Pacifico tem tabela GPOS; esperava algum par de kerning');
+  // "AB": Pacifico tem kerning GPOS positivo para esse par específico.
+  font.ensureGlyphsForText('AB');
+  assert.equal(font.kernMap.size, 1, 'só o par adjacente pedido deveria ter sido consultado');
+  assert.equal(font.kernMap.get('A B'), 20);
+  assert.equal(font.kernMap.has('B A'), false, 'par inverso não apareceu no texto, não deveria ter sido calculado');
 });
 
 // --------------------------------------------------------- stitcher.js (fill)
@@ -224,6 +254,12 @@ test('build(): missingChars funciona igual para os três tipos de fonte', () => 
   assert.deepEqual(strokeResult.missingChars, ['☺']);
   assert.deepEqual(ttfResult.missingChars, ['☺']);
   assert.deepEqual(inkResult.missingChars, ['☺']);
+});
+
+test('build() com fonte TTF: caractere fora de Latin-1 mas presente na fonte não vira missingChars (issue #28 item 5)', () => {
+  const result = lettering.build(FONTS_DIR, { fontId: 'ttf/Pacifico-Regular.ttf', text: 'Āford', heightMm: 15 });
+  assert.deepEqual(result.missingChars, []);
+  assert.ok(result.design.stitches.length > 0);
 });
 
 test('loadFont: recusa ids ttf/ e inkstitch/ fora de fonts/ (mesma proteção de caminho)', () => {

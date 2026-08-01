@@ -6,8 +6,9 @@
 //
 // Consome (globais de renderer.js): state, $, toast; I18n.tr/I18n.fmtNum/
 // I18n.fmtBytesLocal; RenderCanvas.drawDesignThumbnail/RenderCanvas.countStitches;
-// Dialogs.confirmDialog. peekDriveDesign também é usado por LibraryUI
-// (carregado depois deste módulo).
+// Dialogs.confirmDialog; LruCap.setWithCap (src/core/lru.js, teto do cache de
+// peek — issue #28). peekDriveDesign também é usado por LibraryUI (carregado
+// depois deste módulo).
 window.DrivesUI = (function () {
 
 // --------------------------------------------------------------- gestão de pendrive
@@ -16,6 +17,11 @@ window.DrivesUI = (function () {
 // é só metadado (io principal manda path/nome/tamanho/mtime); a miniatura e a
 // contagem de pontos vêm de uma leitura preguiçosa (drives:peek-design), tolerante
 // a erro, cacheada por caminho+mtime para não reparsear ao reabrir o modal.
+
+// Teto do cache de peek (state.drives.cache): usado tanto pela gestão de
+// pendrive quanto pela grade/hover/filtros da biblioteca, sem limite cresceria
+// pelo tamanho do catálogo inteiro numa sessão longa (issue #28, item 3).
+const DRIVE_PEEK_CACHE_CAP = 2000;
 
 function driveCacheKey(item) {
   return `${item.path}::${item.mtime}`;
@@ -31,7 +37,7 @@ function peekDriveDesign(item) {
     .peekDesign(item.path)
     .then((res) => {
       const entry = res && res.ok ? { ok: true, design: res.design } : { ok: false, error: res && res.error };
-      state.drives.cache.set(key, entry);
+      state.drives.cache.set(key, entry); // já existe (chave inserida abaixo): só atualiza o valor, não cresce
       return entry;
     })
     .catch((err) => {
@@ -39,7 +45,7 @@ function peekDriveDesign(item) {
       state.drives.cache.set(key, entry);
       return entry;
     });
-  state.drives.cache.set(key, pending);
+  LruCap.setWithCap(state.drives.cache, key, pending, DRIVE_PEEK_CACHE_CAP);
   return pending;
 }
 

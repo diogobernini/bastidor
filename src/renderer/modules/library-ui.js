@@ -14,8 +14,10 @@
 // RenderCanvas.designThreadColor; DrivesUI.peekDriveDesign (cache por
 // caminho+mtime, também usado pelo gestor de pendrive); Dialogs.confirmDialog;
 // SewTime.fmtSewTime, ViewportClamp.clampToViewport, LibraryView.computeCols/
-// computeVisibleRange (consts lexicais globais de src/core/, referenciados
-// direto). closeLibraryDialog/openLibraryDialog/openLibrarySaveDialog são
+// computeVisibleRange, LruCap.setWithCap (teto dos caches de miniatura —
+// issue #28) (consts lexicais globais de src/core/, referenciados direto).
+// window.api.libraryCreateFolder (issue #28, item 1: botão "+ Nova pasta"
+// nos pickers). closeLibraryDialog/openLibraryDialog/openLibrarySaveDialog são
 // chamados bare a partir do remainder de renderer.js (saveAs/openViaDialog/
 // openViaDialogExternal/bindMenuAndKeys/boot) — ver os pontos
 // LibraryUI.<nome> lá.
@@ -87,6 +89,10 @@ async function loadOrBuildLibraryThumb(item) {
 // virtualizada é síncrono (sem o pisca de esperar decode/IPC a cada scroll).
 const libThumbImages = new Map();
 const LIB_THUMB_IMG_CAP = 4000;
+// Teto do cache de promessas de miniatura (state.library.thumbCache) —
+// issue #28, item 3. libThumbImages (acima) já usava o mesmo mecanismo de
+// teto manualmente; ambos agora passam por LruCap.setWithCap (src/core/lru.js).
+const LIB_THUMB_CACHE_CAP = 6000;
 
 function paintThumbFromImg(canvasEl, img) {
   const dpr = window.devicePixelRatio || 1;
@@ -102,10 +108,7 @@ function paintLibraryThumb(canvasEl, dataURL, key) {
   if (!img) {
     img = new Image();
     img.src = dataURL;
-    libThumbImages.set(key, img);
-    if (libThumbImages.size > LIB_THUMB_IMG_CAP) {
-      libThumbImages.delete(libThumbImages.keys().next().value); // descarta o mais antigo
-    }
+    LruCap.setWithCap(libThumbImages, key, img, LIB_THUMB_IMG_CAP);
   }
   if (img.complete) {
     paintThumbFromImg(canvasEl, img);
@@ -130,7 +133,7 @@ function ensureLibraryThumb(canvasEl, item) {
   let entry = state.library.thumbCache.get(key);
   if (!entry) {
     entry = scheduleThumbJob(() => loadOrBuildLibraryThumb(item));
-    state.library.thumbCache.set(key, entry);
+    LruCap.setWithCap(state.library.thumbCache, key, entry, LIB_THUMB_CACHE_CAP);
   }
   entry.then((dataURL) => {
     if (dataURL) paintLibraryThumb(canvasEl, dataURL, key);
@@ -826,6 +829,43 @@ async function confirmLibraryMove() {
   }
 }
 
+// ---- criar pasta nos pickers de "salvar em" e "mover para" (issue #28, item 1) ----
+// Antes só era possível arquivar em pastas já existentes; os handlers de fs
+// (write-design, move) já toleravam destino inexistente (mkdir recursivo),
+// mas não havia como criar uma pasta vazia, sem salvar/mover nada nela ainda.
+// target diz qual árvore abriu o dialog: a pasta-pai é a que já está
+// selecionada nela (state.library.currentRelDir p/ "main", moveChosenRelDir
+// p/ "move"); ao confirmar, a nova pasta vira a seleção da mesma árvore,
+// reaproveitando o onSelect de cada opts (mainLibTreeOpts/moveLibTreeOpts)
+// pra não duplicar a lógica de expandir/recarregar.
+function openLibraryNewFolder(target) {
+  state.library.newFolderTarget = target;
+  const parentRelDir = target === 'move' ? state.library.moveChosenRelDir : state.library.currentRelDir;
+  $('lib-newfolder-parent').textContent = parentRelDir || I18n.tr('lib.root');
+  $('lib-newfolder-input').value = '';
+  $('dlg-lib-newfolder').showModal();
+  $('lib-newfolder-input').focus();
+}
+
+async function confirmLibraryNewFolder() {
+  const target = state.library.newFolderTarget;
+  const parentRelDir = target === 'move' ? state.library.moveChosenRelDir : state.library.currentRelDir;
+  const name = $('lib-newfolder-input').value.trim();
+  if (!name) return;
+  try {
+    const created = await window.api.libraryCreateFolder(parentRelDir, name);
+    invalidateLibraryTreeCache();
+    if (target === 'move') {
+      await moveLibTreeOpts.onSelect(created.relDir);
+    } else {
+      await mainLibTreeOpts.onSelect(created.relDir);
+    }
+    toast(I18n.tr('lib.toastFolderCreated', { name: created.name }));
+  } catch (err) {
+    toast(I18n.tr('lib.toastFolderCreateError') + err.message, 'error', 5000);
+  }
+}
+
 // ---- pendrive (dropdown local, independente do modal de gestão de pendrive) ----
 
 async function refreshLibraryDriveSelect() {
@@ -1011,6 +1051,13 @@ function bindLibraryDialog() {
 
   $('lib-move-cancel').addEventListener('click', () => $('dlg-lib-move').close());
   $('lib-move-confirm').addEventListener('click', confirmLibraryMove);
+
+  // Criar pasta (issue #28, item 1): mesmo dialog/form atende os dois pickers.
+  $('lib-tree-newfolder').addEventListener('click', () => openLibraryNewFolder('main'));
+  $('lib-move-newfolder').addEventListener('click', () => openLibraryNewFolder('move'));
+  $('lib-newfolder-form').addEventListener('submit', (e) => {
+    if (e.submitter && e.submitter.value === 'ok') confirmLibraryNewFolder();
+  });
 }
 
   return {

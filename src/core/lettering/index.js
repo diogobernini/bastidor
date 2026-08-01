@@ -126,7 +126,11 @@ function listFonts(fontsDir) {
       out.push({
         id: TTF_SUBDIR + '/' + entry.name,
         label: font.family,
-        glyphCount: font.glyphs.size,
+        // TTF carrega glifos sob demanda (issue #28 item 5): font.glyphs só
+        // tem o que já foi pedido por algum texto, então o catálogo usa o
+        // total real da fonte (font.glyphCount, via opentype.js) em vez de
+        // font.glyphs.size.
+        glyphCount: font.glyphCount != null ? font.glyphCount : font.glyphs.size,
         type: 'ttf',
       });
     } catch {

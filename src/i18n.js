@@ -104,6 +104,7 @@ const STRINGS = {
     'info.format': 'Format',
     'colors.tip': 'Change this block color',
     'colors.fallback': 'Color {n}',
+    'colors.merge': 'Merge with the color below (keeps this color)',
     't.center': 'Center',
     't.resize': 'Resize…',
     't.centerTip': 'Center at origin',
@@ -374,6 +375,12 @@ const STRINGS = {
     'lib.renameConfirm': 'Rename',
     'lib.moveTitle': 'Move to folder',
     'lib.moveConfirm': 'Move',
+    'lib.newFolderBtn': '+ New folder',
+    'lib.newFolderTitle': 'New folder',
+    'lib.newFolderLabel': 'Folder name',
+    'lib.newFolderConfirm': 'Create',
+    'lib.toastFolderCreated': 'Folder “{name}” created',
+    'lib.toastFolderCreateError': 'Could not create folder: ',
     'lib.actionOpen': 'Open',
     'lib.actionReveal': 'Show in Finder/Explorer',
     'lib.actionDrive': 'Copy to selected drive',
@@ -546,6 +553,7 @@ const STRINGS = {
     'info.format': 'Formato',
     'colors.tip': 'Trocar a cor deste bloco',
     'colors.fallback': 'Cor {n}',
+    'colors.merge': 'Mesclar com a cor de baixo (mantém esta cor)',
     't.center': 'Centralizar',
     't.resize': 'Redimensionar…',
     't.centerTip': 'Centralizar na origem',
@@ -816,6 +824,12 @@ const STRINGS = {
     'lib.renameConfirm': 'Renomear',
     'lib.moveTitle': 'Mover para pasta',
     'lib.moveConfirm': 'Mover',
+    'lib.newFolderBtn': '+ Nova pasta',
+    'lib.newFolderTitle': 'Nova pasta',
+    'lib.newFolderLabel': 'Nome da pasta',
+    'lib.newFolderConfirm': 'Criar',
+    'lib.toastFolderCreated': 'Pasta "{name}" criada',
+    'lib.toastFolderCreateError': 'Não foi possível criar a pasta: ',
     'lib.actionOpen': 'Abrir',
     'lib.actionReveal': 'Mostrar no Finder/Explorer',
     'lib.actionDrive': 'Copiar para o pendrive selecionado',
@@ -887,8 +901,16 @@ const STRINGS = {
   },
 };
 
+// Backlog #28 item 4: "--lang=pt" (e qualquer variante "pt-*", ex.: pt-PT,
+// pt_BR com underscore) deve resolver para 'pt-BR' — hoje só o valor exato
+// 'pt-BR' era reconhecido, então "--lang=pt" caía no fallback de
+// systemLocale (podendo virar inglês numa máquina com locale não-pt).
 function resolveLang(preference, systemLocale) {
-  if (preference === 'en' || preference === 'pt-BR') return preference;
+  const pref = String(preference || '')
+    .toLowerCase()
+    .replace('_', '-');
+  if (pref === 'en') return 'en';
+  if (pref === 'pt' || pref.startsWith('pt-')) return 'pt-BR';
   return String(systemLocale || '').toLowerCase().startsWith('pt') ? 'pt-BR' : 'en';
 }
 

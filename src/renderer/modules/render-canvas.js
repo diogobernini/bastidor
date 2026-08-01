@@ -81,11 +81,23 @@ function zoomAt(cx, cy, factor) {
   requestRender();
 }
 
+// Luminância (0-255) de uma cor #rrggbb; usada para escolher a tinta do grid.
+function hexLuminance(hex) {
+  const v = parseInt(String(hex).replace('#', ''), 16) || 0;
+  return 0.2126 * ((v >> 16) & 255) + 0.7152 * ((v >> 8) & 255) + 0.0722 * (v & 255);
+}
+
 function drawGrid(rect) {
   const g = state.settings.grid;
   if (!g.show) return;
   const spacing = g.spacingMm * 10 * state.view.scale;
   if (spacing < 7) return; // grade densa demais nesse zoom
+  // Tinta adaptativa: as linhas claras originais somem sobre tecido/fundo
+  // claro (sobra só a trama, que parece um grid miúdo de 1 mm). Em fundo
+  // claro a grade de 1 cm usa tinta escura e ganha presença.
+  const lightBg = hexLuminance(state.settings.view.background) >= 140;
+  const inkMinor = lightBg ? 'rgba(30,30,38,0.16)' : 'rgba(232,230,225,0.045)';
+  const inkMajor = lightBg ? 'rgba(30,30,38,0.32)' : 'rgba(232,230,225,0.10)';
   const [dx0, dy0] = toDesign(0, 0);
   const [dx1, dy1] = toDesign(rect.width, rect.height);
   const step = g.spacingMm * 10;
@@ -94,7 +106,7 @@ function drawGrid(rect) {
   const startY = Math.floor(dy0 / step) * step;
   for (let x = startX; x <= dx1; x += step) {
     const major = Math.round(x / step) % 5 === 0;
-    ctx.strokeStyle = major ? 'rgba(232,230,225,0.10)' : 'rgba(232,230,225,0.045)';
+    ctx.strokeStyle = major ? inkMajor : inkMinor;
     ctx.beginPath();
     const sx = Math.round(toScreen(x, 0)[0]) + 0.5;
     ctx.moveTo(sx, 0);
@@ -103,7 +115,7 @@ function drawGrid(rect) {
   }
   for (let y = startY; y <= dy1; y += step) {
     const major = Math.round(y / step) % 5 === 0;
-    ctx.strokeStyle = major ? 'rgba(232,230,225,0.10)' : 'rgba(232,230,225,0.045)';
+    ctx.strokeStyle = major ? inkMajor : inkMinor;
     ctx.beginPath();
     const sy = Math.round(toScreen(0, y)[1]) + 0.5;
     ctx.moveTo(0, sy);
@@ -111,7 +123,7 @@ function drawGrid(rect) {
     ctx.stroke();
   }
   // Eixos na origem.
-  ctx.strokeStyle = 'rgba(232,161,61,0.22)';
+  ctx.strokeStyle = lightBg ? 'rgba(201,136,44,0.45)' : 'rgba(232,161,61,0.22)';
   const [ox, oy] = toScreen(0, 0);
   ctx.beginPath();
   ctx.moveTo(Math.round(ox) + 0.5, 0);

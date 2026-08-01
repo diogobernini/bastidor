@@ -344,6 +344,61 @@ const SCENARIOS = {
     ctx.assert('reabriu com 2253 pontos (roundtrip intacto)', stitches === 2253, stitches);
   },
 
+  // Mesclagem de blocos de cor adjacentes (issue #50): mescla o 1º bloco
+  // com o 2º (mantém a linha do 1º), confere que as contagens somam, que o
+  // total de pontos não muda (só o COLOR_CHANGE some) e que dá pra desfazer
+  // (undo) voltando aos 3 blocos originais.
+  async 'merge-color-blocks'(ctx) {
+    ctx.assert('boot sinalizou pronto', ctx.bootReady);
+    ctx.assert('3 cores na lista (original)', (await ctx.page("__ui.count('#color-list li')")) === 3);
+    ctx.assert(
+      '2 botões de mesclar (um por bloco, exceto o último)',
+      (await ctx.page("__ui.count('#color-list li button.merge-btn')")) === 2
+    );
+    ctx.assert(
+      'último bloco não tem botão de mesclar',
+      (await ctx.page("__ui.exists('#color-list li:nth-child(3) button.merge-btn')")) === false
+    );
+
+    const stitchesBefore = parseIntLoose(await ctx.page("__ui.text('#info-list dd:nth-of-type(2)')"));
+    const colorChangesBefore = parseIntLoose(await ctx.page("__ui.text('#info-list dd:nth-of-type(3)')"));
+    const count1Before = parseIntLoose(await ctx.page("__ui.text('#color-list li:nth-child(1) .count')"));
+    const count2Before = parseIntLoose(await ctx.page("__ui.text('#color-list li:nth-child(2) .count')"));
+    const name1Before = await ctx.page("__ui.text('#color-list li:nth-child(1) .name')");
+
+    await ctx.page("__ui.click('#color-list li:nth-child(1) button.merge-btn')");
+
+    ctx.assert('2 cores na lista após mesclar', await ctx.waitFor("__ui.count('#color-list li') === 2", 3000));
+    ctx.assert('contador de cores mostra "(2)"', (await ctx.page("__ui.text('#color-count')")) === '(2)');
+
+    const count1After = parseIntLoose(await ctx.page("__ui.text('#color-list li:nth-child(1) .count')"));
+    ctx.assert(
+      'contagem do 1º bloco soma a dos dois mesclados',
+      count1After === count1Before + count2Before,
+      `${count1Before} + ${count2Before} = ${count1After}`
+    );
+    const name1After = await ctx.page("__ui.text('#color-list li:nth-child(1) .name')");
+    ctx.assert('mantém a linha (thread) do bloco de CIMA', name1After === name1Before, `${name1Before} -> ${name1After}`);
+
+    const stitchesAfter = parseIntLoose(await ctx.page("__ui.text('#info-list dd:nth-of-type(2)')"));
+    ctx.assert('total de pontos não muda (só o COLOR_CHANGE some)', stitchesAfter === stitchesBefore, stitchesAfter);
+    const colorChangesAfter = parseIntLoose(await ctx.page("__ui.text('#info-list dd:nth-of-type(3)')"));
+    ctx.assert(
+      'uma troca de cor a menos',
+      colorChangesAfter === colorChangesBefore - 1,
+      `${colorChangesBefore} -> ${colorChangesAfter}`
+    );
+    ctx.assert('Desfazer habilitado após mesclar', (await ctx.page("__ui.isDisabled('#t-undo')")) === false);
+
+    await ctx.page("__ui.click('#t-undo')");
+    ctx.assert('3 cores de volta após Desfazer', await ctx.waitFor("__ui.count('#color-list li') === 3", 3000));
+    const count1Undone = parseIntLoose(await ctx.page("__ui.text('#color-list li:nth-child(1) .count')"));
+    const count2Undone = parseIntLoose(await ctx.page("__ui.text('#color-list li:nth-child(2) .count')"));
+    ctx.assert('contagens originais restauradas', count1Undone === count1Before && count2Undone === count2Before);
+    const stitchesUndone = parseIntLoose(await ctx.page("__ui.text('#info-list dd:nth-of-type(2)')"));
+    ctx.assert('total de pontos igual ao original após Desfazer', stitchesUndone === stitchesBefore, stitchesUndone);
+  },
+
   // Diálogo da biblioteca apontando pra uma pasta fixture (--library=, a
   // mesma flag de autoteste que já existia) com 2 matrizes geradas no setup
   // do run.js (tests/ui/run.js: makeFixtureLibrary).
@@ -355,6 +410,34 @@ const SCENARIOS = {
       'grade mostra as 2 matrizes da pasta fixture',
       await ctx.waitFor("__ui.count('#lib-grid-inner .lib-item') === 2", 5000)
     );
+  },
+
+  // Criar pasta no picker da biblioteca (issue #28, item 1): raiz fixture
+  // própria e vazia (não a de 'library-dialog', pra não depender de ordem
+  // entre cenários); clica "+ Nova pasta" (#lib-tree-newfolder), preenche o
+  // nome no dialog e confirma — a árvore deve navegar pra dentro da pasta
+  // recém-criada (selecionada, grade vazia).
+  async 'library-newfolder'(ctx) {
+    ctx.assert('boot vazio sinalizou pronto', ctx.bootReady);
+    await ctx.page("__ui.click('#btn-open')");
+    ctx.assert('diálogo de biblioteca abriu', await ctx.waitFor("__ui.isOpen('#dlg-library')", 5000));
+    ctx.assert('raiz fixture está vazia antes de criar a pasta', await ctx.waitFor("__ui.count('#lib-grid-inner .lib-item') === 0", 5000));
+
+    await ctx.page("__ui.click('#lib-tree-newfolder')");
+    ctx.assert('diálogo de nova pasta abriu', await ctx.waitFor("__ui.isOpen('#dlg-lib-newfolder')", 5000));
+
+    await ctx.page("__ui.setValue('#lib-newfolder-input', 'Coleção Nova')");
+    await ctx.page("__ui.click('#lib-newfolder-confirm')");
+    ctx.assert('diálogo de nova pasta fechou', await ctx.waitFor("!__ui.isOpen('#dlg-lib-newfolder')", 5000));
+
+    ctx.assert(
+      'árvore navegou pra dentro da pasta recém-criada (selecionada)',
+      await ctx.waitFor(
+        "__ui.count('.lib-tree-node.selected') === 1 && (__ui.text('.lib-tree-node.selected .name') || '').indexOf('Coleção Nova') !== -1",
+        5000
+      )
+    );
+    ctx.assert('grade da pasta nova está vazia (nenhuma matriz dentro dela ainda)', await ctx.waitFor("__ui.count('#lib-grid-inner .lib-item') === 0", 5000));
   },
 
   // Diálogo de pendrive com --fake-drive (flag de autoteste já existente em
