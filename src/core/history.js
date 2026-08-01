@@ -17,6 +17,13 @@
 //   { type: 'deletePoint',   index, stitch: [x, y, cmd] }        // stitch = o que foi removido
 //   { type: 'insertPoint',   index, stitch: [x, y, cmd] }        // stitch = o que foi inserido
 //   { type: 'recolorThread', index, from: cor, to: cor }
+//   { type: 'mergeColorBlock', colorChangeIndex, threadIndex, stitch, thread }
+//     // mesclar blocos de cor adjacentes (issue #50): remove o stitch
+//     // COLOR_CHANGE em `colorChangeIndex` e a thread em `threadIndex`.
+//     // `stitch`/`thread` guardam o que foi removido, para a inversa
+//     // (splitColorBlock) reinserir nas mesmas posições.
+//   { type: 'splitColorBlock', colorChangeIndex, threadIndex, stitch, thread }
+//     // inversa de mergeColorBlock: reinsere o stitch e a thread removidos.
 //   { type: 'transform',     kind, params }                      // ver invertTransform() abaixo
 //     - kind 'translate': params { dx, dy }
 //     - kind 'rotate90':  params { cx, cy, clockwise }
@@ -73,6 +80,10 @@ const History = (function () {
         return { type: 'deletePoint', index: op.index, stitch: op.stitch };
       case 'recolorThread':
         return { type: 'recolorThread', index: op.index, from: op.to, to: op.from };
+      case 'mergeColorBlock':
+        return { type: 'splitColorBlock', colorChangeIndex: op.colorChangeIndex, threadIndex: op.threadIndex, stitch: op.stitch, thread: op.thread };
+      case 'splitColorBlock':
+        return { type: 'mergeColorBlock', colorChangeIndex: op.colorChangeIndex, threadIndex: op.threadIndex, stitch: op.stitch, thread: op.thread };
       case 'transform':
         return { type: 'transform', kind: op.kind, params: invertTransform(op.kind, op.params) };
       case 'snapshot':
