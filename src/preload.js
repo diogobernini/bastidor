@@ -50,4 +50,10 @@ contextBridge.exposeInMainWorld('api', {
   // Digitalização (importar SVG): main escolhe o arquivo e avisa o renderer.
   onSvgPicked: (cb) => ipcRenderer.on('svg:picked', (e, payload) => cb(payload)),
   importSvg: (payload) => ipcRenderer.invoke('svg:import', payload),
+  // Digitalizar imagem (PNG -> vetor): o preload roda sandboxed (sem 'fs'
+  // direto), então a leitura do arquivo e o processamento (quantize/traceRegions)
+  // ficam no processo principal; aqui é só a ponte de IPC, igual ao resto da API.
+  openImageDialog: () => ipcRenderer.invoke('dialog:open-image'),
+  digitizePosterize: (image, colors) => ipcRenderer.invoke('digitize:posterize', { image, colors }),
+  digitizeGenerate: (image, opts) => ipcRenderer.invoke('digitize:generate', { image, opts }),
 });
