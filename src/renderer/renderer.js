@@ -319,6 +319,15 @@ const historyApplyFns = {
   moveColorBlock(op) {
     ColorBlocks.swapAdjacentBlocks(state.design.stitches, state.design.threads, state.blocks, op.upperIndex);
   },
+  // Reordenar blocos de cor DENTRO de um objeto multi-bloco (issue #73): as
+  // setas ▲/▼ INTERNAS do painel de Cores, ver moveColorBlockInUnit mais
+  // abaixo. Mesma troca adjacente autoinversa de moveColorBlock (mesmo
+  // upperIndex desfaz/refaz), só que TAMBÉM troca a posição correspondente
+  // em object.params.colorOrder — applyInternalColorSwap faz as duas coisas
+  // juntas, sempre em uníssono (nunca dá pra desfazer só a metade).
+  moveColorBlockInUnit(op) {
+    applyInternalColorSwap(op);
+  },
   transform(op) {
     applyTransformToDesign(op.kind, op.params);
   },
@@ -499,17 +508,29 @@ function updateSidebar() {
     count.className = 'count';
     count.textContent = I18n.fmtNum(block.stitchCount);
     li.append(sw, name, count);
-    // Reordenar a sequência de bordado (issue #61): ▲ sobe, ▼ desce. Um
-    // bloco no MEIO de um objeto multi-bloco (issue #29 fase 3) não pode se
-    // mover sozinho sem quebrar a unidade — por isso os botões só aparecem
-    // na PRIMEIRA linha (▲) e na ÚLTIMA linha (▼) da unidade que cobre esta
-    // linha, nunca nas linhas internas. Clicar em qualquer um dos dois move
-    // a unidade INTEIRA (moveColorBlock delega a ObjectModel.swapUnits
-    // quando a unidade é um objeto de verdade — ver comentário lá). Para um
-    // bloco solto (unidade de 1 bloco só, o caso comum) isso reduz
-    // exatamente à condição original bi>0 / bi<length-1.
+    // Reordenar a sequência de bordado (issue #61): ▲ sobe, ▼ desce, na
+    // BORDA da unidade que cobre esta linha (move a unidade INTEIRA — só a
+    // PRIMEIRA linha ganha ▲ de borda, só a ÚLTIMA ganha ▼ de borda; para um
+    // bloco solto, unidade de 1 bloco só, isso reduz exatamente à condição
+    // original bi>0 / bi<length-1).
+    //
+    // issue #73: um bloco no MEIO (ou na borda) de um objeto multi-bloco
+    // (issue #29 fase 3) TAMBÉM ganha setas INTERNAS — trocam este bloco
+    // com o vizinho DENTRO do mesmo objeto, sem mover a unidade inteira e
+    // sem cruzar a fronteira dela (moveColorBlockInUnit). Nunca as duas
+    // setas de um mesmo sentido juntas: "1ª linha do objeto" (▲ de borda,
+    // se houver unidade antes) e "não é a 1ª" (▲ interno) são mutuamente
+    // exclusivas, e o mesmo vale pro par ▼ de borda / ▼ interno — por isso
+    // cada linha ganha no máximo 1 botão "▲-like" e 1 "▼-like": a 1ª linha
+    // do objeto pode ter [▲ de borda] + [▼ interno], a última pode ter
+    // [▲ interno] + [▼ de borda], e uma linha do meio ganha só os dois
+    // internos. Um objeto de 1 bloco só (ou um bloco solto) nunca tem "não
+    // é a 1ª E não é a última" ao mesmo tempo, então nunca ganha setas
+    // internas — só as de borda de sempre.
     const unit = unitOf(bi);
-    if (unit && bi === unit.blockStart && unit.blockStart > 0) {
+    const isFirstOfUnit = !!unit && bi === unit.blockStart;
+    const isLastOfUnit = !!unit && bi === unit.blockEnd - 1;
+    if (isFirstOfUnit && unit.blockStart > 0) {
       const upBtn = document.createElement('button');
       upBtn.type = 'button';
       upBtn.className = 'move-btn move-up-btn'; // 2ª classe: seletor único p/ automação (tests/ui)
@@ -521,8 +542,20 @@ function updateSidebar() {
         moveColorBlock(bi, 'up');
       });
       li.append(upBtn);
+    } else if (unit && !isFirstOfUnit) {
+      const upInnerBtn = document.createElement('button');
+      upInnerBtn.type = 'button';
+      upInnerBtn.className = 'move-btn move-up-inner-btn'; // 2ª classe: seletor único p/ automação (tests/ui)
+      upInnerBtn.textContent = '▲';
+      upInnerBtn.title = I18n.tr('colors.moveUpInner');
+      upInnerBtn.setAttribute('aria-label', upInnerBtn.title);
+      upInnerBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        moveColorBlockInUnit(bi, 'up');
+      });
+      li.append(upInnerBtn);
     }
-    if (unit && bi === unit.blockEnd - 1 && unit.blockEnd < state.blocks.length) {
+    if (isLastOfUnit && unit.blockEnd < state.blocks.length) {
       const downBtn = document.createElement('button');
       downBtn.type = 'button';
       downBtn.className = 'move-btn move-down-btn'; // 2ª classe: seletor único p/ automação (tests/ui)
@@ -534,6 +567,18 @@ function updateSidebar() {
         moveColorBlock(bi, 'down');
       });
       li.append(downBtn);
+    } else if (unit && !isLastOfUnit) {
+      const downInnerBtn = document.createElement('button');
+      downInnerBtn.type = 'button';
+      downInnerBtn.className = 'move-btn move-down-inner-btn'; // 2ª classe: seletor único p/ automação (tests/ui)
+      downInnerBtn.textContent = '▼';
+      downInnerBtn.title = I18n.tr('colors.moveDownInner');
+      downInnerBtn.setAttribute('aria-label', downInnerBtn.title);
+      downInnerBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        moveColorBlockInUnit(bi, 'down');
+      });
+      li.append(downInnerBtn);
     }
     // Ação de mesclar (issue #50): funde o bloco de BAIXO neste, mantendo a
     // linha/config deste bloco. Escondida no último, que não tem bloco
@@ -663,6 +708,75 @@ function moveColorBlock(bi, direction) {
     state.design.objects = result.objects;
     pushHistory({ type: 'snapshot', before, after: cloneDesignData() });
   }
+  bumpArt();
+  deriveBlocks();
+  deriveStats();
+  updateSidebar();
+  updateStatusbar();
+  RenderCanvas.requestRender();
+}
+
+// Reordenar blocos de cor DENTRO de um objeto multi-bloco (issue #73): as
+// setas ▲/▼ INTERNAS do painel de Cores (ver updateSidebar), diferentes das
+// de BORDA acima (moveColorBlock, que move a unidade inteira e nunca separa
+// os blocos de um mesmo objeto). Só existe dentro de um objeto paramétrico
+// real com mais de 1 bloco — a UI já esconde os botões fora dessa condição
+// (1ª linha do objeto sem ▲ interno, última sem ▼ interno), mas o cálculo
+// abaixo é redundante de propósito, por segurança.
+//
+// A troca em si é EXATAMENTE ColorBlocks.swapAdjacentBlocks na posição
+// GLOBAL (state.blocks) — a mesma primitiva do caminho rápido de
+// moveColorBlock — só que aqui SEMPRE existe um objeto (nunca dois blocos
+// soltos), e a troca também precisa persistir qual bloco ORIGINAL do
+// objeto ficou em cada posição: object.params.colorOrder (permutação dos
+// índices de bloco originais do objeto, identidade implícita até a 1ª
+// troca — ver ObjectModel.makeObject). applyInternalColorSwap faz as duas
+// mutações juntas (stitches/threads + params.colorOrder) e é sua própria
+// inversa — aplicar o MESMO op de novo desfaz as duas —, então undo()/
+// redo() reusam a função direto (ver historyApplyFns.moveColorBlockInUnit
+// acima). Op de histórico LEVE, nunca snapshot: ao contrário do caminho de
+// UNIDADE de moveColorBlock, esta troca NUNCA muda a forma/posição das
+// entradas de design.objects[] (só o campo params de UMA entrada que já
+// existia), então tem inversa analítica barata mesmo tocando em objects[].
+function identityColorOrder(n) {
+  const out = new Array(n);
+  for (let i = 0; i < n; i++) out[i] = i;
+  return out;
+}
+
+function applyInternalColorSwap(op) {
+  const moved = ColorBlocks.swapAdjacentBlocks(state.design.stitches, state.design.threads, state.blocks, op.upperIndex);
+  if (!moved) return false;
+  const object = state.design.objects && state.design.objects[op.objectIndex];
+  if (!object) return false;
+  const current =
+    object.params && Array.isArray(object.params.colorOrder) && object.params.colorOrder.length === op.blockCount
+      ? object.params.colorOrder.slice()
+      : identityColorOrder(op.blockCount);
+  const tmp = current[op.localIndex];
+  current[op.localIndex] = current[op.localIndex + 1];
+  current[op.localIndex + 1] = tmp;
+  object.params = object.params || {};
+  object.params.colorOrder = current;
+  return true;
+}
+
+function moveColorBlockInUnit(bi, direction) {
+  if (!state.design) return;
+  const objects = state.design.objects || [];
+  const units = ObjectModel.listUnits(objects, state.blocks);
+  const unit = units.find((u) => bi >= u.blockStart && bi < u.blockEnd);
+  if (!unit || !unit.object) return; // troca interna só existe dentro de um objeto de verdade
+  const blockCount = unit.blockEnd - unit.blockStart;
+  const localIndex = bi - unit.blockStart;
+  const upperLocal = direction === 'up' ? localIndex - 1 : localIndex;
+  if (upperLocal < 0 || upperLocal + 1 >= blockCount) return; // sem vizinho interno nessa direção (defensivo, a UI já garante isso)
+
+  const objectIndex = objects.indexOf(unit.object);
+  const op = { type: 'moveColorBlockInUnit', upperIndex: unit.blockStart + upperLocal, objectIndex, localIndex: upperLocal, blockCount };
+  if (!applyInternalColorSwap(op)) return;
+  pushHistory(op);
+
   bumpArt();
   deriveBlocks();
   deriveStats();

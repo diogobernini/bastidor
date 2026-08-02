@@ -97,9 +97,20 @@
     if (typeof module !== 'undefined' && module.exports) return require('../core/objectmodel.js');
     return null;
   }
+  // colorblocks.js só expõe o identificador léxico "ColorBlocks" (const de
+  // topo de um script clássico, mesma situação de spatial.js — ver
+  // resolveSpatial acima), não window.ColorBlocks: usada por
+  // regenerateParametric pra reaplicar object.params.colorOrder (issue #73)
+  // na saída fresca do gerador.
+  function resolveColorBlocks() {
+    if (typeof module !== 'undefined' && module.exports) return require('../core/colorblocks.js');
+    if (typeof ColorBlocks !== 'undefined') return ColorBlocks;
+    return null;
+  }
   const SpatialLib = resolveSpatial();
   const MinSpacing = resolveMinSpacing();
   const ObjectModel = resolveObjectModel();
+  const ColorBlocksLib = resolveColorBlocks();
 
   // Duplicados localmente (mesma convenção de spatial.js/densityscale.js):
   // evita depender da ordem de carregamento pras constantes de comando.
@@ -260,6 +271,28 @@
       return stitches.slice(0, -1);
     }
     return stitches;
+  }
+
+  // Deriva blocks (mesmo formato { threadIndex, start, end } de state.blocks
+  // no renderer) a partir de um array de agulhadas "solto" — a saída FRESCA
+  // do gerador (newDesign.stitches em regenerateParametric), não o design
+  // inteiro. Usada só pra reaplicar object.params.colorOrder (issue #73)
+  // antes de emendar no design; mesma lógica de deriveBlocks() em
+  // renderer.js (não exportada dali, mesma duplicação intencional de
+  // tests/colorblocks.test.js — ver comentário lá).
+  function deriveLocalBlocks(stitches) {
+    const blocks = [];
+    let start = 0;
+    let threadIndex = 0;
+    for (let i = 0; i < stitches.length; i++) {
+      if ((stitches[i][2] & COMMAND_MASK) === COLOR_CHANGE_CMD) {
+        blocks.push({ threadIndex, start, end: i + 1 });
+        threadIndex++;
+        start = i + 1;
+      }
+    }
+    if (start < stitches.length) blocks.push({ threadIndex, start, end: stitches.length });
+    return blocks;
   }
 
   // ------------------------------------------------------------------- ciclo de vida
@@ -809,6 +842,21 @@
       if (!newDesign || newDesign.threads.length !== expectedColors) {
         commitLegacyTransform(drag, transform);
         return;
+      }
+
+      // issue #73: o gerador não sabe da ordem de bordado que o usuário
+      // escolheu pelas setas ▲/▼ INTERNAS do painel de Cores (sempre
+      // devolve os blocos na ordem 0..n-1 de geração) — reaplica
+      // object.params.colorOrder na saída fresca ANTES de qualquer outro
+      // ajuste (realinhar bbox/rotação/espaçamento adiante não dependem da
+      // ORDEM dos blocos, só do conjunto de pontos, então a ordem desta
+      // etapa não importa). ColorBlocks.applyColorOrder já é no-op (devolve
+      // cópias equivalentes) quando colorOrder está ausente ou é a
+      // identidade — a esmagadora maioria dos objetos nunca passa por aqui.
+      if (object.params && Array.isArray(object.params.colorOrder)) {
+        const freshBlocks = deriveLocalBlocks(newDesign.stitches);
+        const reordered = ColorBlocksLib.applyColorOrder(newDesign.stitches, newDesign.threads, freshBlocks, object.params.colorOrder);
+        newDesign = Object.assign({}, newDesign, { stitches: reordered.stitches, threads: reordered.threads });
       }
 
       let seg = stripTrailingEnd(newDesign.stitches.map((s) => [s[0], s[1], s[2]]));
@@ -1379,6 +1427,7 @@
       hitRotateHandle,
       bboxIntersects,
       stripTrailingEnd,
+      deriveLocalBlocks,
     };
   }
 })();

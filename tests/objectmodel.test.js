@@ -133,6 +133,10 @@ test('makeObject: blockCount nunca fica abaixo de 1, mesmo se pedido 0 ou negati
   assert.equal(ObjectModel.makeObject('text', null, null, 2).blockCount, 2);
 });
 
+test('makeObject: params começa null (issue #73, colorOrder ausente até a 1ª troca interna)', () => {
+  assert.equal(ObjectModel.makeObject('svg-shape', {}, {}, 2).params, null);
+});
+
 // ============================================================= issue #29 fase 3
 
 // --------------------------------------------------------------- rotatePoint/rotateSegment
@@ -457,4 +461,22 @@ test('cloneObject: source/stitchParams nulos (ex.: STITCH_BLOCK) permanecem nulo
   const clone = ObjectModel.cloneObject(original);
   assert.equal(clone.source, null);
   assert.equal(clone.stitchParams, null);
+});
+
+// issue #73: params.colorOrder precisa do mesmo clone profundo que
+// source/stitchParams — sem isto, duplicar um objeto já reordenado faria a
+// cópia compartilhar o MESMO array com o original.
+test('cloneObject: params ausente (null) permanece null', () => {
+  const original = ObjectModel.makeObject('svg-shape', {}, {}, 2);
+  const clone = ObjectModel.cloneObject(original);
+  assert.equal(clone.params, null);
+});
+
+test('cloneObject: params.colorOrder clonado profundo (mutar o clone não afeta o original)', () => {
+  const original = ObjectModel.makeObject('svg-shape', {}, {}, 2);
+  original.params = { colorOrder: [1, 0] };
+  const clone = ObjectModel.cloneObject(original);
+  assert.deepStrictEqual(clone.params, { colorOrder: [1, 0] });
+  clone.params.colorOrder[0] = 99;
+  assert.deepStrictEqual(original.params.colorOrder, [1, 0], 'mutar o colorOrder do clone não deveria afetar o original');
 });

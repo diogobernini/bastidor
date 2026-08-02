@@ -441,6 +441,12 @@ async function insertTextDesign() {
   if (!state.design) {
     setDesign(textDesign);
     registerTextObject(opts, textDesign.threads.length);
+    // issue #73: mesmo cuidado de applySvgImport/confirmDigitize — setDesign()
+    // já rodou updateSidebar() com design.objects[] ainda vazio (só importa
+    // de verdade se um único texto multi-cor virasse blockCount > 1 no
+    // futuro, mas o refresh aqui deixa o caminho consistente com os outros
+    // dois pontos de registro).
+    updateSidebar();
     toast(I18n.tr('toast.textCreated'));
   } else {
     // Operação composta (agulhadas + threads mudam juntas, tamanho do
@@ -640,6 +646,13 @@ async function applySvgImport() {
       const source = { svgText: picked.text, name: picked.name, path: picked.path };
       const stitchParams = Object.assign({}, opts, { targetWidthMm: res.widthMm });
       ObjectCanvas.registerObject('svg-shape', source, stitchParams, res.design.threads.length);
+      // issue #73: setDesign() (disparado por "design:opened", ANTES deste
+      // registro) já rodou updateSidebar() uma vez, mas com design.objects[]
+      // ainda vazio — um SVG de vários blocos aparecia como blocos SOLTOS
+      // (setas de BORDA erradas em vez das internas certas) até a próxima
+      // mutação qualquer atualizar a sidebar de novo. Refaz agora que o
+      // objeto já está registrado.
+      updateSidebar();
     }
     toast(I18n.tr('toast.svgImported', { name: picked.name }));
   } catch (err) {
@@ -946,6 +959,9 @@ async function confirmDigitize() {
     if (window.ObjectCanvas) {
       const source = { imageDataURL: imageDataToDataURL(digitize.full), name: digitize.name };
       ObjectCanvas.registerObject('raster-trace', source, rawParams, state.blocks.length);
+      // issue #73: mesmo cuidado de applySvgImport acima — setDesign() já
+      // rodou updateSidebar() com design.objects[] ainda vazio.
+      updateSidebar();
     }
     toast(I18n.tr('toast.digitized', { n: I18n.fmtNum(state.stats.stitches), c: I18n.fmtNum(state.blocks.length) }));
     return true;
