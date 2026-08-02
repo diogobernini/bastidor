@@ -36,7 +36,12 @@ const EPS = 1e-6;
 // discretização decide a direção) e nenhum ganho real em alinhar fileiras a
 // ele. Estritamente ACIMA de 3:1 é que o ângulo de varredura passa a seguir
 // o eixo da região; exatamente 3:1 ainda usa o ângulo global.
-const AUTO_ANGLE_ASPECT_THRESHOLD = 3;
+// 5 (e não 3): validado com arte real. Um corpo "gordinho" de proporção
+// ~4:1 girava as fileiras do desenho inteiro para o eixo diagonal, mudando a
+// estética sem o usuário pedir e alongando os saltos entre regiões; os casos
+// que o recurso mira (fio de balão ~27:1, barras ~10:1, degraus ~6:1)
+// continuam todos acima de 5.
+const AUTO_ANGLE_ASPECT_THRESHOLD = 5;
 
 // Folga para o ponto de travel "colar" numa aresta da região: absorve o
 // arredondamento de ponto flutuante do giro/degiro de fillPolygonsTatami
