@@ -25,8 +25,24 @@
 
 const fill = require('./fill');
 const sections = require('./sections');
+const axis = require('./axis');
 
 const EPS = 1e-6;
+
+// Ângulo automático por região (issue #70): abaixo desta proporção
+// comprimento/largura (eixo principal do contorno externo — ver axis.js) a
+// região é considerada "não alongada o bastante" pra valer a troca — um
+// círculo ou quadrado tem eixo principal instável (qualquer ruído de
+// discretização decide a direção) e nenhum ganho real em alinhar fileiras a
+// ele. Estritamente ACIMA de 3:1 é que o ângulo de varredura passa a seguir
+// o eixo da região; exatamente 3:1 ainda usa o ângulo global.
+// 5 (e não 3): validado com arte real. Um corpo "gordinho" de proporção
+// ~4:1 girava as fileiras do desenho inteiro para o eixo diagonal, mudando a
+// estética sem o usuário pedir e alongando os saltos entre regiões; os casos
+// que o recurso mira (fio de balão ~27:1, barras ~10:1, degraus ~6:1)
+// continuam todos acima de 5.
+const AUTO_ANGLE_ASPECT_THRESHOLD = 5;
+
 // Folga para o ponto de travel "colar" numa aresta da região: absorve o
 // arredondamento de ponto flutuante do giro/degiro de fillPolygonsTatami
 // (rotatePoint/unrotatePoint), bem maior que o erro esperado (~1e-10 pra
@@ -635,6 +651,34 @@ function connectRuns(runs, region, stitchLength, findJunctionTravel) {
   return merged;
 }
 
+// --------------------------------------- ângulo automático por região (#70)
+
+// Resolve o ângulo de varredura efetivo de UMA região: com opts.autoAngle
+// (padrão true — só opts.autoAngle === false desliga), regiões alongadas
+// (proporção do eixo principal do contorno EXTERNO, axis.principalAxisOfRing,
+// acima de AUTO_ANGLE_ASPECT_THRESHOLD) passam a varrer alinhadas a esse
+// eixo; abaixo do limiar (ou contorno degenerado) mantém opts.angleDeg
+// global de sempre. Chamada uma única vez por região, ANTES de decompor em
+// fileiras (fillRegion, abaixo) — o ângulo nunca muda no meio de uma região,
+// só de uma região pra outra (ver tests/regions.test.js, "nunca muda de
+// ângulo no meio da região": comparar o resultado com o de fixar de antemão
+// o mesmo ângulo resolvido aqui prova que a região inteira usa um valor só).
+//
+// Devolve o MESMO objeto `opts` (sem cópia) sempre que não há troca de
+// ângulo — autoAngle:false, contorno degenerado, proporção abaixo do
+// limiar, ou o eixo calculado já bater com o ângulo global — pra que o
+// comportamento de antes desta issue continue byte a byte idêntico nesses
+// casos (ver teste "autoAngle:false preserva o comportamento de hoje").
+function resolveFillOpts(region, opts) {
+  if (opts.autoAngle === false) return opts;
+  const outerRing = region.rings && region.rings[0];
+  const principal = outerRing ? axis.principalAxisOfRing(outerRing) : null;
+  if (!principal || !(principal.aspect > AUTO_ANGLE_ASPECT_THRESHOLD)) return opts;
+  const globalAngle = opts.angleDeg || 0;
+  if (principal.angleDeg === globalAngle) return opts;
+  return Object.assign({}, opts, { angleDeg: principal.angleDeg });
+}
+
 // ------------------------------------------------- preencher UMA região
 
 // Preenche uma única região decompondo-a em seções monotônicas (issue #69,
@@ -652,7 +696,8 @@ function connectRuns(runs, region, stitchLength, findJunctionTravel) {
 // salto.
 function fillRegion(region, opts) {
   const stitchLength = opts.stitchLength > 0 ? opts.stitchLength : 30;
-  const { sections: secs, edges } = sections.decomposeSections(region, opts);
+  const rowOpts = resolveFillOpts(region, opts);
+  const { sections: secs, edges } = sections.decomposeSections(region, rowOpts);
   if (secs.length === 0) return [];
 
   const builtRuns = secs.map((sec) => sections.buildSectionRun(sec));
@@ -747,7 +792,9 @@ module.exports = {
   exceedsTravelCeiling,
   connectRuns,
   isInsideRegion,
+  resolveFillOpts,
   fillRegion,
   fillRegionsTatami,
   coalesceZeroGapRuns,
+  AUTO_ANGLE_ASPECT_THRESHOLD,
 };

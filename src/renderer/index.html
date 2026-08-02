@@ -342,6 +342,10 @@
         <span data-i18n="svgimport.fillAngle">Ângulo do preenchimento (°)</span>
         <input type="number" id="svgimport-angle" min="-180" max="180" step="5" value="0" />
       </label>
+      <label class="row check">
+        <input type="checkbox" id="svgimport-autoangle" checked />
+        <span data-i18n="svgimport.autoAngle" data-i18n-title="svgimport.autoAngleTip">Ângulo automático por forma</span>
+      </label>
       <label class="row">
         <span data-i18n="svgimport.fillStitch">Comprimento da agulhada do preenchimento (mm)</span>
         <input type="number" id="svgimport-fillstitch" min="1" max="8" step="0.1" value="3" />
@@ -713,6 +717,10 @@
       <label class="row">
         <span data-i18n="dig.fillAngle">Ângulo do preenchimento (°)</span>
         <input type="number" id="dig-fillangle" min="-180" max="180" step="5" value="0" />
+      </label>
+      <label class="row check">
+        <input type="checkbox" id="dig-autoangle" checked />
+        <span data-i18n="dig.autoAngle" data-i18n-title="dig.autoAngleTip">Ângulo automático por forma</span>
       </label>
       <label class="row">
         <span data-i18n="dig.fillStitch">Agulhada do preenchimento (mm)</span>

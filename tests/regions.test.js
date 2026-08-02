@@ -16,8 +16,14 @@ const {
   fillRegionsTatami,
   coalesceZeroGapRuns,
   isInsideRegion,
+  fillRegion,
+  resolveFillOpts,
+  connectRuns,
+  AUTO_ANGLE_ASPECT_THRESHOLD,
 } = require('../src/core/digitize/regions');
 const { fillPolygonsTatami } = require('../src/core/digitize/fill');
+const sections = require('../src/core/digitize/sections');
+const axis = require('../src/core/digitize/axis');
 const C = require('../src/core/commands');
 const { Pattern } = require('../src/core/pattern');
 
@@ -343,4 +349,187 @@ test('retângulo grande e denso digitaliza inteiro sem exceção', () => {
   const runs = fillRegionsTatami([rect], { rowSpacing: 4, stitchLength: 30 });
   const total = runs.reduce((s, r) => s + r.length, 0);
   assert.ok(total > 60000, `esperava corrida gigante, veio ${total}`);
+});
+// ------------------------------------------- ângulo automático por região (#70)
+//
+// Contexto do relato (issue #70): num estudo com arte real, o "fio do
+// balão" (região ~27:1, quase vertical) preenchido com fileiras horizontais
+// (angleDeg 0, o padrão de sempre) virou uma escadinha de corridas de 1-2
+// pontos — cada fileira cruza só a largura finíssima do fio, e pequenas
+// irregularidades do contorno (traçado real, não um retângulo perfeito)
+// bastam pra fileiras vizinhas pararem de se sobrepor em X (decomposeSections
+// abre seção nova) e o travel entre elas estourar o teto. Um retângulo
+// PERFEITO não reproduz isso (é convexo — sempre 1 seção só, qualquer
+// ângulo), então o fixture abaixo é uma barra em "escadinha" (zigue-zague
+// retilíneo, como o serrilhado de um traçado real) — largura total 15,
+// altura 100 (proporção de contorno ~6:1, bem acima do limiar de 3:1), eixo
+// principal exatamente vertical (90°) pela simetria da construção.
+function buildStaircaseBar({ height, width, amp, toothHeight }) {
+  const half = width / 2;
+  const nTeeth = Math.round(height / toothHeight);
+  const left = [];
+  const right = [];
+  let y = 0;
+  for (let i = 0; i < nTeeth; i++) {
+    const cx = i % 2 === 0 ? amp : -amp;
+    const yNext = y + toothHeight;
+    left.push([cx - half, y], [cx - half, yNext]);
+    right.push([cx + half, y], [cx + half, yNext]);
+    y = yNext;
+  }
+  return left.concat(right.slice().reverse());
+}
+
+const VERTICAL_BAR = buildStaircaseBar({ height: 100, width: 3, amp: 6, toothHeight: 4 });
+const BAR_FILL_OPTS = { rowSpacing: 4, stitchLength: 30 };
+
+test('resolveFillOpts: círculo (aspecto ~1) fica abaixo do limiar e mantém o ângulo global', () => {
+  const N = 48;
+  const R = 50;
+  const circle = [];
+  for (let i = 0; i < N; i++) {
+    const a = (2 * Math.PI * i) / N;
+    circle.push([R * Math.cos(a), R * Math.sin(a)]);
+  }
+  const region = { rings: [circle] };
+  const principal = axis.principalAxisOfRing(circle);
+  assert.ok(principal.aspect < AUTO_ANGLE_ASPECT_THRESHOLD, `sanity: círculo devia ficar abaixo do limiar, aspecto=${principal.aspect}`);
+
+  const opts = { angleDeg: 42, autoAngle: true, rowSpacing: 4, stitchLength: 30 };
+  const resolved = resolveFillOpts(region, opts);
+  assert.equal(resolved.angleDeg, 42, 'abaixo do limiar, o ângulo resolvido deveria ser o global pedido');
+
+  // e o resultado de fato preenchido bate com o de pedir esse ângulo direto
+  // (autoAngle:false) — não é só a função de resolução, é o fillRegion inteiro.
+  const viaAuto = fillRegion(region, { ...opts, startPoint: [0, 0] });
+  const viaExplicitAngle = fillRegion(region, { ...opts, autoAngle: false, startPoint: [0, 0] });
+  assert.deepEqual(viaAuto, viaExplicitAngle);
+});
+
+test('fillRegion: barra vertical fina com autoAngle produz poucas corridas longas (≤6); ângulo global (0) vira dezenas de corridas curtas', () => {
+  const region = { rings: [VERTICAL_BAR] };
+  const principal = axis.principalAxisOfRing(VERTICAL_BAR);
+  assert.ok(principal.aspect > AUTO_ANGLE_ASPECT_THRESHOLD, `sanity: a barra devia ficar acima do limiar, aspecto=${principal.aspect}`);
+  assert.ok(Math.abs(principal.angleDeg - 90) < 1e-6, `sanity: eixo devia ser vertical, veio ${principal.angleDeg}`);
+
+  // "hoje" (sem esta issue, ou autoAngle:false): ângulo global 0 — fileiras
+  // horizontais cruzando só a largura fina da barra.
+  const runsAngleZero = fillRegion(region, { ...BAR_FILL_OPTS, angleDeg: 0, autoAngle: false, startPoint: [0, 0] });
+  // autoAngle (padrão — nem precisa passar a opção): alinha ao eixo vertical.
+  const runsAuto = fillRegion(region, { ...BAR_FILL_OPTS, angleDeg: 0, startPoint: [0, 0] });
+
+  assert.ok(runsAuto.length <= 6, `autoAngle deveria dar poucas corridas (≤6), veio ${runsAuto.length}`);
+  assert.ok(
+    runsAngleZero.length >= 15,
+    `ângulo global 0 numa barra tão fina devia fragmentar em dezenas de corridas curtas, veio ${runsAngleZero.length}`
+  );
+  assert.ok(
+    runsAngleZero.length >= runsAuto.length * 4,
+    `autoAngle devia reduzir drasticamente as corridas: 0°=${runsAngleZero.length} auto=${runsAuto.length}`
+  );
+
+  // as corridas "curtas" do ângulo 0 são mesmo curtas (a escadinha do
+  // relato) — a maioria com poucos pontos, nada parecido com uma serpentina
+  // longa cruzando a barra inteira.
+  const shortRuns = runsAngleZero.filter((r) => r.length <= 3).length;
+  assert.ok(shortRuns >= runsAngleZero.length * 0.5, `esperava a maioria das corridas do ângulo 0 serem curtas, veio ${shortRuns}/${runsAngleZero.length}`);
+});
+
+test('autoAngle:false preserva o comportamento de hoje byte a byte (mesmas corridas)', () => {
+  // Oráculo independente: reimplementação literal do fillRegion de ANTES da
+  // issue #70 (sem nenhuma resolução de ângulo por região), só com as peças
+  // públicas de sections.js/regions.js — se resolveFillOpts alterasse
+  // QUALQUER coisa quando autoAngle:false, este teste divergiria.
+  function legacyFillRegion(region, opts) {
+    const stitchLength = opts.stitchLength > 0 ? opts.stitchLength : 30;
+    const { sections: secs, edges } = sections.decomposeSections(region, opts);
+    if (secs.length === 0) return [];
+    const builtRuns = secs.map((sec) => sections.buildSectionRun(sec));
+    const startPoint = opts.startPoint || [0, 0];
+    const order = sections.orderSectionsByGraph(builtRuns, edges, startPoint);
+    const orderedRuns = order.map(({ index, reversed }) =>
+      reversed ? builtRuns[index].slice().reverse() : builtRuns[index]
+    );
+    const findJunctionTravel = (fromK, toK, from, to) =>
+      sections.findJunctionTravel(secs, edges, order[fromK].index, order[toK].index, from, to);
+    return connectRuns(orderedRuns, region, stitchLength, findJunctionTravel);
+  }
+
+  const cases = [
+    { region: { rings: [VERTICAL_BAR] }, opts: { ...BAR_FILL_OPTS, angleDeg: 0, startPoint: [0, 0] } },
+    { region: { rings: [VERTICAL_BAR] }, opts: { ...BAR_FILL_OPTS, angleDeg: 30, startPoint: [1, 2] } },
+    {
+      region: { rings: [[[0, 0], [400, 0], [400, 400], [0, 400]]] },
+      opts: { angleDeg: 15, rowSpacing: 4, stitchLength: 30, startPoint: [10, 10] },
+    },
+  ];
+  for (const { region, opts } of cases) {
+    const viaAutoAngleFalse = fillRegion(region, { ...opts, autoAngle: false });
+    const viaLegacy = legacyFillRegion(region, opts);
+    assert.deepStrictEqual(viaAutoAngleFalse, viaLegacy, `autoAngle:false divergiu do comportamento antigo pra angleDeg=${opts.angleDeg}`);
+  }
+});
+
+test('fillRegion: o ângulo resolvido vale pra região INTEIRA, nunca muda no meio dela', () => {
+  // Formaliza "nunca muda de ângulo no meio de uma região": se o resultado
+  // com autoAngle bate PONTO A PONTO com o de fixar de antemão (autoAngle:
+  // false) o mesmo ângulo já resolvido — pra TODA a região, numa passada só
+  // — então não existe nenhum ponto de virada de ângulo escondido no meio.
+  // Se a implementação resolvesse o ângulo fileira a fileira (bug), esta
+  // igualdade quebraria pra qualquer região com mais de uma fileira.
+  const region = { rings: [VERTICAL_BAR] };
+  const opts = { ...BAR_FILL_OPTS, angleDeg: 15, startPoint: [0, 0] }; // autoAngle padrão (true)
+
+  const resolved = resolveFillOpts(region, opts);
+  assert.notEqual(resolved.angleDeg, 15, 'sanity: a barra deveria ter trocado de ângulo (está acima do limiar)');
+
+  const viaAuto = fillRegion(region, opts);
+  const viaFixedWhole = fillRegion(region, { ...opts, angleDeg: resolved.angleDeg, autoAngle: false });
+  assert.deepStrictEqual(viaAuto, viaFixedWhole);
+});
+
+test('fillRegionsTatami: duas regiões com necessidades diferentes na MESMA chamada — cada uma resolve o próprio ângulo, sem contaminar a outra', () => {
+  // Barra alongada (~90°, acima do limiar) bem longe de um círculo (aspecto
+  // ~1, abaixo do limiar) — regiões desconexas, uma só chamada.
+  const circleFar = [];
+  const N = 48;
+  const R = 50;
+  const cx = 5000;
+  const cy = 5000;
+  for (let i = 0; i < N; i++) {
+    const a = (2 * Math.PI * i) / N;
+    circleFar.push([cx + R * Math.cos(a), cy + R * Math.sin(a)]);
+  }
+  const polygons = [{ points: VERTICAL_BAR }, { points: circleFar }];
+  const opts = { ...BAR_FILL_OPTS, angleDeg: 15, startPoint: [0, 0] };
+
+  const combined = fillRegionsTatami(polygons, opts);
+
+  const barBBox = { minX: -9, maxX: 9, minY: -1, maxY: 101 };
+  const insideBar = (p) => p[0] >= barBBox.minX && p[0] <= barBBox.maxX && p[1] >= barBBox.minY && p[1] <= barBBox.maxY;
+  const circleBBox = { minX: cx - R - 1, maxX: cx + R + 1, minY: cy - R - 1, maxY: cy + R + 1 };
+  const insideCircle = (p) => p[0] >= circleBBox.minX && p[0] <= circleBBox.maxX && p[1] >= circleBBox.minY && p[1] <= circleBBox.maxY;
+
+  const barRuns = [];
+  const circleRuns = [];
+  for (const run of combined) {
+    const allBar = run.every(insideBar);
+    const allCircle = run.every(insideCircle);
+    assert.ok(allBar || allCircle, 'nenhuma corrida deveria misturar pontos das duas regiões (elas nem se tocam)');
+    if (allBar) barRuns.push(run);
+    else circleRuns.push(run);
+  }
+
+  // a barra, dentro da chamada combinada, continua se comportando como no
+  // teste de "poucas corridas longas" isolado — prova que estar numa
+  // chamada com OUTRA região (de ângulo diferente) não vaza nem mistura.
+  assert.ok(barRuns.length > 0 && barRuns.length <= 8, `corridas da barra dentro da chamada combinada fora do esperado: ${barRuns.length}`);
+  assert.ok(circleRuns.length > 0, 'a região do círculo deveria ter gerado pelo menos 1 corrida');
+});
+
+test('resolveFillOpts: autoAngle omitido (nem presente no objeto opts) se comporta como true — o padrão é ligado', () => {
+  const region = { rings: [VERTICAL_BAR] };
+  const opts = { angleDeg: 0, rowSpacing: 4, stitchLength: 30 }; // sem a chave autoAngle
+  const resolved = resolveFillOpts(region, opts);
+  assert.notEqual(resolved.angleDeg, 0, 'sem autoAngle explícito, o padrão (true) deveria ter trocado o ângulo da barra alongada');
 });

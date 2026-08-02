@@ -368,6 +368,9 @@ function pathsToPattern(paths, options = {}) {
   const fillSpacing = Math.max(1, (options.fillSpacingMm !== undefined ? options.fillSpacingMm : 0.4) * 10);
   const fillAngle = options.fillAngleDeg !== undefined ? options.fillAngleDeg : 0;
   const fillStitch = Math.max(5, (options.fillStitchMm !== undefined ? options.fillStitchMm : 3) * 10);
+  // Ângulo automático por região (issue #70) — ver src/core/digitize/regions.js
+  // (resolveFillOpts) e axis.js. Padrão true; só false desliga de vez.
+  const autoAngle = options.autoAngle !== undefined ? options.autoAngle : true;
 
   const pattern = new Pattern();
   const visible = paths.filter((p) => p.contours && p.contours.length);
@@ -394,6 +397,7 @@ function pathsToPattern(paths, options = {}) {
         angleDeg: fillAngle,
         rowSpacing: fillSpacing,
         stitchLength: fillStitch,
+        autoAngle,
         startPoint: pattern.currentPosition(),
       }));
     }

@@ -226,3 +226,50 @@ test('pathsToPattern com fill: o furo do anel fica sem pontos', () => {
   const inHole = pts.filter(([x, y]) => x > 33 * scale && x < 47 * scale && y > 33 * scale && y < 47 * scale);
   assert.strictEqual(inHole.length, 0, `pontos dentro do furo: ${inHole.length}`);
 });
+
+// ------------------------------------------- ângulo automático por região (#70)
+
+test('pathsToPattern: repassa options.autoAngle pro núcleo (regions.fillRegionsTatami), com padrão true quando omitido', () => {
+  // Mesma técnica de tests/digitize.test.js: espiona a chamada real em vez
+  // de reconstruir a lógica do ângulo aqui (já coberta em regions.test.js /
+  // axis.test.js) — este nível só precisa provar que a opção CHEGA.
+  const regionsMod = require('../src/core/digitize/regions');
+  const original = regionsMod.fillRegionsTatami;
+  const seenAutoAngle = [];
+  regionsMod.fillRegionsTatami = (polygons, opts) => {
+    seenAutoAngle.push(opts.autoAngle);
+    return original(polygons, opts);
+  };
+  const square = [[0, 0], [10, 0], [10, 10], [0, 10]];
+  const paths = [{ color: '#000000', contours: [square] }];
+  try {
+    pathsToPattern(paths, { fill: true }); // nada pedido -> padrão true
+    pathsToPattern(paths, { fill: true, autoAngle: false });
+    pathsToPattern(paths, { fill: true, autoAngle: true });
+  } finally {
+    regionsMod.fillRegionsTatami = original;
+  }
+  assert.deepEqual(seenAutoAngle, [true, false, true]);
+});
+
+test('pathsToPattern: autoAngle muda o preenchimento de um contorno alongado; num quadrado não faz diferença', () => {
+  // Barra 10x100 (unidades de contorno, escaladas 1:1 aqui) — anel externo
+  // alongado (~6:1 de contorno, acima do limiar de 3:1).
+  const bar = [[45, 0], [55, 0], [55, 100], [45, 100]];
+  const paths = [{ color: '#000000', contours: [bar] }];
+  const commonOpts = { fill: true, outline: false, fillAngleDeg: 0, fillSpacingMm: 0.4, fillStitchMm: 3 };
+
+  const withAuto = pathsToPattern(paths, commonOpts); // autoAngle padrão (true)
+  const withoutAuto = pathsToPattern(paths, { ...commonOpts, autoAngle: false });
+  assert.notDeepStrictEqual(
+    withAuto.stitches,
+    withoutAuto.stitches,
+    'autoAngle deveria produzir agulhadas diferentes de manter fillAngleDeg (0) numa barra alongada'
+  );
+
+  const square = [[0, 0], [40, 0], [40, 40], [0, 40]];
+  const squarePaths = [{ color: '#000000', contours: [square] }];
+  const squareAuto = pathsToPattern(squarePaths, commonOpts);
+  const squareNoAuto = pathsToPattern(squarePaths, { ...commonOpts, autoAngle: false });
+  assert.deepStrictEqual(squareAuto.stitches, squareNoAuto.stitches, 'quadrado (aspecto ~1) está abaixo do limiar; autoAngle não deveria alterar nada');
+});

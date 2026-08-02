@@ -321,6 +321,7 @@ function setupIpc() {
       fillSpacingMm: opts.fillSpacingMm,
       fillAngleDeg: opts.fillAngleDeg,
       fillStitchMm: opts.fillStitchMm,
+      autoAngle: opts.autoAngle,
     });
     return patternToDesign(pattern, { name: opts.name || 'digitalizado', format: null, path: null });
   });
