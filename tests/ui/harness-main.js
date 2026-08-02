@@ -795,6 +795,141 @@ const SCENARIOS = {
     );
   },
 
+  // Reordenar DENTRO de um objeto multi-bloco (issue #73): o relatório da
+  // issue era exatamente este design — um SVG de 2 cores importado como UM
+  // objeto só (fill+outline, blockCount=2), nada mais no arquivo. Antes
+  // desta issue, NENHUMA seta ▲/▼ aparecia em nenhuma das 2 linhas (as de
+  // borda só aparecem quando há uma unidade VIZINHA fora do objeto — aqui
+  // não há nenhuma), então não tinha como reordenar qual cor borda primeiro
+  // sem sair do painel de Cores. Confirma: as setas INTERNAS aparecem onde
+  // as de borda não aparecem, clicar de verdade troca os 2 blocos DENTRO do
+  // objeto (sem separar a unidade), undo/redo cobrem a troca (stitches E o
+  // params.colorOrder do objeto), e a ordem escolhida sobrevive a uma
+  // regeneração paramétrica de verdade (redimensionar arrasta a alça, chama
+  // o gerador via IPC de novo) — a prova de que ColorBlocks.applyColorOrder
+  // está mesmo ligado em regenerateParametric (objects.js), não só exercido
+  // isoladamente pelos testes unitários de núcleo.
+  async 'move-color-block-inner'(ctx) {
+    ctx.assert('boot sinalizou pronto', ctx.bootReady);
+    ctx.assert('diálogo de importar SVG abriu (--svg-import=)', await ctx.waitFor("__ui.isOpen('#dlg-svg-import')", 5000));
+    await ctx.page("__ui.click('#svgimport-form button[value=apply]')");
+    ctx.assert('painel lateral visível (SVG importado)', await ctx.waitFor("!__ui.isHidden('#sidebar')", 5000));
+    ctx.assert(
+      '2 cores na lista (preenchimento + contorno do SVG, 1 objeto só)',
+      await ctx.waitFor("__ui.count('#color-list li') === 2", 5000)
+    );
+
+    // Confirma ANTES de mais nada, pela ordem de costura, que os 2 blocos
+    // contam como 1 unidade só (prova independente de blockCount=2).
+    await ctx.page("__ui.click('#btn-objects')");
+    ctx.assert('modo de objetos ativado', await ctx.page("__ui.hasClass('#btn-objects', 'on')"));
+    ctx.assert('1 unidade só (os 2 blocos do SVG contam como 1 objeto)', await ctx.waitFor("__ui.count('#stitch-order-list li') === 1", 3000));
+    await ctx.page("__ui.click('#btn-objects')"); // desliga de novo, não interfere no resto do cenário
+
+    // A prova central da issue #73: nenhuma unidade vizinha fora do objeto
+    // -> nenhuma seta de BORDA em nenhuma das 2 linhas (era exatamente o
+    // "botão de subir/descer não funciona" do relatório). As setas
+    // INTERNAS aparecem no lugar: só ▼ na 1ª linha, só ▲ na 2ª.
+    ctx.assert('1ª linha sem seta de borda ▲', (await ctx.page("__ui.exists('#color-list li:nth-child(1) button.move-up-btn')")) === false);
+    ctx.assert('1ª linha sem seta de borda ▼', (await ctx.page("__ui.exists('#color-list li:nth-child(1) button.move-down-btn')")) === false);
+    ctx.assert('2ª linha sem seta de borda ▲', (await ctx.page("__ui.exists('#color-list li:nth-child(2) button.move-up-btn')")) === false);
+    ctx.assert('2ª linha sem seta de borda ▼', (await ctx.page("__ui.exists('#color-list li:nth-child(2) button.move-down-btn')")) === false);
+    ctx.assert(
+      '1ª linha SEM seta interna ▲ (nada acima dela dentro do objeto)',
+      (await ctx.page("__ui.exists('#color-list li:nth-child(1) button.move-up-inner-btn')")) === false
+    );
+    ctx.assert('1ª linha TEM seta interna ▼', (await ctx.page("__ui.exists('#color-list li:nth-child(1) button.move-down-inner-btn')")) === true);
+    ctx.assert('2ª linha TEM seta interna ▲', (await ctx.page("__ui.exists('#color-list li:nth-child(2) button.move-up-inner-btn')")) === true);
+    ctx.assert(
+      '2ª linha SEM seta interna ▼ (última do objeto)',
+      (await ctx.page("__ui.exists('#color-list li:nth-child(2) button.move-down-inner-btn')")) === false
+    );
+
+    const stitchesBefore = parseIntLoose(await ctx.page("__ui.text('#info-list dd:nth-of-type(2)')"));
+    const colorChangesBefore = parseIntLoose(await ctx.page("__ui.text('#info-list dd:nth-of-type(3)')"));
+    const swatch1Before = await ctx.page("__ui.value('#color-list li:nth-child(1) .swatch')");
+    const swatch2Before = await ctx.page("__ui.value('#color-list li:nth-child(2) .swatch')");
+    const count1Before = parseIntLoose(await ctx.page("__ui.text('#color-list li:nth-child(1) .count')"));
+    const count2Before = parseIntLoose(await ctx.page("__ui.text('#color-list li:nth-child(2) .count')"));
+    ctx.assert(
+      'preenchimento e contorno começam diferentes (senão a troca seria indetectável)',
+      swatch1Before !== swatch2Before || count1Before !== count2Before,
+      `${swatch1Before}|${count1Before} vs ${swatch2Before}|${count2Before}`
+    );
+
+    // Clica o ▲ interno DE VERDADE (2ª linha): troca os 2 blocos DENTRO do
+    // objeto — o pedido central da issue #73.
+    await ctx.page("__ui.click('#color-list li:nth-child(2) button.move-up-inner-btn')");
+    ctx.assert(
+      'ordem trocou (1ª linha ganhou a cor que era da 2ª)',
+      await ctx.waitFor(`__ui.value('#color-list li:nth-child(1) .swatch') === ${JSON.stringify(swatch2Before)}`, 3000)
+    );
+    const swatch1After = await ctx.page("__ui.value('#color-list li:nth-child(1) .swatch')");
+    const swatch2After = await ctx.page("__ui.value('#color-list li:nth-child(2) .swatch')");
+    const count1After = parseIntLoose(await ctx.page("__ui.text('#color-list li:nth-child(1) .count')"));
+    const count2After = parseIntLoose(await ctx.page("__ui.text('#color-list li:nth-child(2) .count')"));
+    ctx.assert(
+      '1ª e 2ª linha trocaram de cor de verdade',
+      swatch1After === swatch2Before && swatch2After === swatch1Before,
+      `${swatch1Before}|${swatch2Before} -> ${swatch1After}|${swatch2After}`
+    );
+    ctx.assert(
+      'as contagens de pontos acompanharam a troca',
+      count1After === count2Before && count2After === count1Before,
+      `${count1Before}|${count2Before} -> ${count1After}|${count2After}`
+    );
+    ctx.assert('ainda 2 cores (nenhum bloco sumiu ou duplicou)', (await ctx.page("__ui.count('#color-list li')")) === 2);
+
+    const stitchesAfter = parseIntLoose(await ctx.page("__ui.text('#info-list dd:nth-of-type(2)')"));
+    ctx.assert('total de pontos não muda (só a ordem)', stitchesAfter === stitchesBefore, stitchesAfter);
+    const colorChangesAfter = parseIntLoose(await ctx.page("__ui.text('#info-list dd:nth-of-type(3)')"));
+    ctx.assert('nº de trocas de cor não muda', colorChangesAfter === colorChangesBefore, `${colorChangesBefore} -> ${colorChangesAfter}`);
+
+    // A troca INTERNA não separou o objeto: ainda 1 unidade só na ordem de
+    // costura (blockCount continua 2, os 2 blocos ainda viajam juntos).
+    await ctx.page("__ui.click('#btn-objects')");
+    ctx.assert('ainda 1 unidade só depois da troca interna', await ctx.waitFor("__ui.count('#stitch-order-list li') === 1", 3000));
+    await ctx.page("__ui.click('#btn-objects')");
+
+    // Undo restaura a ordem original — stitches/threads E
+    // object.params.colorOrder (op leve moveColorBlockInUnit, ver
+    // renderer.js/history.js).
+    ctx.assert('Desfazer habilitado após a troca interna', (await ctx.page("__ui.isDisabled('#t-undo')")) === false);
+    await ctx.page("__ui.click('#t-undo')");
+    ctx.assert(
+      'ordem original restaurada após Desfazer',
+      await ctx.waitFor(`__ui.value('#color-list li:nth-child(1) .swatch') === ${JSON.stringify(swatch1Before)}`, 3000)
+    );
+    const count1Undone = parseIntLoose(await ctx.page("__ui.text('#color-list li:nth-child(1) .count')"));
+    const count2Undone = parseIntLoose(await ctx.page("__ui.text('#color-list li:nth-child(2) .count')"));
+    ctx.assert(
+      'contagens originais restauradas',
+      count1Undone === count1Before && count2Undone === count2Before,
+      `${count1Before}|${count2Before} vs ${count1Undone}|${count2Undone}`
+    );
+    const stitchesUndone = parseIntLoose(await ctx.page("__ui.text('#info-list dd:nth-of-type(2)')"));
+    ctx.assert('total de pontos igual ao original após Desfazer', stitchesUndone === stitchesBefore, stitchesUndone);
+
+    // Redo: refaz a troca interna (volta ao estado "depois" já verificado).
+    await ctx.page("__ui.click('#t-redo')");
+    ctx.assert(
+      'Refazer aplica a troca interna de novo',
+      await ctx.waitFor(`__ui.value('#color-list li:nth-child(1) .swatch') === ${JSON.stringify(swatch1After)}`, 3000)
+    );
+
+    // issue #73, item 2: a ordem escolhida sobrevive a uma regeneração
+    // paramétrica de VERDADE (redimensionar arrasta a alça, roda o gerador
+    // via IPC de novo) — sem isto, a saída fresca do gerador (sempre na
+    // ordem 0..n-1 de geração) desfaria a troca silenciosamente a cada
+    // redimensionamento.
+    await selectAndResizeOnlyObject(ctx, 1.6);
+    ctx.assert(
+      'ordem trocada sobrevive à regeneração paramétrica (resize de verdade via IPC)',
+      await ctx.waitFor(`__ui.value('#color-list li:nth-child(1) .swatch') === ${JSON.stringify(swatch1After)}`, 5000)
+    );
+    ctx.assert('ainda 2 cores depois de regenerar', (await ctx.page("__ui.count('#color-list li')")) === 2);
+  },
+
   // Diálogo da biblioteca apontando pra uma pasta fixture (--library=, a
   // mesma flag de autoteste que já existia) com 2 matrizes geradas no setup
   // do run.js (tests/ui/run.js: makeFixtureLibrary).

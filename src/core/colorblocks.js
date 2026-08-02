@@ -1,6 +1,6 @@
 'use strict';
 // Núcleo puro do painel de Cores da sidebar (um bloco por trecho entre
-// COLOR_CHANGEs). Duas famílias de operação:
+// COLOR_CHANGEs). Três famílias de operação:
 //  - Mesclagem de blocos adjacentes (issue #50): funde o bloco de BAIXO no
 //    bloco de CIMA, mantendo a linha/config do de cima. A sequência de
 //    bordado não muda: só o COLOR_CHANGE entre os dois some (uma parada a
@@ -9,6 +9,12 @@
 //  - Reordenar blocos adjacentes (issue #61): troca a ordem de bordado
 //    entre dois blocos vizinhos (subir/descer no painel), realocando o
 //    COLOR_CHANGE de fechamento correto nas bordas — ver swapBlocks.
+//  - Aplicar uma ordem paramétrica (issue #73): generaliza swapBlocks para
+//    uma permutação ARBITRÁRIA dos blocos de UM objeto (não só um par
+//    adjacente) — ver applyColorOrder. Usada pra reaplicar a ordem de
+//    bordado escolhida pelo usuário (setas ▲/▼ internas a um objeto
+//    multi-bloco) na saída fresca do gerador, a cada regeneração
+//    paramétrica (redimensionar arrastando a alça).
 // Mesmo espírito de src/core/library-view.js: módulo puro (sem DOM, sem
 // Node), carregado tanto por <script src="../core/colorblocks.js"> quanto
 // por node:test via module.exports. Pensado para ser compartilhado também
@@ -175,7 +181,103 @@ const ColorBlocks = (function () {
     return swapBlocks(stitches, threads, plan);
   }
 
-  return { deriveMergePlan, mergeBlock, splitBlock, deriveSwapPlan, swapAdjacentBlocks };
+  // -------------------------------------------------- ordem paramétrica (issue #73)
+  //
+  // Generaliza swapBlocks (uma troca só, sempre entre 2 blocos ADJACENTES)
+  // para uma permutação ARBITRÁRIA dos `blocks.length` blocos de UM objeto
+  // paramétrico só. Usada por src/renderer/objects.js (regenerateParametric)
+  // pra reaplicar object.params.colorOrder — a ordem de bordado que o
+  // usuário escolheu pelas setas ▲/▼ INTERNAS do painel de Cores (ver
+  // moveColorBlockInUnit em renderer.js) — na saída FRESCA do gerador: o
+  // gerador não sabe de colorOrder, sempre devolve os blocos na ordem
+  // 0..n-1 de geração.
+  //
+  // `order[i]` é o índice de bloco ORIGINAL (posição em `blocks`, a lista já
+  // derivada da PRÓPRIA `stitches` recebida, mesmo formato dos outros
+  // helpers deste módulo) que deve ocupar a posição `i` do resultado — ex.:
+  // order=[1,0] em 2 blocos põe o bloco 1 primeiro (exatamente o que uma
+  // troca adjacente única produz). `order` ausente/null, ou igual à
+  // identidade [0,1,...,n-1], é NO-OP: devolve stitches/threads
+  // equivalentes (cópias, nunca muta os argumentos), sem reescrever nada —
+  // comportamento atual byte a byte (issue #73, item 2).
+  //
+  // Mesmo cuidado de fechamento de swapBlocks: em `blocks`, só o ÚLTIMO pode
+  // não fechar com COLOR_CHANGE (fecha com END — todo objeto gerado termina
+  // com um END de verdade antes de stripTrailingEnd tirar — ou não fecha
+  // nada, só em dados sintéticos de teste); TODOS os outros (blockCount - 1
+  // deles) SEMPRE fecham com COLOR_CHANGE, garantia que deriveSwapPlan já
+  // assume. Isso dá exatamente blockCount - 1 tokens de COLOR_CHANGE
+  // "soltos" (um por bloco não-último) para as blockCount - 1 posições
+  // NÃO-finais do resultado, qualquer que seja a nova ordem — sempre sobra
+  // exatamente 1 posição final, que herda o fechamento especial (END ou
+  // nenhum) do bloco que ERA o último, não importa pra onde ele foi. Os
+  // tokens de COLOR_CHANGE são intercambiáveis (mesmo espírito de
+  // swapBlocks, que já reusa o token do bloco de cima como fronteira nova
+  // sem recalcular coordenada): são distribuídos na ordem original dos
+  // blocos não-últimos, o suficiente para reduzir exatamente ao resultado
+  // de swapAdjacentBlocks quando `order` é uma troca adjacente só (ver
+  // testes em tests/colorblocks.test.js).
+  function isIdentityColorOrder(order, length) {
+    if (order == null) return true; // ausente: comportamento atual (sem-op)
+    if (!Array.isArray(order) || order.length !== length) return false; // não é identidade — deixa a validação de permutação decidir se é erro
+    for (let i = 0; i < order.length; i++) {
+      if (order[i] !== i) return false;
+    }
+    return true;
+  }
+
+  function applyColorOrder(stitches, threads, blocks, order) {
+    if (!Array.isArray(blocks) || blocks.length === 0) {
+      return { stitches: stitches.map((s) => s.slice()), threads: threads.slice() };
+    }
+    const n = blocks.length;
+    if (isIdentityColorOrder(order, n)) {
+      return { stitches: stitches.map((s) => s.slice()), threads: threads.slice() };
+    }
+    const seen = new Set(order);
+    const valid = Array.isArray(order) && order.length === n && seen.size === n && order.every((v) => Number.isInteger(v) && v >= 0 && v < n);
+    if (!valid) {
+      throw new Error('ColorBlocks.applyColorOrder: order precisa ser ausente ou uma permutação de 0..' + (n - 1));
+    }
+
+    const lastIdx = n - 1;
+    const lastHasClosing = hasClosingMarker(stitches, blocks[lastIdx].start, blocks[lastIdx].end);
+    const specialToken = lastHasClosing ? stitches[blocks[lastIdx].end - 1] : null;
+
+    // Conteúdo puro de cada bloco original (sem o próprio fechamento, quando existe).
+    const pureContents = blocks.map((b, i) => {
+      const contentEnd = i === lastIdx && !lastHasClosing ? b.end : b.end - 1;
+      return stitches.slice(b.start, contentEnd).map((s) => s.slice());
+    });
+
+    // Pool de tokens de COLOR_CHANGE "soltos": 1 por bloco não-último,
+    // sempre garantido (ver comentário acima) — exatamente n-1 tokens para
+    // as n-1 posições não-finais do resultado.
+    const pool = [];
+    for (let i = 0; i < lastIdx; i++) pool.push(stitches[blocks[i].end - 1]);
+
+    const newStitches = [];
+    let poolCursor = 0;
+    for (let pos = 0; pos < n; pos++) {
+      const originalIdx = order[pos];
+      for (const s of pureContents[originalIdx]) newStitches.push(s.slice());
+      if (pos < lastIdx) {
+        newStitches.push(pool[poolCursor].slice());
+        poolCursor++;
+      } else if (specialToken) {
+        newStitches.push(specialToken.slice());
+      }
+    }
+
+    const newThreads = order.map((originalIdx) => {
+      const ti = blocks[originalIdx].threadIndex;
+      return threads[ti] !== undefined ? threads[ti] : null;
+    });
+
+    return { stitches: newStitches, threads: newThreads };
+  }
+
+  return { deriveMergePlan, mergeBlock, splitBlock, deriveSwapPlan, swapAdjacentBlocks, applyColorOrder };
 })();
 
 if (typeof module !== 'undefined' && module.exports) {

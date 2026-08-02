@@ -18,6 +18,7 @@ const {
   hitRotateHandle,
   bboxIntersects,
   stripTrailingEnd,
+  deriveLocalBlocks,
 } = require('../src/renderer/objects');
 const C = require('../src/core/commands');
 
@@ -182,4 +183,32 @@ test('stripTrailingEnd: sem END no fim, devolve o array intacto', () => {
 
 test('stripTrailingEnd: array vazio não quebra', () => {
   assert.deepStrictEqual(stripTrailingEnd([]), []);
+});
+
+// ============================================================= issue #73
+
+// ----------------------------------------------------------- deriveLocalBlocks
+
+test('deriveLocalBlocks: divide por COLOR_CHANGE, threadIndex por posição, end exclusivo', () => {
+  const stitches = [
+    [0, 0, C.STITCH],
+    [1, 1, C.STITCH],
+    [2, 2, C.COLOR_CHANGE],
+    [3, 3, C.STITCH],
+    [4, 4, C.END],
+  ];
+  const blocks = deriveLocalBlocks(stitches);
+  assert.deepStrictEqual(blocks, [
+    { threadIndex: 0, start: 0, end: 3 },
+    { threadIndex: 1, start: 3, end: 5 },
+  ]);
+});
+
+test('deriveLocalBlocks: um bloco só (sem nenhum COLOR_CHANGE)', () => {
+  const stitches = [[0, 0, C.STITCH], [1, 1, C.STITCH], [1, 1, C.END]];
+  assert.deepStrictEqual(deriveLocalBlocks(stitches), [{ threadIndex: 0, start: 0, end: 3 }]);
+});
+
+test('deriveLocalBlocks: array vazio devolve lista vazia', () => {
+  assert.deepStrictEqual(deriveLocalBlocks([]), []);
 });

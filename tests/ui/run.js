@@ -178,6 +178,12 @@ function buildScenarioDefs(fx) {
       name: 'move-color-block-object',
       args: [`--svg-import=${SAMPLE_SVG_FOLHA}`, '--lang=pt-BR', `--stub-project-path=${fx.objectProjectPath}`],
     },
+    // issue #73: setas ▲/▼ INTERNAS a um objeto multi-bloco (troca 2 blocos
+    // dentro do MESMO objeto svg-shape, sem unidade vizinha nenhuma —
+    // exatamente o design do relatório original, onde nenhuma seta de
+    // borda aparecia). Não precisa de stub-project-path: não faz roundtrip
+    // de .bastidor (já coberto por move-color-block-object acima).
+    { name: 'move-color-block-inner', args: [`--svg-import=${SAMPLE_SVG_FOLHA}`, '--lang=pt-BR'] },
     {
       name: 'resize-keep-density',
       args: [`--open=${SAMPLE_XXX}`, '--lang=pt-BR', `--stub-save-paths=${fx.resizeBefore},${fx.resizeAfter}`],

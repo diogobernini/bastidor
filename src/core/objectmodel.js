@@ -63,6 +63,12 @@ function makeObject(type, source, stitchParams, blockCount) {
     stitchParams: stitchParams || null,
     transform: { rotation: 0 }, // rotação fica pra fase 3; presente só pro formato já ser estável
     blockCount: Math.max(1, Math.round(blockCount) || 1),
+    // params.colorOrder (issue #73): permutação dos índices de bloco
+    // ORIGINAIS deste objeto (0..blockCount-1), escolhida pelas setas ▲/▼
+    // INTERNAS do painel de Cores (ver moveColorBlockInUnit em renderer.js).
+    // null até a 1ª troca interna — ausente é tratado como identidade em
+    // qualquer lugar que lê colorOrder (ColorBlocks.applyColorOrder inclusive).
+    params: null,
   };
 }
 
@@ -426,11 +432,15 @@ function swapUnits(objects, blocks, stitches, threads, i) {
 }
 
 // Clone profundo de um objeto paramétrico (duplicar unidade, issue #29 fase
-// 3): source/stitchParams/transform são todos JSON-seguros (mesma premissa
-// de cloneDesignData em renderer.js), então JSON.parse(JSON.stringify(...))
-// basta. blockCount não muda (a cópia ocupa o mesmo nº de blocos que o
-// original; as threads correspondentes são clonadas à parte por quem
-// chama, igual às agulhadas).
+// 3): source/stitchParams/transform/params são todos JSON-seguros (mesma
+// premissa de cloneDesignData em renderer.js), então
+// JSON.parse(JSON.stringify(...)) basta. blockCount não muda (a cópia ocupa
+// o mesmo nº de blocos que o original; as threads correspondentes são
+// clonadas à parte por quem chama, igual às agulhadas). params (issue #73)
+// precisa do mesmo clone profundo que stitchParams — sem isto, duplicar um
+// objeto já reordenado faria a cópia compartilhar o MESMO array
+// colorOrder do original, e uma troca interna futura numa delas
+// contaminaria a outra.
 function cloneObject(object) {
   return {
     type: object.type,
@@ -438,6 +448,7 @@ function cloneObject(object) {
     stitchParams: object.stitchParams ? JSON.parse(JSON.stringify(object.stitchParams)) : null,
     transform: object.transform ? JSON.parse(JSON.stringify(object.transform)) : { rotation: 0 },
     blockCount: object.blockCount,
+    params: object.params ? JSON.parse(JSON.stringify(object.params)) : null,
   };
 }
 

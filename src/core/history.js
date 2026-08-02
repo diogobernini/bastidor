@@ -33,6 +33,19 @@
 //     // não precisam guardar mais nada além da posição, diferente de
 //     // mergeColorBlock/splitColorBlock (que guardam o stitch/thread
 //     // removidos porque a mutação não é simétrica).
+//   { type: 'moveColorBlockInUnit', upperIndex, objectIndex, localIndex, blockCount }
+//     // reordenar blocos de cor DENTRO de um objeto multi-bloco (issue #73,
+//     // setas ▲/▼ internas do painel de Cores): mesma troca adjacente e
+//     // simétrica de moveColorBlock (upperIndex, posição GLOBAL em
+//     // state.blocks) PLUS a troca correspondente em
+//     // design.objects[objectIndex].params.colorOrder nas posições LOCAIS
+//     // localIndex/localIndex+1 (dentro do objeto, 0..blockCount-1) — ver
+//     // applyInternalColorSwap em src/renderer/renderer.js, que faz as duas
+//     // mutações juntas. Também é sua própria inversa (mesmo op desfaz e
+//     // refaz): ao contrário do caminho de UNIDADE de moveColorBlock (que
+//     // usa 'snapshot' quando reordena entradas de objects[]), esta nunca
+//     // muda a FORMA de objects[] — só o campo params de uma entrada que já
+//     // existia —, por isso fica leve mesmo tocando em objects[].
 //   { type: 'transform',     kind, params }                      // ver invertTransform() abaixo
 //     - kind 'translate': params { dx, dy }
 //     - kind 'rotate90':  params { cx, cy, clockwise }
@@ -97,6 +110,11 @@ const History = (function () {
         // Troca adjacente: aplicar de novo na mesma posição desfaz (ver
         // comentário da união de tipos acima).
         return { type: 'moveColorBlock', upperIndex: op.upperIndex };
+      case 'moveColorBlockInUnit':
+        // Mesmo raciocínio de moveColorBlock, extendido ao par
+        // (upperIndex, localIndex) — aplicar de novo desfaz as duas trocas
+        // (stitches/threads E params.colorOrder) de uma vez.
+        return { type: 'moveColorBlockInUnit', upperIndex: op.upperIndex, objectIndex: op.objectIndex, localIndex: op.localIndex, blockCount: op.blockCount };
       case 'transform':
         return { type: 'transform', kind: op.kind, params: invertTransform(op.kind, op.params) };
       case 'snapshot':

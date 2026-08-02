@@ -477,3 +477,192 @@ function hasClosingCC(stitches, block) {
   if (block.end <= block.start) return false;
   return (stitches[block.end - 1][2] & C.COMMAND_MASK) === C.COLOR_CHANGE;
 }
+
+// ======================================================================
+// Aplicar uma ordem paramétrica (issue #73)
+// ======================================================================
+//
+// applyColorOrder generaliza swapBlocks (uma troca só, 2 blocos) pra uma
+// permutação ARBITRÁRIA dos blocos de UM objeto — usada por
+// src/renderer/objects.js pra reaplicar object.params.colorOrder na saída
+// fresca do gerador a cada regeneração paramétrica (resize).
+
+// Matriz de 2 cores terminando em END de verdade (mesmo cuidado das
+// fixtures de swapAdjacentBlocks: o desenho real sempre termina assim).
+function twoBlockDesignEndingInEND() {
+  const stitches = [
+    [0, 0, C.STITCH],
+    [1, 1, C.STITCH],
+    [2, 2, C.COLOR_CHANGE],
+    [3, 3, C.STITCH],
+    [4, 4, C.STITCH],
+    [5, 5, C.STITCH],
+    [5, 5, C.END],
+  ];
+  const threads = [{ color: '#111' }, { color: '#222' }];
+  return { stitches, threads };
+}
+
+// ------------------------------------------------------------- identidade
+
+test('applyColorOrder: order ausente (undefined/null) devolve stitches/threads equivalentes, sem mutar nada (no-op)', () => {
+  const { stitches, threads } = threeBlockDesign();
+  const blocks = deriveBlocks(stitches);
+
+  const r1 = ColorBlocks.applyColorOrder(stitches, threads, blocks, undefined);
+  assert.deepEqual(r1.stitches, stitches);
+  assert.deepEqual(r1.threads, threads);
+
+  const r2 = ColorBlocks.applyColorOrder(stitches, threads, blocks, null);
+  assert.deepEqual(r2.stitches, stitches);
+  assert.deepEqual(r2.threads, threads);
+});
+
+test('applyColorOrder: order igual à identidade [0,1,2] devolve stitches/threads equivalentes (byte a byte)', () => {
+  const { stitches, threads } = threeBlockDesign();
+  const stitchesBefore = stitches.map((s) => s.slice());
+  const threadsBefore = JSON.parse(JSON.stringify(threads));
+  const blocks = deriveBlocks(stitches);
+
+  const result = ColorBlocks.applyColorOrder(stitches, threads, blocks, [0, 1, 2]);
+  assert.deepEqual(result.stitches, stitchesBefore);
+  assert.deepEqual(result.threads, threadsBefore);
+
+  // Não mutou os originais (helper puro).
+  assert.deepEqual(stitches, stitchesBefore);
+  assert.deepEqual(threads, threadsBefore);
+});
+
+test('applyColorOrder: um bloco só (n=1) é sempre identidade, nunca lança', () => {
+  const stitches = [[0, 0, C.STITCH], [1, 1, C.END]];
+  const threads = [{ color: '#123' }];
+  const blocks = deriveBlocks(stitches);
+  const result = ColorBlocks.applyColorOrder(stitches, threads, blocks, [0]);
+  assert.deepEqual(result.stitches, stitches);
+  assert.deepEqual(result.threads, threads);
+});
+
+test('applyColorOrder: nenhum bloco (blocks vazio) devolve cópias vazias, sem lançar', () => {
+  const result = ColorBlocks.applyColorOrder([], [], [], [0]);
+  assert.deepEqual(result.stitches, []);
+  assert.deepEqual(result.threads, []);
+});
+
+// -------------------------------------------------------------- não muta
+
+test('applyColorOrder: não muta stitches/threads recebidos, mesmo numa permutação de verdade (helper puro)', () => {
+  const { stitches, threads } = threeBlockDesign();
+  const stitchesBefore = stitches.map((s) => s.slice());
+  const threadsBefore = JSON.parse(JSON.stringify(threads));
+  const blocks = deriveBlocks(stitches);
+
+  ColorBlocks.applyColorOrder(stitches, threads, blocks, [2, 0, 1]);
+
+  assert.deepEqual(stitches, stitchesBefore, 'stitches originais intactos');
+  assert.deepEqual(threads, threadsBefore, 'threads originais intactos');
+});
+
+// --------------------------------------------------------- troca simples
+
+test('applyColorOrder: troca simples [1,0] em 2 blocos bate com swapAdjacentBlocks, END preservado', () => {
+  const { stitches: sA, threads: tA } = twoBlockDesignEndingInEND();
+  const blocksA = deriveBlocks(sA);
+  const resultA = ColorBlocks.applyColorOrder(sA, tA, blocksA, [1, 0]);
+
+  const { stitches: sB, threads: tB } = twoBlockDesignEndingInEND();
+  const blocksB = deriveBlocks(sB);
+  ColorBlocks.swapAdjacentBlocks(sB, tB, blocksB, 0);
+
+  assert.deepEqual(resultA.stitches, sB, 'aplicar [1,0] de uma vez bate com swapAdjacentBlocks(upperIndex=0)');
+  assert.deepEqual(resultA.threads, tB);
+  assert.equal(resultA.stitches[resultA.stitches.length - 1][2] & C.COMMAND_MASK, C.END, 'END continua sendo o último stitch');
+  assert.equal(
+    resultA.stitches.filter((s) => (s[2] & C.COMMAND_MASK) === C.END).length,
+    1,
+    'exatamente 1 END no array inteiro'
+  );
+});
+
+// -------------------------------------------------------- permutação de 3
+
+test('applyColorOrder: permutação de 3 blocos [2,1,0] bate com a composição de 3 trocas adjacentes (threads/stitches coerentes)', () => {
+  const { stitches: stitchesA, threads: threadsA } = threeBlockDesignWithJumpsAndTrims();
+  const blocksA = deriveBlocks(stitchesA);
+  const resultA = ColorBlocks.applyColorOrder(stitchesA, threadsA, blocksA, [2, 1, 0]);
+
+  // (0,1,2) -swap(1)-> (0,2,1) -swap(0)-> (2,0,1) -swap(1)-> (2,1,0): a
+  // mesma permutação final, por composição da primitiva já testada acima.
+  const { stitches: stitchesB, threads: threadsB } = threeBlockDesignWithJumpsAndTrims();
+  let blocksB = deriveBlocks(stitchesB);
+  ColorBlocks.swapAdjacentBlocks(stitchesB, threadsB, blocksB, 1);
+  blocksB = deriveBlocks(stitchesB);
+  ColorBlocks.swapAdjacentBlocks(stitchesB, threadsB, blocksB, 0);
+  blocksB = deriveBlocks(stitchesB);
+  ColorBlocks.swapAdjacentBlocks(stitchesB, threadsB, blocksB, 1);
+
+  assert.deepEqual(resultA.stitches, stitchesB, 'aplicar a permutação de uma vez bate com a composição de trocas adjacentes');
+  assert.deepEqual(resultA.threads, threadsB);
+
+  // Prova independente: bloco 0 do resultado é o antigo bloco 2 (Verde, 2
+  // pontos simples); bloco 2 do resultado é o antigo bloco 0 (Vermelho,
+  // salto+corte+3 pontos).
+  const blocksAfter = deriveBlocks(resultA.stitches);
+  assert.equal(blocksAfter.length, 3);
+  assert.equal(resultA.threads[0].description, 'Verde');
+  assert.equal(resultA.threads[1].description, 'Azul', 'bloco do meio não envolvido na permutação (posição 1 -> original 1)');
+  assert.equal(resultA.threads[2].description, 'Vermelho');
+  const totalAfter = blocksAfter.reduce((sum, b) => sum + b.stitchCount, 0);
+  const totalBefore = deriveBlocks(threeBlockDesignWithJumpsAndTrims().stitches).reduce((sum, b) => sum + b.stitchCount, 0);
+  assert.equal(totalAfter, totalBefore, 'total de pontos conservado');
+});
+
+// ------------------------------------------------------------- END preservado
+
+test('applyColorOrder: permutação de 3 que move o bloco com END pra fora da última posição — END sempre no fim de verdade', () => {
+  const { stitches, threads } = threeBlockDesignEndingInEND(); // bloco 2 (último) fecha com END
+  const blocks = deriveBlocks(stitches);
+  const totalBefore = blocks.reduce((sum, b) => sum + b.stitchCount, 0);
+
+  // order=[2,0,1]: o bloco 2 (o que tinha o END) vira o PRIMEIRO da nova
+  // sequência — nada mais no fim, então precisa ganhar um COLOR_CHANGE; o
+  // bloco 1 vira o último e herda o END de verdade.
+  const result = ColorBlocks.applyColorOrder(stitches, threads, blocks, [2, 0, 1]);
+
+  assert.equal(
+    result.stitches[result.stitches.length - 1][2] & C.COMMAND_MASK,
+    C.END,
+    'o END continua sendo o último stitch do arquivo, não fica preso no meio'
+  );
+  assert.equal(result.stitches.filter((s) => (s[2] & C.COMMAND_MASK) === C.END).length, 1, 'exatamente 1 END no array inteiro');
+
+  const blocksAfter = deriveBlocks(result.stitches);
+  assert.equal(blocksAfter.length, 3, 'nenhum bloco sumiu ou surgiu');
+  const totalAfter = blocksAfter.reduce((sum, b) => sum + b.stitchCount, 0);
+  assert.equal(totalAfter, totalBefore, 'total de pontos conservado');
+
+  // bloco 0 do resultado = antigo bloco 2 (2 pontos) + CC (perdeu o END, virou não-último).
+  assert.equal(blocksAfter[0].stitchCount, 2);
+  assert.equal(hasClosingCC(result.stitches, blocksAfter[0]), true);
+  // bloco 1 do resultado = antigo bloco 0 (5 pontos) + CC.
+  assert.equal(blocksAfter[1].stitchCount, 5);
+  assert.equal(hasClosingCC(result.stitches, blocksAfter[1]), true);
+  // bloco 2 do resultado (novo último) = antigo bloco 1 (3 pontos) + END.
+  assert.equal(blocksAfter[2].stitchCount, 3);
+  assert.equal(blocksAfter[2].end, result.stitches.length);
+
+  // threads acompanham a nova ordem (posição i -> threadIndex do bloco original order[i]).
+  assert.equal(result.threads[0].color, '#4fc98a'); // era o bloco 2 (Verde)
+  assert.equal(result.threads[1].color, '#c94f4f'); // era o bloco 0 (Vermelho)
+  assert.equal(result.threads[2].color, '#4f7dc9'); // era o bloco 1 (Azul)
+});
+
+// -------------------------------------------------------------- validação
+
+test('applyColorOrder: order malformado (tamanho errado, duplicado, fora do intervalo) lança erro', () => {
+  const { stitches, threads } = threeBlockDesign();
+  const blocks = deriveBlocks(stitches);
+  assert.throws(() => ColorBlocks.applyColorOrder(stitches, threads, blocks, [0, 1]), 'tamanho errado (2 num design de 3)');
+  assert.throws(() => ColorBlocks.applyColorOrder(stitches, threads, blocks, [0, 0, 1]), 'índice duplicado');
+  assert.throws(() => ColorBlocks.applyColorOrder(stitches, threads, blocks, [0, 1, 3]), 'índice fora do intervalo');
+  assert.throws(() => ColorBlocks.applyColorOrder(stitches, threads, blocks, [0, 1, -1]), 'índice negativo');
+});
