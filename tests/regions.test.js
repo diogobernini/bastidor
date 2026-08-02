@@ -308,3 +308,39 @@ test('fillRegionsTatami: respeita startPoint pra decidir qual região vem primei
   assert.ok(fromNearA[0][0][0] <= 40 + 1e-6, 'partindo perto de A, a 1a corrida devia começar em A');
   assert.ok(fromNearB[0][0][0] >= 500 - 1e-6, 'partindo perto de B, a 1a corrida devia começar em B');
 });
+
+// ---------------------------------------------------------------- hotfixes
+
+test('anéis não laminares (se cruzam) não derrubam o agrupamento nem o fill', () => {
+  // Reprodução do "TypeError: ... (reading 'rings')" do digitize:generate:
+  // Y cruza X (amostra de Y cai dentro de X → profundidade ímpar) e Z está
+  // dentro APENAS de Y — o "contêiner imediato" de Z tinha profundidade
+  // ímpar, não era raiz de região nenhuma e o acesso caía em undefined.
+  const X = [[0, 0], [100, 0], [100, 100], [0, 100]];
+  const Y = [[60, 20], [160, 20], [160, 80], [60, 80]];
+  const Z = [[120, 40], [140, 40], [140, 60], [120, 60]];
+  const regs = groupRingsIntoRegions([X, Y, Z]);
+  assert.ok(regs.length >= 2, 'agrupou sem derrubar');
+  const runs = fillRegionsTatami([X, Y, Z], { rowSpacing: 4, stitchLength: 30 });
+  assert.ok(runs.length > 0, 'preencheu sem exceção');
+});
+
+test('corridas gigantes não estouram a pilha (sem spread em push)', () => {
+  // Reprodução do "RangeError: Maximum call stack size exceeded" do
+  // svg:import: corridas com dezenas de milhares de pontos coladas com
+  // push(...run) estouram o limite de argumentos do V8.
+  const big = (offset) => Array.from({ length: 150000 }, (_, i) => [offset + i * 0.01, 0]);
+  const a = big(0);
+  const b = big(a[a.length - 1][0]); // começa onde a termina (gap 0)
+  b[0] = a[a.length - 1].slice();
+  const out = coalesceZeroGapRuns([a, b]);
+  assert.equal(out.length, 1);
+  assert.equal(out[0].length, 299999);
+});
+
+test('retângulo grande e denso digitaliza inteiro sem exceção', () => {
+  const rect = [[0, 0], [3000, 0], [3000, 3000], [0, 3000]];
+  const runs = fillRegionsTatami([rect], { rowSpacing: 4, stitchLength: 30 });
+  const total = runs.reduce((s, r) => s + r.length, 0);
+  assert.ok(total > 60000, `esperava corrida gigante, veio ${total}`);
+});

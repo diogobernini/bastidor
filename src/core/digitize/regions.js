@@ -47,6 +47,14 @@ function dist(a, b) {
   return Math.hypot(a[0] - b[0], a[1] - b[1]);
 }
 
+// Anexa os pontos de src em dst SEM spread: `push(...src)` passa cada ponto
+// como argumento e estoura a pilha do V8 quando uma corrida tem dezenas de
+// milhares de pontos (um SVG denso importado sem escala derrubava o app com
+// "RangeError: Maximum call stack size exceeded" no connectRuns).
+function appendRun(dst, src, startIndex) {
+  for (let i = startIndex || 0; i < src.length; i++) dst.push(src[i]);
+}
+
 // Mesma normalização de entrada que fill.fillPolygonsTatami já faz: aceita
 // tanto [{points:[...]}] quanto [[...pontos...]] direto.
 function normalizeRings(polygons) {
@@ -187,13 +195,19 @@ function groupRingsIntoRegions(polygons) {
     depth[i] = list.length;
   }
 
-  // Contêiner imediato = o de maior profundidade entre os que contêm o
-  // anel (o mais interno da cadeia de contenção).
+  // Contêiner imediato = o mais profundo ENTRE OS DE PROFUNDIDADE PAR (ou
+  // seja, uma raiz de região). Com anéis laminares dá no mesmo (o contêiner
+  // imediato de um furo tem sempre profundidade d-1, par); com geometria
+  // suja do mundo real (contornos do marching squares que se tocam ou se
+  // cruzam, profundidades "puladas") o mais profundo podia ser ímpar, o
+  // furo ficava sem região e a digitalização caía com
+  // "TypeError: Cannot read properties of undefined (reading 'rings')".
   const parent = new Array(n).fill(-1);
   for (let i = 0; i < n; i++) {
     let best = -1;
     let bestDepth = -1;
     for (const j of containers[i]) {
+      if (depth[j] % 2 !== 0) continue;
       if (depth[j] > bestDepth) {
         bestDepth = depth[j];
         best = j;
@@ -212,10 +226,18 @@ function groupRingsIntoRegions(polygons) {
   }
   for (let i = 0; i < n; i++) {
     if (depth[i] % 2 === 1) {
-      const regionIdx = regionIndexByRoot.get(parent[i]);
-      const region = regions[regionIdx];
-      region.rings.push(rings[i]);
-      region.holeIndices.push(i);
+      const regionIdx = parent[i] >= 0 ? regionIndexByRoot.get(parent[i]) : undefined;
+      const region = regionIdx !== undefined ? regions[regionIdx] : undefined;
+      if (region) {
+        region.rings.push(rings[i]);
+        region.holeIndices.push(i);
+      } else {
+        // Nenhuma raiz contém este anel (anéis não laminares): preencher o
+        // anel como região própria degrada com elegância, em vez de
+        // derrubar a digitalização inteira.
+        regionIndexByRoot.set(i, regions.length);
+        regions.push({ rings: [rings[i]], outerIndex: i, holeIndices: [] });
+      }
     }
   }
   return regions;
@@ -588,12 +610,12 @@ function connectRuns(runs, region, stitchLength, findJunctionTravel) {
     if (gap <= EPS) {
       // Pontos praticamente coincidentes: cola sem duplicar (e sem deixar
       // nenhum salto de distância zero no meio do caminho).
-      cur.push(...nextRun.slice(1));
+      appendRun(cur, nextRun, 1);
       continue;
     }
 
     if (gap <= stitchLength && isStraightSegmentInside(from, to, region, stitchLength)) {
-      cur.push(...nextRun);
+      appendRun(cur, nextRun);
       continue;
     }
 
@@ -604,7 +626,8 @@ function connectRuns(runs, region, stitchLength, findJunctionTravel) {
       travel = findTravelPath(from, to, region, stitchLength);
     }
     if (travel && !exceedsTravelCeiling(from, to, travel)) {
-      cur.push(...travel, ...nextRun);
+      appendRun(cur, travel);
+      appendRun(cur, nextRun);
     } else {
       merged.push(nextRun.slice());
     }
@@ -673,7 +696,7 @@ function coalesceZeroGapRuns(runs) {
     const from = cur[cur.length - 1];
     const to = run[0];
     if (dist(from, to) <= EPS) {
-      cur.push(...run.slice(1));
+      appendRun(cur, run, 1);
     } else {
       out.push(run.slice());
     }
