@@ -9,7 +9,7 @@
 // tudo) -> pathsToPattern (ponto corrido pelos contornos).
 
 const { Pattern } = require('../pattern');
-const fill = require('./fill');
+const regions = require('./regions');
 const runstitch = require('./runstitch');
 
 // ------------------------------------------------------------ quantização
@@ -382,14 +382,19 @@ function pathsToPattern(paths, options = {}) {
   }
 
   visible.forEach((p, pi) => {
-    // Todos os anéis da cor entram juntos no preenchimento: o par-ímpar das
-    // varreduras (spansAtY) é o que preserva os furos (contornos internos).
+    // Todos os anéis da cor entram no preenchimento; fillRegionsTatami
+    // (issue #67, src/core/digitize/regions.js) separa em regiões conexas
+    // por contenção par-ímpar (contorno externo + furos) antes de varrer —
+    // um contorno traçado por marching squares pode ter várias ilhas da
+    // mesma cor, e cada uma é preenchida e fechada por vez, na ordem de
+    // vizinho mais próximo a partir de onde a agulha está.
     const rings = p.contours.map((ct) => ct.map(([x, y]) => [x * scale, y * scale]));
     if (doFill) {
-      emitRuns(fill.fillPolygonsTatami(rings, {
+      emitRuns(regions.fillRegionsTatami(rings, {
         angleDeg: fillAngle,
         rowSpacing: fillSpacing,
         stitchLength: fillStitch,
+        startPoint: pattern.currentPosition(),
       }));
     }
     if (outline) {

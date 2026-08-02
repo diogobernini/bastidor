@@ -7,6 +7,7 @@
 const { Pattern } = require('../pattern');
 const svgimport = require('./svgimport');
 const fill = require('./fill');
+const regions = require('./regions');
 const runstitch = require('./runstitch');
 
 const MM = 10; // 1 mm = 10 unidades internas (0,1 mm)
@@ -57,10 +58,16 @@ function importSvg(svgText, opts = {}) {
   let started = false;
 
   for (const { color, rings } of cfg.fill === false ? [] : groups.fills) {
-    const runs = fill.fillPolygonsTatami(rings, {
+    // fillRegionsTatami (issue #67): agrupa os anéis dessa cor em regiões
+    // conexas e preenche uma por vez, em vez de varrer todos os anéis (que
+    // podem ser ilhas desconexas) numa scanline global só — ver
+    // src/core/digitize/regions.js. startPoint parte de onde a agulha
+    // realmente está (fim do bloco de cor anterior, ou [0,0] no primeiro).
+    const runs = regions.fillRegionsTatami(rings, {
       angleDeg: cfg.fillAngleDeg,
       rowSpacing: cfg.fillSpacingMm * MM,
       stitchLength: cfg.fillStitchMm * MM,
+      startPoint: pattern.currentPosition(),
     });
     if (!runs.length) continue;
     if (started) pattern.colorChange();
@@ -106,6 +113,9 @@ module.exports = {
   importSvg,
   parseSvgToShapeGroups: svgimport.parseSvgToShapeGroups,
   fillPolygonsTatami: fill.fillPolygonsTatami,
+  fillRegionsTatami: regions.fillRegionsTatami,
+  groupRingsIntoRegions: regions.groupRingsIntoRegions,
+  orderRegionsByProximity: regions.orderRegionsByProximity,
   resampleRunStitch: runstitch.resampleRunStitch,
   svgpath: require('./svgpath'),
 };
