@@ -24,6 +24,7 @@
 // começar a próxima" é a mesma de qualquer slicer de impressão 3D comum.
 
 const fill = require('./fill');
+const sections = require('./sections');
 
 const EPS = 1e-6;
 // Folga para o ponto de travel "colar" numa aresta da região: absorve o
@@ -31,6 +32,16 @@ const EPS = 1e-6;
 // (rotatePoint/unrotatePoint), bem maior que o erro esperado (~1e-10 pra
 // coordenadas nesta faixa) e bem menor que qualquer agulhada real.
 const BOUNDARY_EPS = 1e-2;
+
+// Teto de travel (issue #69 item 3): um travel só vale a pena se for
+// mesmo "quase direto". Sem teto, um travel podia serpentear a borda de
+// uma região grande por centenas de unidades pra evitar um salto de poucos
+// mm — pior pro resultado final (mais agulhadas, mais tempo de máquina) do
+// que só saltar. Rejeita (devolve pro chamador usar salto) se o caminho
+// passar de 150 unidades (15mm em 0,1mm) OU de 3x a distância direta entre
+// as pontas — o que for mais restritivo.
+const TRAVEL_MAX_UNITS = 150;
+const TRAVEL_MAX_RATIO = 3;
 
 function dist(a, b) {
   return Math.hypot(a[0] - b[0], a[1] - b[1]);
@@ -272,6 +283,105 @@ function orderRegionsByProximity(regions, startPoint) {
   return ordered;
 }
 
+// Menor distância entre a borda de duas regiões: mínimo, dos dois lados,
+// de "vértice de uma região" até "aresta mais próxima da outra" — a
+// distância mínima entre dois polígonos simples sempre ocorre num par
+// vértice-aresta (nunca no interior de duas arestas, a menos que sejam
+// paralelas encostadas, e mesmo aí as pontas capturam o mínimo). Simétrica
+// e independente de "por onde se chega" — exatamente o que o 2-opt precisa
+// pra comparar trocas sem ter que preencher a região de fato pra saber onde
+// a agulha realmente entraria.
+function regionsDistance(a, b) {
+  let best = Infinity;
+  for (const ring of a.rings) {
+    for (const v of ring) {
+      const { dist: d } = closestPointOnRegion(v, b);
+      if (d < best) best = d;
+    }
+  }
+  for (const ring of b.rings) {
+    for (const v of ring) {
+      const { dist: d } = closestPointOnRegion(v, a);
+      if (d < best) best = d;
+    }
+  }
+  return best;
+}
+
+// Passe 2-opt clássico sobre uma sequência (caminho, não ciclo — a agulha
+// não precisa voltar pro início): repete até não achar mais troca que
+// melhore, ou até maxIterations. `distFn.fromStart(i)` é o custo de partir
+// do ponto inicial pro item i; `distFn.between(i,j)` é o custo item i -> item
+// j. Uma troca 2-opt reverte o trecho seq[i..j]; só as DUAS arestas de
+// borda desse trecho mudam de custo (as internas só trocam de sentido, e a
+// distância usada aqui é simétrica), então cada candidato é O(1) pra
+// avaliar dado o cache de distâncias.
+function twoOptImprove(seq, distFn) {
+  const order = seq.slice();
+  const n = order.length;
+  let improved = true;
+  let iterations = 0;
+  const maxIterations = 200;
+  while (improved && iterations < maxIterations) {
+    improved = false;
+    iterations++;
+    for (let i = 0; i < n - 1; i++) {
+      for (let j = i + 1; j < n; j++) {
+        const oldBefore = i === 0 ? distFn.fromStart(order[i]) : distFn.between(order[i - 1], order[i]);
+        const oldAfter = j === n - 1 ? 0 : distFn.between(order[j], order[j + 1]);
+        const newBefore = i === 0 ? distFn.fromStart(order[j]) : distFn.between(order[i - 1], order[j]);
+        const newAfter = j === n - 1 ? 0 : distFn.between(order[i], order[j + 1]);
+        if (newBefore + newAfter < oldBefore + oldAfter - EPS) {
+          let lo = i;
+          let hi = j;
+          while (lo < hi) {
+            const tmp = order[lo];
+            order[lo] = order[hi];
+            order[hi] = tmp;
+            lo++;
+            hi--;
+          }
+          improved = true;
+        }
+      }
+    }
+  }
+  return order;
+}
+
+// Ordena regiões pelo greedy de sempre e então refina com um passe 2-opt
+// (issue #69 item 4): o vizinho-mais-próximo greedy é míope — perto do fim
+// pode sobrar só a região mais longe de tudo, obrigando um salto que
+// atravessa o desenho inteiro pra alcançá-la. 2-opt corrige exatamente esse
+// tipo de "cruzamento": acha um par de trechos da sequência cuja troca (via
+// reversão) reduz a distância total, sem mudar QUAIS regiões entram, só a
+// ORDEM. Com <=2 regiões não há troca possível que mude nada — devolve o
+// greedy como está.
+function orderRegionsWithTwoOpt(regions, startPoint) {
+  const greedyOrder = orderRegionsByProximity(regions, startPoint);
+  if (greedyOrder.length <= 2) return greedyOrder;
+
+  const start = startPoint || [0, 0];
+  const distCache = new Map();
+  function pairDist(i, j) {
+    const key = i < j ? i + ':' + j : j + ':' + i;
+    let d = distCache.get(key);
+    if (d === undefined) {
+      d = regionsDistance(greedyOrder[i], greedyOrder[j]);
+      distCache.set(key, d);
+    }
+    return d;
+  }
+  const distFn = {
+    fromStart: (i) => closestPointOnRegion(start, greedyOrder[i]).dist,
+    between: (i, j) => pairDist(i, j),
+  };
+
+  const initial = greedyOrder.map((_, i) => i);
+  const optimized = twoOptImprove(initial, distFn);
+  return optimized.map((i) => greedyOrder[i]);
+}
+
 // -------------------------------------------------------- 3) travel sem salto
 
 // Nº de segmentos <= stitchLength pra cobrir `total` de distância
@@ -400,24 +510,46 @@ function findTravelPath(from, to, region, stitchLength) {
   return tryBoundaryWalkTravel(from, to, region, stitchLength);
 }
 
-// ------------------------------------------------- preencher UMA região
+// Soma o comprimento real de from -> ...path... -> to (não a distância
+// direta): um travel pela borda pode ziguezaguear bem mais que a linha reta
+// entre as pontas, e é esse comprimento percorrido que conta como fio/tempo
+// de máquina extra, não o quanto from/to estão próximos entre si.
+function travelPathLength(from, to, path) {
+  let total = 0;
+  let prev = from;
+  for (const p of path) {
+    total += dist(prev, p);
+    prev = p;
+  }
+  total += dist(prev, to);
+  return total;
+}
 
-// Preenche uma única região com o scanline serpentina existente (reaproveita
-// fill.fillPolygonsTatami tal como está, sem alterar o algoritmo de
-// varredura) e reduz os saltos ENTRE as corridas que saíram dessa MESMA
-// região: corridas cuja distância já está a um comprimento de ponto ou
-// menos colam direto (igual ao merge de fileira que o próprio fill.js já
-// faz); mais que isso, tenta o travel (reta ou borda, findTravelPath); só
-// quando nada disso serve é que o salto de hoje permanece.
-function fillRegion(region, opts) {
-  const stitchLength = opts.stitchLength > 0 ? opts.stitchLength : 30;
-  const rawRuns = fill.fillPolygonsTatami(region.rings, opts);
-  if (rawRuns.length <= 1) return rawRuns;
+// Teto de travel (issue #69 item 3, ver TRAVEL_MAX_UNITS/TRAVEL_MAX_RATIO):
+// rejeita um travel válido (achado por findTravelPath) se ele for longo
+// demais em absoluto OU longo demais frente à distância direta — nesses
+// casos um salto reto é preferível (menos agulhadas, mesmo cruzando por
+// fora da região por um instante, o que é aceitável pra um JUMP).
+function exceedsTravelCeiling(from, to, path) {
+  const direct = dist(from, to);
+  const length = travelPathLength(from, to, path);
+  return length > TRAVEL_MAX_UNITS || length > direct * TRAVEL_MAX_RATIO;
+}
 
-  const merged = [rawRuns[0].slice()];
-  for (let k = 1; k < rawRuns.length; k++) {
-    const nextRun = rawRuns[k];
-    if (!nextRun.length) continue;
+// Liga uma sequência de corridas (já prontas, cada uma sua própria
+// serpentina) numa lista de corridas finais, tentando reduzir o número de
+// saltos: gap ~0 cola sem duplicar ponto; gap <= stitchLength cola direto
+// (agulhada normal, sem travel); senão tenta findTravelPath (sujeito ao
+// teto); só quando nada disso serve é que abre corrida nova (salto).
+// Compartilhada entre o fluxo de seções (fillRegion) e qualquer chamador
+// futuro que precise ligar corridas dentro da mesma região.
+function connectRuns(runs, region, stitchLength) {
+  const nonEmpty = runs.filter((r) => r && r.length);
+  if (nonEmpty.length === 0) return [];
+
+  const merged = [nonEmpty[0].slice()];
+  for (let k = 1; k < nonEmpty.length; k++) {
+    const nextRun = nonEmpty[k];
     const cur = merged[merged.length - 1];
     const from = cur[cur.length - 1];
     const to = nextRun[0];
@@ -431,7 +563,7 @@ function fillRegion(region, opts) {
       cur.push(...nextRun);
     } else {
       const travel = findTravelPath(from, to, region, stitchLength);
-      if (travel) {
+      if (travel && !exceedsTravelCeiling(from, to, travel)) {
         cur.push(...travel, ...nextRun);
       } else {
         merged.push(nextRun.slice());
@@ -439,6 +571,39 @@ function fillRegion(region, opts) {
     }
   }
   return merged;
+}
+
+// ------------------------------------------------- preencher UMA região
+
+// Preenche uma única região decompondo-a em seções monotônicas (issue #69,
+// sections.js): cada galho do desenho (tronco, cada perna, cada braço, a
+// cabeça) é uma seção própria, costurada por dentro como uma serpentina
+// completa (buildSectionRun) sem nenhum travel/salto interno. A ORDEM entre
+// seções segue o grafo de junções (split/merge) em DFS a partir da mais
+// próxima da agulha (orderSectionsByGraph); a LIGAÇÃO entre seções vizinhas
+// reaproveita connectRuns — como a última fileira de uma seção e a fileira
+// de junção da outra sempre se sobrepõem em X (é assim que a aresta nasceu
+// em decomposeSections), o travel entre elas é curto por construção; fora
+// das junções (voltando de um galho pra visitar o próximo na ordem do DFS)
+// o teto de travel decide entre travel curto ou salto.
+function fillRegion(region, opts) {
+  const stitchLength = opts.stitchLength > 0 ? opts.stitchLength : 30;
+  const { sections: secs, edges } = sections.decomposeSections(region, opts);
+  if (secs.length === 0) return [];
+
+  const builtRuns = secs.map((sec) => sections.buildSectionRun(sec));
+  const startPoint = opts.startPoint || [0, 0];
+  const order = sections.orderSectionsByGraph(builtRuns, edges, startPoint);
+  // Cada seção pode ser percorrida em qualquer direção sem quebrar sua
+  // própria serpentina interna (ver comentário de closerEnd em sections.js);
+  // orderSectionsByGraph já escolheu, pra cada uma, a orientação que encosta
+  // mais perto da posição corrente — aqui só materializa isso invertendo o
+  // array de pontos quando `reversed` for true.
+  const orderedRuns = order.map(({ index, reversed }) =>
+    reversed ? builtRuns[index].slice().reverse() : builtRuns[index]
+  );
+
+  return connectRuns(orderedRuns, region, stitchLength);
 }
 
 // -------------------------------------------- nunca deixar salto de distância zero
@@ -474,21 +639,32 @@ function coalesceZeroGapRuns(runs) {
 
 // ------------------------------------------------------------- orquestrador
 
-// Fluxo completo "por objeto": agrupa em regiões, ordena por proximidade a
-// partir de opts.startPoint (posição atual da agulha; default [0,0]),
-// preenche e liga cada região por vez, e só então passa pra próxima — igual
-// a um slicer de impressão 3D. Entre regiões o salto é inevitável (são áreas
-// desconexas de verdade), mas fica só ~1 por região, não mais ~2 por fileira
-// cruzando de uma pra outra e voltando; e nunca um salto de distância zero
-// (coalesceZeroGapRuns).
+// Fluxo completo "por objeto": agrupa em regiões, ordena por proximidade e
+// refina com 2-opt a partir de opts.startPoint (posição atual da agulha;
+// default [0,0]; issue #69 item 4 — corrige o salto que a ordem greedy
+// sozinha às vezes cria atravessando o desenho), preenche e liga cada
+// região por vez, e só então passa pra próxima — igual a um slicer de
+// impressão 3D. A posição da agulha é atualizada região a região (fim da
+// última corrida de uma vira o startPoint da próxima), pra que a escolha da
+// seção inicial DENTRO de cada região (fillRegion -> sections.
+// orderSectionsByGraph) também parta de onde a agulha está de fato, não só
+// da posição anterior a todo o bloco. Entre regiões o salto é inevitável
+// (são áreas desconexas de verdade), mas fica só ~1 por região, não mais ~2
+// por fileira cruzando de uma pra outra e voltando; e nunca um salto de
+// distância zero (coalesceZeroGapRuns).
 function fillRegionsTatami(polygons, opts = {}) {
   const regions = groupRingsIntoRegions(polygons);
   if (regions.length === 0) return [];
-  const ordered = orderRegionsByProximity(regions, opts.startPoint);
+  const ordered = orderRegionsWithTwoOpt(regions, opts.startPoint);
   const runs = [];
+  let needle = opts.startPoint || [0, 0];
   for (const region of ordered) {
-    for (const run of fillRegion(region, opts)) {
-      if (run.length) runs.push(run);
+    const regionOpts = Object.assign({}, opts, { startPoint: needle });
+    for (const run of fillRegion(region, regionOpts)) {
+      if (run.length) {
+        runs.push(run);
+        needle = run[run.length - 1];
+      }
     }
   }
   return coalesceZeroGapRuns(runs);
@@ -497,7 +673,11 @@ function fillRegionsTatami(polygons, opts = {}) {
 module.exports = {
   groupRingsIntoRegions,
   orderRegionsByProximity,
+  orderRegionsWithTwoOpt,
+  regionsDistance,
   findTravelPath,
+  exceedsTravelCeiling,
+  connectRuns,
   isInsideRegion,
   fillRegion,
   fillRegionsTatami,
