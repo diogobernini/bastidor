@@ -579,6 +579,7 @@ function svgImportOpts() {
   const opts = {
     fillSpacingMm: clampNum($('svgimport-spacing').value, 0.1, 2, 0.4),
     fillAngleDeg: clampNum($('svgimport-angle').value, -180, 180, 0),
+    autoAngle: $('svgimport-autoangle').checked,
     fillStitchMm: clampNum($('svgimport-fillstitch').value, 1, 8, 3),
     outlineStitchMm: clampNum($('svgimport-outlinestitch').value, 0.5, 8, 2.5),
     outline: $('svgimport-outline').checked,
@@ -668,6 +669,7 @@ function bindSvgImportDialog() {
   }
   $('svgimport-outline').addEventListener('change', queueSvgPreview);
   $('svgimport-fill').addEventListener('change', queueSvgPreview);
+  $('svgimport-autoangle').addEventListener('change', queueSvgPreview);
 }
 
 // --------------------------------------------------------------- atalhos de teclado (issue #38)
@@ -833,6 +835,7 @@ function digitizeRawParams() {
     fill: $('dig-fill').checked,
     fillSpacingMm: clampNum($('dig-fillspacing').value, 0.1, 2, 0.4),
     fillAngleDeg: clampNum($('dig-fillangle').value, -180, 180, 0),
+    autoAngle: $('dig-autoangle').checked,
     fillStitchMm: clampNum($('dig-fillstitch').value, 1, 8, 3),
     name: digitize.name,
   };
@@ -914,6 +917,7 @@ async function openDigitizeWith(picked) {
     $('dig-outline').checked = true;
     $('dig-fillspacing').value = 0.4;
     $('dig-fillangle').value = 0;
+    $('dig-autoangle').checked = true;
     $('dig-fillstitch').value = 3;
     updateDigitizeSummary();
     runDigitizePreview();
@@ -976,7 +980,7 @@ function bindDigitizeDialog() {
   for (const id of ['dig-tolerance', 'dig-stitchlen', 'dig-fillspacing', 'dig-fillangle', 'dig-fillstitch']) {
     $(id).addEventListener('input', queueDigitizeStitchPreview);
   }
-  for (const id of ['dig-fill', 'dig-outline', 'dig-ignorebg']) {
+  for (const id of ['dig-fill', 'dig-outline', 'dig-ignorebg', 'dig-autoangle']) {
     $(id).addEventListener('change', queueDigitizeStitchPreview);
   }
   // Não deixa o <form method="dialog"> fechar o modal por conta própria: se o

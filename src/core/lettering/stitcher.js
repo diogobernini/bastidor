@@ -98,6 +98,12 @@ function emitFillGlyph(pattern, placed, opts) {
       angleDeg: opts.fillAngleDeg,
       rowSpacing: opts.fillSpacingUnits,
       stitchLength: opts.fillStitchUnits,
+      // Ângulo automático por região (issue #70) é opt-in por chamador: o
+      // texto (Ferramenta "Texto", TTF) não pediu esse recurso nem ganhou
+      // checkbox no diálogo — só importSvg/pathsToPattern (issue #70). Sem
+      // isso aqui, glifos finos e altos ("l", "1", a perna do "h") herdariam
+      // o padrão true do núcleo e mudariam de ângulo sem o usuário pedir.
+      autoAngle: false,
       startPoint: pattern.currentPosition(),
     }
   );

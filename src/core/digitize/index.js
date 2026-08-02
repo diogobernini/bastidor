@@ -19,6 +19,11 @@ const DEFAULTS = {
   outlineStitchMm: 2.5,
   outline: true,
   fill: true,
+  // Ângulo automático por região (issue #70): ver src/core/digitize/regions.js
+  // (resolveFillOpts) e axis.js. Padrão true — só opts.autoAngle === false
+  // desliga e volta ao ângulo global (fillAngleDeg) puro, byte a byte igual
+  // ao comportamento anterior a esta issue.
+  autoAngle: true,
 };
 
 // Escala toda a geometria para a largura final pedida ANTES de costurar:
@@ -67,6 +72,7 @@ function importSvg(svgText, opts = {}) {
       angleDeg: cfg.fillAngleDeg,
       rowSpacing: cfg.fillSpacingMm * MM,
       stitchLength: cfg.fillStitchMm * MM,
+      autoAngle: cfg.autoAngle,
       startPoint: pattern.currentPosition(),
     });
     if (!runs.length) continue;

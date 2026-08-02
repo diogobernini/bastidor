@@ -225,3 +225,53 @@ test('importSvg: SVG vazio ou sem forma visível devolve Pattern sem pontos', ()
   assert.equal(pattern.countStitches(), 0);
   assert.equal(pattern.threadlist.length, 0);
 });
+
+// ------------------------------------------- ângulo automático por região (#70)
+
+test('importSvg: repassa opts.autoAngle pro núcleo (regions.fillRegionsTatami), com padrão true quando omitido', () => {
+  // Espiona a chamada real (mesma instância de módulo que index.js usa via
+  // require) em vez de reconstruir a lógica de ângulo aqui — o que importa
+  // neste nível é só a FIAÇÃO (opts chega inalterado), a semântica do
+  // ângulo em si já está coberta em tests/regions.test.js e tests/axis.test.js.
+  const regionsMod = require('../src/core/digitize/regions');
+  const original = regionsMod.fillRegionsTatami;
+  const seenAutoAngle = [];
+  regionsMod.fillRegionsTatami = (polygons, opts) => {
+    seenAutoAngle.push(opts.autoAngle);
+    return original(polygons, opts);
+  };
+  const svgText = fs.readFileSync(path.join(__dirname, '..', 'samples', 'folha.svg'), 'utf8');
+  try {
+    importSvg(svgText, {}); // nada pedido -> DEFAULTS.autoAngle (true)
+    importSvg(svgText, { autoAngle: false });
+    importSvg(svgText, { autoAngle: true });
+  } finally {
+    regionsMod.fillRegionsTatami = original; // restaura mesmo se uma asserção acima falhar
+  }
+  assert.deepEqual(seenAutoAngle, [true, false, true]);
+});
+
+test('importSvg: autoAngle muda o preenchimento de uma forma alongada (rotacionada); numa forma "redonda" (folha.svg) não faz diferença', () => {
+  // Barra 10x100mm rotacionada 20° (fill preto padrão, sem stroke) — anel
+  // externo alongado (~6:1 de contorno, acima do limiar de 3:1), então
+  // autoAngle tem efeito real aqui.
+  const barSvg =
+    '<svg xmlns="http://www.w3.org/2000/svg" width="100mm" height="100mm" viewBox="0 0 100 100">' +
+    '<rect x="45" y="0" width="10" height="100" transform="rotate(20 50 50)"/>' +
+    '</svg>';
+
+  const withAuto = importSvg(barSvg, { fillAngleDeg: 0 }); // autoAngle padrão (true)
+  const withoutAuto = importSvg(barSvg, { fillAngleDeg: 0, autoAngle: false });
+  assert.notDeepStrictEqual(
+    withAuto.stitches,
+    withoutAuto.stitches,
+    'autoAngle deveria produzir agulhadas diferentes de manter o ângulo pedido (0) numa barra alongada'
+  );
+
+  // folha.svg (aspecto de contorno ~1,6, testado em axis.test.js/regions.test.js
+  // indiretamente) fica abaixo do limiar — autoAngle não deveria mudar nada.
+  const leafSvg = fs.readFileSync(path.join(__dirname, '..', 'samples', 'folha.svg'), 'utf8');
+  const leafAuto = importSvg(leafSvg, {});
+  const leafNoAuto = importSvg(leafSvg, { autoAngle: false });
+  assert.deepStrictEqual(leafAuto.stitches, leafNoAuto.stitches, 'folha.svg está abaixo do limiar; autoAngle não deveria alterar nada');
+});

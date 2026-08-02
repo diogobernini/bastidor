@@ -458,6 +458,9 @@ function rasterOptsFromParams(params, imageWidthPx) {
     fillSpacingMm: params.fillSpacingMm,
     fillAngleDeg: params.fillAngleDeg,
     fillStitchMm: params.fillStitchMm,
+    // Ângulo automático por região (issue #70): padrão true, só
+    // params.autoAngle === false desliga (ver raster.js/regions.js).
+    autoAngle: params.autoAngle !== false,
     name: params.name,
   };
 }

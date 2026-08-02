@@ -594,7 +594,13 @@ test('connectRuns: aplica o mesmo teto de travel usado nas seções (função co
 
 test('fillRegion: região simples de 1 seção (ex. uma "perna") entra pela ponta mais próxima da agulha, nunca pela oposta', () => {
   const leg = [[0, 0], [40, 0], [40, 400], [0, 400]];
-  const opts = { angleDeg: 0, rowSpacing: 4, stitchLength: 30 };
+  // autoAngle:false — este teste é sobre orderSectionsByGraph/closerEnd
+  // (por onde a costura ENTRA), não sobre o ângulo automático da issue #70;
+  // a "perna" (10:1) alinharia sozinha ao próprio eixo se autoAngle ficasse
+  // no padrão (true), trocando as fileiras horizontais por verticais e
+  // invalidando a comparação abaixo, que depende de sobrar MAIS de uma
+  // fileira na direção Y pra fazer sentido "entrar por cima" x "por baixo".
+  const opts = { angleDeg: 0, rowSpacing: 4, stitchLength: 30, autoAngle: false };
 
   const fromTop = fillRegion({ rings: [leg] }, { ...opts, startPoint: [20, 0] });
   assert.ok(dist(fromTop[0][0], [20, 0]) < dist(fromTop[0][0], [20, 400]), 'entrando por perto do topo, deveria começar por lá');
@@ -638,7 +644,11 @@ test('fillRegionsTatami: salto entre uma região "barra" e uma região "perna" p
   // do boneco em cores/blocos diferentes na arte real.
   const bar = [[0, -50], [40, -50], [40, -10], [0, -10]];
   const leg = [[0, 0], [40, 0], [40, 400], [0, 400]];
-  const opts = { angleDeg: 0, rowSpacing: 4, stitchLength: 30 };
+  // autoAngle:false — mesma razão do teste "fillRegion: região simples de 1
+  // seção" acima: este teste é sobre o salto ENTRE regiões, não sobre a
+  // issue #70, e a "perna" (10:1) alinharia sozinha ao próprio eixo no
+  // padrão (true), trocando a geometria de fileiras que a asserção assume.
+  const opts = { angleDeg: 0, rowSpacing: 4, stitchLength: 30, autoAngle: false };
 
   const runs = fillRegionsTatami([{ points: bar }, { points: leg }], { ...opts, startPoint: [20, -60] });
   assert.equal(runs.length, 2);
