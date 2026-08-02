@@ -307,9 +307,72 @@ function orderSectionsByGraph(runs, edges, startPoint) {
   return order;
 }
 
+// --------------------------------------------- 4) travel pela fileira de junção
+
+// Anda ao longo de UMA fileira (seus pontos já em ordem crescente do
+// espaço de cálculo — ver computeRegionRows) a partir de uma ponta
+// (`current` precisa ser exatamente pts[0] ou pts[last], dentro de EPS —
+// é assim que qualquer seção termina/começa, seja qual for sua orientação
+// e a paridade própria dessa fileira) até o ponto da MESMA fileira mais
+// próximo de `target`. Devolve só os pontos intermediários (sem `current`
+// nem o ponto de chegada — quem chama ainda precisa ligar esse ponto de
+// chegada até `target`, um salto curto que quase sempre cabe num
+// comprimento de ponto). null se `current` não estiver em nenhuma ponta
+// desta fileira (a orientação escolhida pra essa seção não expôs esta
+// junção — quem chama cai pro travel/salto normal).
+function junctionRowWalk(row, current, target) {
+  const pts = row && row.points;
+  if (!pts || pts.length === 0) return null;
+  const atStart = dist(current, pts[0]) <= EPS;
+  const atEnd = dist(current, pts[pts.length - 1]) <= EPS;
+  if (!atStart && !atEnd) return null;
+
+  let bestIdx = atStart ? 0 : pts.length - 1;
+  let bestDist = dist(pts[bestIdx], target);
+  for (let i = 0; i < pts.length; i++) {
+    const d = dist(pts[i], target);
+    if (d < bestDist) {
+      bestDist = d;
+      bestIdx = i;
+    }
+  }
+
+  if (atStart) return pts.slice(1, bestIdx + 1);
+  return pts.slice(bestIdx, pts.length - 1).reverse();
+}
+
+// Travel pela fileira de junção pra uma transição que É aresta direta do
+// grafo de seções (split/merge) — não um "backtrack" entre galhos
+// paralelos. A fileira de junção de quem está SAINDO (a última, se sai por
+// split; a primeira, se sai por merge) contém pontos garantidamente
+// interiores — é a própria agulhada já prevista, uma fileira da MESMA cor
+// já costurada — e por construção (foi essa sobreposição em X que criou a
+// aresta em decomposeSections) ela se aproxima da fileira de entrada de
+// quem está chegando. Caminho em L: anda por essa fileira até a coluna de
+// entrada do outro lado (junctionRowWalk) e só então conecta ao primeiro
+// ponto de quem chega — curto por construção, quase sempre um comprimento
+// de ponto. Devolve null se não houver aresta direta entre as duas seções,
+// ou se a orientação escolhida não deixou `current` na fileira de junção
+// (quem chama cai pro findTravelPath normal).
+function findJunctionTravel(sections, edges, fromIdx, toIdx, current, target) {
+  const edge = (edges || []).find(
+    (e) => (e.from === fromIdx && e.to === toIdx) || (e.from === toIdx && e.to === fromIdx)
+  );
+  if (!edge) return null;
+
+  const fromIsParent = edge.from === fromIdx;
+  const fromRows = sections[fromIdx] && sections[fromIdx].rows;
+  if (!fromRows || !fromRows.length) return null;
+  const relevantRow = fromIsParent ? fromRows[fromRows.length - 1] : fromRows[0];
+
+  return junctionRowWalk(relevantRow, current, target);
+}
+
 module.exports = {
   decomposeSections,
   buildSectionRun,
   orderSectionsByGraph,
   mergeStubRows,
+  junctionRowWalk,
+  findJunctionTravel,
 };

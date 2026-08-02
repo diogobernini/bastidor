@@ -400,20 +400,34 @@ function sampleStraight(from, to, count) {
   return pts;
 }
 
-// Tenta ligar from -> to por uma linha reta inteiramente dentro da região.
-// A verificação amostra numa resolução mais fina que a agulhada final
-// (reduz — sem eliminar — o risco de uma reentrância fina da região escapar
-// entre duas amostras; ver limitações conhecidas no relatório) e só gera os
-// pontos reais (no espaçamento pedido) se todas as amostras passarem.
-function tryStraightTravel(from, to, region, stitchLength) {
+// Verifica se o segmento reto from->to fica INTEIRAMENTE dentro da região,
+// amostrando numa resolução mais fina que a agulhada final (reduz — sem
+// eliminar — o risco de uma reentrância fina da região escapar entre duas
+// amostras; ver limitações conhecidas no relatório). Usada tanto pelo
+// travel (tryStraightTravel) quanto por connectRuns pra decidir se um gap
+// CURTO (<= stitchLength) pode mesmo colar direto: um segmento reto sem
+// essa checagem é exatamente o defeito relatado na arte real (issue #69,
+// rodada 2) — pontos atravessando o vão entre cabeça e braço, ou a
+// virilha, porque "gap curto" foi tratado como sinônimo de "está dentro".
+function isStraightSegmentInside(from, to, region, stitchLength) {
   const total = dist(from, to);
-  if (total <= EPS) return [];
+  if (total <= EPS) return true;
   const checkCount = Math.max(segmentCountFor(total, stitchLength) * 4, 4);
   for (let i = 1; i < checkCount; i++) {
     const t = i / checkCount;
     const p = [from[0] + (to[0] - from[0]) * t, from[1] + (to[1] - from[1]) * t];
-    if (!pointInsideRings(p, region.rings)) return null;
+    if (!pointInsideRings(p, region.rings)) return false;
   }
+  return true;
+}
+
+// Tenta ligar from -> to por uma linha reta inteiramente dentro da região;
+// só gera os pontos reais (no espaçamento pedido) se isStraightSegmentInside
+// passar.
+function tryStraightTravel(from, to, region, stitchLength) {
+  const total = dist(from, to);
+  if (total <= EPS) return [];
+  if (!isStraightSegmentInside(from, to, region, stitchLength)) return null;
   return sampleStraight(from, to, segmentCountFor(total, stitchLength));
 }
 
@@ -538,13 +552,29 @@ function exceedsTravelCeiling(from, to, path) {
 
 // Liga uma sequência de corridas (já prontas, cada uma sua própria
 // serpentina) numa lista de corridas finais, tentando reduzir o número de
-// saltos: gap ~0 cola sem duplicar ponto; gap <= stitchLength cola direto
-// (agulhada normal, sem travel); senão tenta findTravelPath (sujeito ao
-// teto); só quando nada disso serve é que abre corrida nova (salto).
+// saltos: gap ~0 cola sem duplicar ponto; gap <= stitchLength só cola
+// direto se o segmento reto ficar DENTRO da região (isStraightSegmentInside
+// — issue #69 rodada 2, item 1: "gap curto" não é sinônimo de "está
+// dentro", ver comentário lá); senão tenta primeiro `findJunctionTravel
+// (fromOriginalIdx, toOriginalIdx, from, to)` (se fornecida — travel pela
+// fileira de junção, curto por construção pras transições que são aresta
+// direta do grafo de seções) e, faltando ou estourando o teto, cai pro
+// findTravelPath genérico (reta ou borda, também sujeito ao teto); só
+// quando nada disso serve é que abre corrida nova (salto). `fromOriginalIdx`
+// e `toOriginalIdx` são os índices em `runs` (antes de descartar corridas
+// vazias) das duas corridas envolvidas nessa transição — é isso que
+// findJunctionTravel usa pra saber a que seção cada corrida corresponde.
 // Compartilhada entre o fluxo de seções (fillRegion) e qualquer chamador
 // futuro que precise ligar corridas dentro da mesma região.
-function connectRuns(runs, region, stitchLength) {
-  const nonEmpty = runs.filter((r) => r && r.length);
+function connectRuns(runs, region, stitchLength, findJunctionTravel) {
+  const nonEmpty = [];
+  const nonEmptyIndices = [];
+  for (let i = 0; i < runs.length; i++) {
+    if (runs[i] && runs[i].length) {
+      nonEmpty.push(runs[i]);
+      nonEmptyIndices.push(i);
+    }
+  }
   if (nonEmpty.length === 0) return [];
 
   const merged = [nonEmpty[0].slice()];
@@ -559,15 +589,24 @@ function connectRuns(runs, region, stitchLength) {
       // Pontos praticamente coincidentes: cola sem duplicar (e sem deixar
       // nenhum salto de distância zero no meio do caminho).
       cur.push(...nextRun.slice(1));
-    } else if (gap <= stitchLength) {
+      continue;
+    }
+
+    if (gap <= stitchLength && isStraightSegmentInside(from, to, region, stitchLength)) {
       cur.push(...nextRun);
+      continue;
+    }
+
+    let travel = findJunctionTravel
+      ? findJunctionTravel(nonEmptyIndices[k - 1], nonEmptyIndices[k], from, to)
+      : null;
+    if (!travel || exceedsTravelCeiling(from, to, travel)) {
+      travel = findTravelPath(from, to, region, stitchLength);
+    }
+    if (travel && !exceedsTravelCeiling(from, to, travel)) {
+      cur.push(...travel, ...nextRun);
     } else {
-      const travel = findTravelPath(from, to, region, stitchLength);
-      if (travel && !exceedsTravelCeiling(from, to, travel)) {
-        cur.push(...travel, ...nextRun);
-      } else {
-        merged.push(nextRun.slice());
-      }
+      merged.push(nextRun.slice());
     }
   }
   return merged;
@@ -581,11 +620,13 @@ function connectRuns(runs, region, stitchLength) {
 // completa (buildSectionRun) sem nenhum travel/salto interno. A ORDEM entre
 // seções segue o grafo de junções (split/merge) em DFS a partir da mais
 // próxima da agulha (orderSectionsByGraph); a LIGAÇÃO entre seções vizinhas
-// reaproveita connectRuns — como a última fileira de uma seção e a fileira
-// de junção da outra sempre se sobrepõem em X (é assim que a aresta nasceu
-// em decomposeSections), o travel entre elas é curto por construção; fora
-// das junções (voltando de um galho pra visitar o próximo na ordem do DFS)
-// o teto de travel decide entre travel curto ou salto.
+// reaproveita connectRuns, que tenta primeiro o travel pela fileira de
+// junção (sections.findJunctionTravel — issue #69 rodada 2, item 2: curto
+// por construção pras transições que são aresta direta do grafo, mesmo
+// quando a serpentina de quem sai termina na ponta oposta da junção) antes
+// do travel genérico; fora das junções (voltando de um galho pra visitar o
+// próximo na ordem do DFS) o teto de travel decide entre travel curto ou
+// salto.
 function fillRegion(region, opts) {
   const stitchLength = opts.stitchLength > 0 ? opts.stitchLength : 30;
   const { sections: secs, edges } = sections.decomposeSections(region, opts);
@@ -603,7 +644,10 @@ function fillRegion(region, opts) {
     reversed ? builtRuns[index].slice().reverse() : builtRuns[index]
   );
 
-  return connectRuns(orderedRuns, region, stitchLength);
+  const findJunctionTravel = (fromK, toK, from, to) =>
+    sections.findJunctionTravel(secs, edges, order[fromK].index, order[toK].index, from, to);
+
+  return connectRuns(orderedRuns, region, stitchLength, findJunctionTravel);
 }
 
 // -------------------------------------------- nunca deixar salto de distância zero
@@ -676,6 +720,7 @@ module.exports = {
   orderRegionsWithTwoOpt,
   regionsDistance,
   findTravelPath,
+  isStraightSegmentInside,
   exceedsTravelCeiling,
   connectRuns,
   isInsideRegion,
